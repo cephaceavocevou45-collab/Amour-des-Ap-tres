@@ -212,8 +212,33 @@ Les mentions antérieures qui indiquent que le fil social n’est pas commencé 
 | Confidentialité des mineurs | Le nom est remplacé par « Membre fidèle » si la date de naissance indique moins de 18 ans | Pas d’outils de profil ni de demande d’effacement/export; validation humaine de la politique d’âge et des règles d’accès nécessaire. Les identifiants techniques d’auteur restent renvoyés par l’API sociale. |
 | Modération sociale | Épinglage ADMIN/SUPER_ADMIN journalisé | Pas de signalement, file de modération, contestation, gel/rétention des preuves ni actions de modérateur. Ne pas attribuer MODERATEUR avant définition des droits et tests e2e. |
 | Médias et profils | Non implémentés | Aucun upload, stockage, scanner malware, traitement d’image, avatar ni modification de profil. |
-| E2E et infrastructure | E2E non exécutés; blocage antérieur à toute migration | Le lanceur e2e a échoué au démarrage du moteur Prisma pour la cible distincte `paroisse_test`; aucune migration n’a été appliquée avec succès et la base de développement n’a pas été touchée. Refaire après correction locale de l’accès PostgreSQL. |
+| E2E et infrastructure | 13/14 tests e2e passés, suite non verte | Une attente incohérente sur la liste des comptes EDITEUR est bloquante; détails et scénarios non couverts ci-dessous. Aucune migration de développement n’a été lancée. |
 | Vérifications locales au 7 octobre | Réussies | `npm test`: 3 tests outil + 30 tests API (5 suites); lint API/web; build API/web; génération et validation Prisma; compilation TypeScript e2e; scan ciblé de secrets. |
 | Dépendances et exploitation | Toujours non vérifiés | `npm audit`, Docker/Compose, TLS en production, restauration PostgreSQL et politique de rétention/sauvegardes nécessitent un environnement réseau et des outils indisponibles ici. |
 
 Le projet reste **non prêt pour les données réelles**. Les tests unitaires et builds valident le code local, mais ne remplacent ni les e2e sur PostgreSQL isolé, ni l’approbation humaine de la charte/âge/modération, ni la validation de l’infrastructure et des restaurations.
+
+### Vérification des migrations et résultats e2e — 7 octobre 2026
+
+`prisma migrate deploy` a appliqué les 12 migrations sur la base vide `paroisse_test`. Un second essai historique isolé dans un schéma temporaire de cette même base a démarré à l’état de migration 006, inséré des données synthétiques (ancien compte FIDELE, refresh token actif, feuille/entrée de présence), puis déployé les migrations restantes avec `migrate deploy`. Résultat : le compte FIDELE est devenu PENDING inactif, la session active a été révoquée et la feuille ainsi que l’entrée ont été conservées. Le schéma temporaire a été supprimé. Aucune base fantôme ni privilège CREATEDB n’a été nécessaire. La base de développement n’a pas été visée.
+
+| Scénario e2e | Résultat observé |
+|---|---|
+| Inscription classique : rôle client refusé, compte PENDING sans session | Réussi |
+| Création/confirmation FIDELE; absence d’accès aux présences et à l’administration | Réussi |
+| Réponses et délais minimaux uniformes entre compte connu/inconnu | Réussi |
+| Président : accès limité au jour/feuille et écritures inter-rôles refusées | Réussi sur les routes testées; IDOR zone et matrice de chaque endpoint non couverts |
+| Admin : totaux sans noms, consultation nominative avec motif journalisée, bornes de dates | Réussi |
+| EDITEUR : liste des comptes sans coordonnées et refus d’auto-validation | **Échoué avant les assertions restantes** : test attend 200 pour un EDITEUR sans permission; le serveur renvoie 401 conformément au contrôle `GESTION_COMPTES` |
+| Sous-admin : connexion distincte, pas d’élévation, permissions accordées par l’admin | Réussi dans son scénario, qui attend 401 pour l’EDITEUR sans permission sur la même route de liste; cette attente contredit la précédente |
+| Compte désactivé : ancien JWT refusé | Réussi |
+| 2FA : code requis, codes de secours hachés/usage unique, enrôlement HTTP public absent | Réussi; remplacement de secret avec code actuel/secours pas couvert par ce scénario |
+| Reset concurrent, rejet du rejeu et expiration | Réussi |
+| Réutilisation refresh : révocation de la famille | Réussi |
+| Concurrence ajout/soumission et cohérence des totaux | Réussi avec fonction de fenêtre horaire simulée ouverte; vrais créneaux locaux non couverts |
+| Absence de jeton en sessionStorage/localStorage | Réussi |
+| Actualités : visibilité/ownership, idempotence, commentaires/réponses, réactions, partage, favoris, rôle, blocage unilatéral | Réussi pour les assertions présentes; blocage mutuel, IDOR par chaque action, limite de débit et XSS rendu navigateur non couverts |
+
+**Bilan e2e : 13 réussis, 1 échoué sur 14.** Le conflit est dans les spécifications de deux tests : un EDITEUR sans `GESTION_COMPTES` est attendu autorisé à lire une liste expurgée dans un test et refusé dans l’autre. L’accès en lecture et le niveau de permission doivent être tranchés avant une modification; ouvrir l’accès par défaut pour faire passer le premier scénario contournerait le principe d’autorisation configurée. Aucun test n’a été modifié ni aucune protection désactivée.
+
+Le fichier de configuration Jest avait une expression de recherche JSON invalide; les antislashs ont été correctement échappés. La suite e2e s’exécute maintenant et révèle le conflit d’autorisation ci-dessus.
