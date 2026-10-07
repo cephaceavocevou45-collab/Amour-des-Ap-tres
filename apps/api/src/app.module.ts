@@ -8,6 +8,7 @@ import { JwtAuthGuard } from './auth.guard';
 import { RateLimitGuard } from './rate-limit.guard';
 import { RetentionService } from './retention.service';
 import { SocialAccountsController, SocialAccountsService } from './social-accounts';
+import { SocialFeedController, SocialFeedService } from './social-feed';
 
-@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, SocialAccountsController], providers: [AuthService, SocialAccountsService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
+@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, SocialAccountsController, SocialFeedController], providers: [AuthService, SocialAccountsService, SocialFeedService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
 export class AppModule {}

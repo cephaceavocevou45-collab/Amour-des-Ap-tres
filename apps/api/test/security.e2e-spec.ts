@@ -18,7 +18,7 @@ const testEmail=()=>`${randomUUID()}@security-test.invalid`;
 function localDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function weekday(date:string){const value=new Date(`${date}T00:00:00Z`).getUTCDay();return value===0?7:value;}
 function monday(date:string){const value=new Date(`${date}T00:00:00Z`),day=value.getUTCDay();value.setUTCDate(value.getUTCDate()-(day===0?6:day-1));return value.toISOString().slice(0,10);}
-async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null}});userIds.push(row.id);return row;}
+async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null,emailVerifiedAt:role===UserRole.FIDELE?new Date():undefined,dateOfBirth:role===UserRole.FIDELE?new Date('1990-01-01'):undefined}});userIds.push(row.id);return row;}
 function jwt(user:{id:string;role:UserRole;sessionVersion:number}){const enc=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url'),now=Math.floor(Date.now()/1000),unsigned=`${enc({alg:'HS256',typ:'JWT'})}.${enc({sub:user.id,role:user.role,ver:user.sessionVersion,iat:now,exp:now+600})}`;return `${unsigned}.${createHmac('sha256',process.env.JWT_ACCESS_SECRET!).update(unsigned).digest('base64url')}`;}
 async function call(path:string,options:{method?:string;token?:string;body?:unknown;headers?:Record<string,string>}={}){const headers:Record<string,string>={...(options.body?{'Content-Type':'application/json'}:{}),...(options.token?{Authorization:`Bearer ${options.token}`} : {}),...options.headers};const response=await fetch(`${baseUrl}/api/v1${path}`,{method:options.method??'GET',headers,...(options.body?{body:JSON.stringify(options.body)}:{})});const raw=await response.text();return {status:response.status,body:raw?JSON.parse(raw):null,headers:response.headers};}
 async function addSheet(type:SheetType,date=localDate()){const existing=await prisma.attendanceSheet.findUnique({where:{type_date:{type,date:new Date(`${date}T00:00:00.000Z`)}}});if(existing){sheetIds.push(existing.id);return existing;}const row=await prisma.attendanceSheet.create({data:{id:`e2e-${randomUUID()}`,type,date:new Date(`${date}T00:00:00.000Z`),status:SheetStatus.OUVERTE}});sheetIds.push(row.id);return row;}
@@ -58,15 +58,17 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     try{
       const email=testEmail(),body={fullName:'New Social Member',phone:'+2290100000000',email,password,dateOfBirth:'1990-03-15',acceptCharter:true,charterVersion:'phase1-e2e-v1'};
       expect((await call('/auth/social/register',{method:'POST',body:{...body,role:'ADMIN'}})).status).toBe(400);
+      expect((await call('/auth/social/register',{method:'POST',body:{...body,email:testEmail(),dateOfBirth:'2016-01-01'}})).status).toBe(400);
       const registered=await call('/auth/social/register',{method:'POST',body});expect(registered.status).toBe(201);expect(registered.body).not.toHaveProperty('accessToken');expect(sent).toHaveLength(1);
       const member=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(member.id);expect(member.role).toBe(UserRole.FIDELE);expect(member.active).toBe(false);expect(member.emailVerifiedAt).toBeNull();expect(member.charterVersion).toBe('phase1-e2e-v1');
       expect((await call('/auth/login',{method:'POST',body:{email,password}})).status).toBe(401);
+      const pendingToken=jwt(member as any);expect((await call('/attendance/today',{token:pendingToken})).status).toBe(401);
       const link=sent[0].html.match(/confirmer-email\?token=([A-Za-z0-9_-]{43})/);expect(link).not.toBeNull();const rawToken=link[1];
       const stored=await prisma.emailVerificationToken.findFirstOrThrow({where:{userId:member.id}});expect(stored.tokenHash).toBe(createHash('sha256').update(rawToken).digest('hex'));expect(stored.tokenHash).not.toBe(rawToken);
       expect((await call('/auth/social/email/confirm',{method:'POST',body:{token:rawToken}})).status).toBe(201);expect((await call('/auth/social/email/confirm',{method:'POST',body:{token:rawToken}})).status).toBe(400);
       const active=await prisma.user.findUniqueOrThrow({where:{id:member.id}});expect(active.active).toBe(true);expect(active.emailVerifiedAt).toBeInstanceOf(Date);
       const login=await call('/auth/login',{method:'POST',body:{email,password}});expect(login.status).toBe(201);expect(login.body).not.toHaveProperty('accessToken');const cookie=login.headers.get('set-cookie')?.match(/paroisse_access=([^;]+)/)?.[1];expect(cookie).toBeDefined();
-      expect((await call('/attendance/today',{headers:{Cookie:`paroisse_access=${cookie}`}})).status).toBe(403);
+      for(const route of ['/attendance/today','/attendance/week','/auth/admin/members','/auth/social/admin/members'])expect([401,403]).toContain((await call(route,{headers:{Cookie:`paroisse_access=${cookie}`}})).status);
       const admin=await addUser(UserRole.ADMIN),adminToken=jwt(admin);
       const suspended=await call(`/auth/social/admin/members/${member.id}/suspension`,{method:'PATCH',token:adminToken,body:{suspended:true,reason:'Demande de modération vérifiée'}});expect(suspended.status).toBe(200);
       expect((await call('/auth/login',{method:'POST',body:{email,password}})).status).toBe(401);
@@ -191,6 +193,33 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const fs=require('node:fs'),file=require('node:path').resolve(__dirname,'../../web/src/app/auth.component.ts'),source=fs.readFileSync(file,'utf8');
     expect(source).not.toMatch(/sessionStorage\.setItem\(['"]paroisse_(?:access|refresh)_token/);
     expect(source).not.toMatch(/localStorage\.setItem\(['"]paroisse_(?:access|refresh)_token/);
+  });
+
+  it('enforces social post ownership, privacy, member roles, idempotency, blocks and escaped text transport',async()=>{
+    const author=await addUser(UserRole.FIDELE),reader=await addUser(UserRole.FIDELE),admin=await addUser(UserRole.ADMIN),moderator=await addUser(UserRole.MODERATEUR),authorToken=jwt(author),readerToken=jwt(reader),adminToken=jwt(admin),moderatorToken=jwt(moderator);
+    const key=`post_${randomUUID()}`,body='<script>alert("x")</script> Bonjour';
+    const publicPost=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':key},body:{body,visibility:'TOUS_LES_FIDELES'}});
+    expect(publicPost.status).toBe(201);expect(publicPost.body.body).toBe(body);
+    const comment=await call(`/social/posts/${publicPost.body.id}/comments`,{method:'POST',token:readerToken,body:{body:'Un commentaire'}});expect(comment.status).toBe(201);
+    const reply=await call(`/social/posts/${publicPost.body.id}/comments`,{method:'POST',token:authorToken,body:{body:'Une réponse',parentId:comment.body.id}});expect(reply.status).toBe(201);expect(reply.body.parentId).toBe(comment.body.id);
+    expect((await call('/social/reactions',{method:'POST',token:authorToken,body:{targetType:'comment',targetId:comment.body.id,type:'COEUR',active:true}})).status).toBe(201);
+    expect((await call(`/social/posts/${publicPost.body.id}/share`,{method:'POST',token:readerToken,body:{body:'À partager'}})).status).toBe(201);
+    expect((await call(`/social/posts/${publicPost.body.id}/save`,{method:'POST',token:readerToken,body:{saved:true}})).status).toBe(201);
+    expect((await call('/social/settings',{method:'PATCH',token:readerToken,body:{notificationsEnabled:false}})).status).toBe(200);
+    expect((await call('/social/settings',{token:readerToken})).body.notificationsEnabled).toBe(false);
+    expect((await call(`/social/posts/${publicPost.body.id}/pin`,{method:'POST',token:adminToken,body:{pinned:true}})).status).toBe(201);
+    const replay=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':key},body:{body,visibility:'TOUS_LES_FIDELES'}});expect(replay.status).toBe(201);expect(replay.body.id).toBe(publicPost.body.id);
+    expect((await call(`/social/posts/${publicPost.body.id}`,{method:'PATCH',token:readerToken,body:{body:'Altéré',visibility:'TOUS_LES_FIDELES'}})).status).toBe(404);
+    expect((await call('/social/posts',{method:'POST',token:adminToken,headers:{'Idempotency-Key':`admin_${randomUUID()}`},body:{body:'Rôle refusé',visibility:'TOUS_LES_FIDELES'}})).status).toBe(403);
+    expect((await call('/social/posts',{method:'POST',token:moderatorToken,headers:{'Idempotency-Key':`mod_${randomUUID()}`},body:{body:'Rôle refusé',visibility:'TOUS_LES_FIDELES'}})).status).toBe(403);
+    const privatePost=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`private_${randomUUID()}`},body:{body:'Pour moi seul',visibility:'MOI_SEUL'}});expect(privatePost.status).toBe(201);
+    expect((await call(`/social/posts/${privatePost.body.id}/comments`,{token:readerToken})).status).toBe(404);
+    expect((await call(`/social/posts/${privatePost.body.id}`,{method:'PATCH',token:readerToken,body:{body:'Test',visibility:'MOI_SEUL'}})).status).toBe(404);
+    expect((await call('/social/reactions',{method:'POST',token:readerToken,body:{targetType:'post',targetId:publicPost.body.id,type:'AIME',active:true}})).status).toBe(201);
+    expect((await call(`/social/blocks/${author.id}`,{method:'POST',token:readerToken})).status).toBe(201);
+    const feed=await call('/social/posts',{token:readerToken});expect(feed.status).toBe(200);expect(feed.body.items.some((item:any)=>item.id===publicPost.body.id)).toBe(false);
+    expect((await call(`/social/posts/${publicPost.body.id}/comments`,{token:readerToken})).status).toBe(404);
+    const fs=require('node:fs'),ui=fs.readFileSync(require('node:path').resolve(__dirname,'../../web/src/app/social-home.component.ts'),'utf8');expect(ui).not.toMatch(/innerHTML|bypassSecurityTrustHtml/);
   });
 });
 

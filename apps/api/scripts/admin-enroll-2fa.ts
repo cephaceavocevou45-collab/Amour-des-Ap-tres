@@ -12,6 +12,7 @@ function prompt(label:string,hidden=false):Promise<string>{return new Promise((r
 async function main(){
   const email=arg('email')?.trim().toLowerCase(),actorEmail=arg('actor-email')?.trim().toLowerCase();
   if(!email)throw new Error('Usage : npm run admin:enroll-2fa -- --email=admin@example.org');
+  if(actorEmail&&arg('confirm')!=='RESET-2FA')throw new Error('La récupération exige --confirm=RESET-2FA, puis une authentification interactive du SUPER_ADMIN distinct.');
   const target=await prisma.user.findUnique({where:{email}});
   if(!target||!target.active||![UserRole.ADMIN,UserRole.SUPER_ADMIN,UserRole.EDITEUR].includes(target.role))throw new Error('Le compte cible est introuvable, inactif ou non administrateur.');
   if(target.totpSecret&&!actorEmail)throw new Error('La 2FA est déjà active. Pour récupérer un compte, utilisez --actor-email avec un compte SUPER_ADMIN distinct.');

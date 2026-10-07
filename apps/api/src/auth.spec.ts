@@ -33,6 +33,22 @@ describe('security-sensitive authentication flows',()=>{
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('returns the same reset response when the account is absent or mail delivery fails',async()=>{
+    const keys=['RESEND_API_KEY','MAIL_FROM','APP_PUBLIC_URL'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+    Object.assign(process.env,{RESEND_API_KEY:'test-only',MAIL_FROM:'Test <test@example.invalid>',APP_PUBLIC_URL:'http://localhost'});
+    const fetchSpy=jest.spyOn(globalThis,'fetch').mockResolvedValue({ok:false} as Response);
+    try{
+      const existingPrisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',email:'known@example.invalid',fullName:'Test'})},passwordResetToken:{findFirst:jest.fn().mockResolvedValue(null),updateMany:jest.fn().mockResolvedValue({count:0}),create:jest.fn().mockResolvedValue({id:'r1'})}} as unknown as PrismaService;
+      const unknownPrisma={user:{findUnique:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
+      const started=Date.now();
+      const existing=await new AuthService(existingPrisma).requestPasswordReset('known@example.invalid');
+      const unknown=await new AuthService(unknownPrisma).requestPasswordReset('unknown@example.invalid');
+      expect(existing).toEqual(unknown);
+      expect(existingPrisma.passwordResetToken.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({where:{id:'r1',usedAt:null},data:{usedAt:expect.any(Date)}}));
+      expect(Date.now()-started).toBeGreaterThanOrEqual(490);
+    }finally{fetchSpy.mockRestore();for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
+  });
+
   it('does not expose HTTP 2FA enrollment endpoints',()=>{
     expect(AuthController.prototype).not.toHaveProperty('setup');
     expect(AuthController.prototype).not.toHaveProperty('newSecret');

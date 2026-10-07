@@ -182,3 +182,38 @@ Avant de reprendre la phase 1, un humain doit remplacer localement les identifia
 ### Vérification finale du 7 octobre 2026
 
 Après les derniers ajustements de minimisation des données (téléphone facultatif et non demandé aux fidèles), lint et build de l’API et du web réussissent; les 4 suites unitaires API passent (25 tests). La base de test a été sondée sans appliquer de migration et a répondu P1000; cette vérification reste donc bloquée avant migration et avant exécution des e2e. La base de développement n’a pas été consultée ni modifiée pendant cette passe.
+
+## Reprise autonome du 7 octobre 2026
+
+Le dépôt a été initialisé avec un premier commit `c0da88b`. `.env`, `.env.*` (à l’exception de `.env.example`), `node_modules`, `dist`, `uploads`, et les formats de sauvegarde sont ignorés. Le scan ciblé des fichiers suivis n’a trouvé aucune clé Resend, clé privée ni URL PostgreSQL manifeste avec mot de passe ; ce contrôle statique n’est pas un audit exhaustif de l’historique futur.
+
+Outils ajoutés : `npm run test-db:diagnose` ne révèle pas les identifiants ; `npm run test-db:setup` provisionne une base et un rôle de test distincts uniquement après fourniture locale de `PG_ADMIN_URL` et d’un client `psql`. La cible courante passe les validations de syntaxe/isolation mais l’authentification réelle retourne toujours P1000. Le script e2e masque les URL invalides et conserve son refus de cibler la base de développement.
+
+| Contrôle repris | Statut constaté |
+|---|---|
+| Lint/build API et tests unitaires | Réussis : 30 tests API ; les tests des scripts DB passent : 3/3 |
+| Build/lint web | Réussis après clarification du texte 2FA et ajout de l’interface Actualités |
+| E2E PostgreSQL et migrations vide/historique | Bloqués au démarrage du moteur Prisma sur la base de test; aucune migration appliquée avec succès |
+| `npm audit --omit=dev` et audit complet | Bloqués : l’endpoint bulk de `registry.npmjs.org` ne répond pas ; aucun nombre d’avis ne peut être déclaré |
+| Docker Compose, TLS et restauration | Non testés : Docker CLI et psql ne sont pas disponibles dans cet environnement |
+| CI/Dependabot | Configurés ; CI comprend install, lint/tests, e2e PostgreSQL, builds, scan local de secrets et audits à niveau haut |
+| Migration de phase 1 et 2/3 Actualités | Schéma/migrations préparés et fil texte codé; migrations non appliquées, e2e non exécutés |
+| Phases 4 à 7 Actualités | Médias, profils éditables, signalements, console complète de modération et contrôle de charge reportés |
+
+Résidu critique : tant que la matrice e2e de présence n’est pas exécutée avec succès sur PostgreSQL isolé, la base dédiée n’est pas migrée/restaurée, et la configuration TLS/backup n’est pas testée, le projet est **pas prêt pour des données réelles**. `style-src 'unsafe-inline'` reste nécessaire au rendu actuel du build Angular et doit être validé dans un navigateur de production avant toute décision CSP.
+
+## Mise à jour du 7 octobre 2026 — contrôles et Actualités phases 2–3
+
+Les mentions antérieures qui indiquent que le fil social n’est pas commencé sont dépassées pour les fonctionnalités ci-dessous. Cette mise à jour décrit le code actuel; elle ne vaut pas validation en base ni autorisation de mise en production.
+
+| Zone | Statut | Limites et risques restants |
+|---|---|---|
+| Fil social textuel | Implémenté au niveau API et UI, tests unitaires ciblés réussis | Publications texte, confidentialité publique/privée, fil paginé, édition/suppression propriétaire, commentaires avec une profondeur de réponse, réactions, partage, favoris, masquage, blocage et préférence de notifications. Pas d’e2e DB réussi. Anti-spam en mémoire locale; à distribuer avant multi-instance. |
+| Confidentialité des mineurs | Le nom est remplacé par « Membre fidèle » si la date de naissance indique moins de 18 ans | Pas d’outils de profil ni de demande d’effacement/export; validation humaine de la politique d’âge et des règles d’accès nécessaire. Les identifiants techniques d’auteur restent renvoyés par l’API sociale. |
+| Modération sociale | Épinglage ADMIN/SUPER_ADMIN journalisé | Pas de signalement, file de modération, contestation, gel/rétention des preuves ni actions de modérateur. Ne pas attribuer MODERATEUR avant définition des droits et tests e2e. |
+| Médias et profils | Non implémentés | Aucun upload, stockage, scanner malware, traitement d’image, avatar ni modification de profil. |
+| E2E et infrastructure | E2E non exécutés; blocage antérieur à toute migration | Le lanceur e2e a échoué au démarrage du moteur Prisma pour la cible distincte `paroisse_test`; aucune migration n’a été appliquée avec succès et la base de développement n’a pas été touchée. Refaire après correction locale de l’accès PostgreSQL. |
+| Vérifications locales au 7 octobre | Réussies | `npm test`: 3 tests outil + 30 tests API (5 suites); lint API/web; build API/web; génération et validation Prisma; compilation TypeScript e2e; scan ciblé de secrets. |
+| Dépendances et exploitation | Toujours non vérifiés | `npm audit`, Docker/Compose, TLS en production, restauration PostgreSQL et politique de rétention/sauvegardes nécessitent un environnement réseau et des outils indisponibles ici. |
+
+Le projet reste **non prêt pour les données réelles**. Les tests unitaires et builds valident le code local, mais ne remplacent ni les e2e sur PostgreSQL isolé, ni l’approbation humaine de la charte/âge/modération, ni la validation de l’infrastructure et des restaurations.
