@@ -25,7 +25,19 @@ Les migrations doivent d’abord être vérifiées sur une base PostgreSQL dédi
 npm.cmd run test:e2e
 ```
 
-La configuration initiale d’un compte administrateur se fait avec `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` dans `.env`. Configurez ensuite sa double authentification depuis `/admin/configurer-2fa`.
+Si PostgreSQL signale des identifiants invalides, ne remplacez jamais `TEST_DATABASE_URL` par `DATABASE_URL`. Le diagnostic n’affiche aucun mot de passe :
+
+```powershell
+npm.cmd run test-db:diagnose
+```
+
+Pour provisionner une base `paroisse_test` et un rôle de test dédié, installez les outils PostgreSQL, définissez temporairement `PG_ADMIN_URL` dans votre session PowerShell vers une base système sûre, puis lancez `npm.cmd run test-db:setup`. Le script crée ou actualise `paroisse_test_user`, crée la base si elle manque, et écrit l’URL dédiée dans `.env` sans afficher le mot de passe. Retirez ensuite `PG_ADMIN_URL` de la session. N’exécutez pas le script avec une URL d’administrateur pointant sur la base paroissiale de développement.
+
+Le test e2e peut appliquer les migrations uniquement à `TEST_DATABASE_URL`. Pour sauvegarde, restauration et validation des migrations, voir [docs/MIGRATION_PROCEDURE.md](docs/MIGRATION_PROCEDURE.md).
+
+La configuration initiale d’un compte administrateur se fait avec `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` dans `.env`. La double authentification est enrôlée par la commande serveur `admin:enroll-2fa` ci-dessous ; aucune route HTTP ne permet d’activer ou remplacer le secret avec le seul e-mail et mot de passe.
+
+En terminal serveur sécurisé, `npm.cmd run admin:enroll-2fa -- --email=administrateur@exemple.org` initialise la 2FA : le propriétaire du compte saisit son mot de passe, scanne la clé avec une application TOTP, saisit un code à 6 chiffres, puis conserve hors ligne les 10 codes de secours affichés une seule fois. Un changement de secret exige le mot de passe et le code TOTP/secours actuels. En cas de perte, un autre SUPER_ADMIN actif déjà protégé confirme son identité : `npm.cmd run admin:reset-2fa -- --email=compte-a-recuperer@exemple.org --actor-email=super-admin@exemple.org --confirm=RESET-2FA`. Le titulaire fournit son mot de passe et son second facteur au terminal ; toutes ses sessions sont révoquées. Il faut ensuite relancer l’enrôlement. Ne lancez pas ces commandes avant génération du client Prisma et configuration correcte de la base ciblée.
 ## Fonctionnalités visibles
 
 - Accueil avec emblème ECC, présentation de la paroisse, horaires, équipe et contacts cliquables (appel et WhatsApp).

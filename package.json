@@ -8,8 +8,12 @@
     "dev:api": "npm --workspace @paroisse/api run start:dev",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test:tools && npm run test --workspaces --if-present",
+    "test:tools": "node --test scripts/*.test.cjs",
+    "security:scan": "node scripts/secret-scan.cjs",
     "test:e2e": "npm run test:e2e --workspace @paroisse/api",
+    "test-db:diagnose": "node scripts/test-db-diagnose.cjs",
+    "test-db:setup": "node scripts/test-db-setup.cjs",
     "backup:create": "sh infra/backup.sh",
     "backup:restore-test": "sh infra/backup-restore-test.sh"
   }
