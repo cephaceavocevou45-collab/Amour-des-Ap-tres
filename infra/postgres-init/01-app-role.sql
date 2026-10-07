@@ -1,0 +1,3 @@
+\getenv app_password POSTGRES_APP_PASSWORD
+CREATE ROLE paroisse_app LOGIN PASSWORD :'app_password' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE DATABASE paroisse OWNER paroisse_app;

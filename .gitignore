@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.angular/
+.env
+.env.*
+!.env.example
+coverage/
+*.log
+*.dump
+*.sql.gz
+*.enc
+*.backup
+backups/
+backup/
+**/uploads/

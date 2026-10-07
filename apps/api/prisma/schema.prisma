@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  EDITEUR
+  SECRETAIRE_PRESENCE
+  RESPONSABLE_SEMAINE
+  FIDELE
+  MODERATEUR
+  PENDING
+}
+enum SessionStatus {
+  PLANIFIEE
+  EN_COURS
+  TERMINEE
+}
+enum SheetType {
+  COURS_BIBLIQUE
+  GROUPE_SEMAINE
+}
+enum SheetStatus {
+  OUVERTE
+  ENREGISTREE
+}
+enum Sex {
+  M
+  F
+}
+enum Zone {
+  FIDELES
+  TEMPLE
+  SALLE_VISION
+}
+enum PersonRoleName {
+  LEADER
+  MONITEUR_TABLE
+  RESUME_PRECEDENT
+  EXPLICATION_TEXTE
+  PRESENTATION_THEME
+}
+model Person {
+  id String @id @default(cuid())
+  firstName String
+  lastName String
+  grade String?
+  photoUrl String?
+  bio String?
+  active Boolean @default(true)
+  displayOrder Int @default(0)
+  roles PersonRole[]
+  assignments SessionAssignment[]
+}
+model PersonRole {
+  personId String
+  role PersonRoleName
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  @@id([personId, role])
+}
+model Session {
+  id String @id @default(cuid())
+  date DateTime @unique @db.Date
+  startTime String @default("19:30")
+  endTime String @default("21:30")
+  theme String
+  bibleBook String
+  bibleChapter Int
+  verseStart Int?
+  verseEnd Int?
+  bibleText String?
+  bibleReference String?
+  bibleDevelopment String?
+  previousSummary String? @db.Text
+  status SessionStatus @default(PLANIFIEE)
+  assignments SessionAssignment[]
+  sheets AttendanceSheet[]
+}
+model SessionAssignment {
+  sessionId String
+  personId String
+  role PersonRoleName
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id])
+  @@id([sessionId, personId, role])
+}
+model AttendanceSheet {
+  id String @id @default(cuid())
+  type SheetType
+  date DateTime @db.Date
+  sessionId String?
+  status SheetStatus @default(OUVERTE)
+  totalsByZone Json?
+  totalMen Int @default(0)
+  totalWomen Int @default(0)
+  totalAll Int @default(0)
+  submittedById String?
+  submittedAt DateTime?
+  entries AttendanceEntry[]
+  session Session? @relation(fields: [sessionId], references: [id])
+  @@unique([type, date])
+  @@index([date])
+}
+model AttendanceEntry {
+  id String @id @default(cuid())
+  sheetId String
+  clientUuid String
+  fullName String?
+  normalizedName String?
+  sex Sex
+  zone Zone
+  arrivedAt DateTime @default(now())
+  createdById String?
+  sheet AttendanceSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  @@unique([sheetId, clientUuid])
+  @@index([sheetId, zone])
+  @@index([sheetId, normalizedName])
+}
+model User {
+  id String @id @default(cuid())
+  fullName String?
+  phone String?
+  email String @unique
+  passwordHash String
+  role UserRole
+  requestedRole UserRole?
+  requestedWeekStart DateTime? @db.Date
+  assignedWeekStart DateTime? @db.Date
+  requestedDayOfWeek Int?
+  assignedDayOfWeek Int?
+  active Boolean @default(true)
+  failedAttempts Int @default(0)
+  lockedUntil DateTime?
+  sessionVersion Int @default(0)
+  totpSecret String?
+  permissions String[] @default([])
+  dateOfBirth DateTime? @db.Date
+  emailVerifiedAt DateTime?
+  charterVersion String?
+  charterAcceptedAt DateTime?
+  suspendedAt DateTime?
+  suspensionReason String? @db.Text
+  suspendedUntil DateTime?
+  recoveryCodes RecoveryCode[]
+  refreshTokens RefreshToken[]
+  notifications UserNotification[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+}
+model EmailVerificationToken {
+  id String @id @default(cuid())
+  userId String
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+model PasswordResetToken {
+  id String @id @default(cuid())
+  userId String
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+model UserNotification {
+  id String @id @default(cuid())
+  userId String
+  message String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, readAt, createdAt])
+}
+model RefreshToken {
+  id String @id @default(cuid())
+  userId String
+  hashedToken String @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  family String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model RecoveryCode {
+  id String @id @default(cuid())
+  userId String
+  codeHash String
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, usedAt])
+}
+model AuditLog {
+  id String @id @default(cuid())
+  userId String?
+  action String
+  entity String
+  entityId String
+  before Json?
+  after Json?
+  reason String?
+  ip String?
+  createdAt DateTime @default(now())
+  @@index([entity, entityId])
+}
+model Announcement {
+  id String @id @default(cuid())
+  title String
+  body String
+  published Boolean @default(false)
+  createdAt DateTime @default(now())
+}

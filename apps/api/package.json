@@ -1,0 +1,44 @@
+{
+  "name": "@paroisse/api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start:dev": "nest build && node dist/apps/api/src/main.js",
+    "build": "nest build",
+    "lint": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "prisma:generate": "node scripts/prisma-cli.cjs generate",
+    "prisma:migrate": "node scripts/prisma-cli.cjs migrate dev",
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:deploy": "node scripts/prisma-cli.cjs migrate deploy",
+    "admin:enroll-2fa": "ts-node scripts/admin-enroll-2fa.ts",
+    "test:e2e": "node scripts/security-e2e.cjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/schedule": "^5.0.0",
+    "@nestjs/swagger": "^11.0.0",
+    "@prisma/client": "^6.0.0",
+    "argon2": "^0.41.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "helmet": "^8.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@types/express": "^5.0.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "jest": "^29.7.0",
+    "prisma": "^6.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.0"
+  }
+}
