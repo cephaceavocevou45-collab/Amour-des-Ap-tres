@@ -45,6 +45,35 @@ enum SocialReactionType {
   AIME
   COEUR
 }
+enum SocialReportTarget {
+  POST
+  COMMENT
+  PROFILE
+}
+enum SocialReportReason {
+  SPAM
+  HARCELEMENT
+  CONTENU_INAPPROPRIE
+  USURPATION
+  AUTRE
+}
+enum SocialModerationStatus {
+  OPEN
+  AUTO_HIDDEN
+  REVIEWED
+  DISMISSED
+}
+enum SocialModerationPriority {
+  NORMAL
+  ELEVEE
+  URGENTE
+}
+enum SocialAppealStatus {
+  NONE
+  PENDING
+  ACCEPTED
+  REJECTED
+}
 enum PersonRoleName {
   LEADER
   MONITEUR_TABLE
@@ -130,6 +159,7 @@ model AttendanceEntry {
 }
 model User {
   id String @id @default(cuid())
+  createdAt DateTime @default(now())
   fullName String?
   phone String?
   email String @unique
@@ -154,12 +184,18 @@ model User {
   suspensionReason String? @db.Text
   suspendedUntil DateTime?
   socialNotificationsEnabled Boolean @default(true)
+  socialBio String? @db.VarChar(500)
+  moderationProfileHidden Boolean @default(false)
+  moderationProfileHiddenUntil DateTime?
+  socialProfileDiscoverable Boolean @default(true)
+  deletionScheduledAt DateTime?
   recoveryCodes RecoveryCode[]
   refreshTokens RefreshToken[]
   notifications UserNotification[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   socialPosts SocialPost[]
+  socialMedia SocialPostMedia[]
   socialComments SocialComment[]
   socialReactions SocialReaction[]
   socialShares SocialShare[]
@@ -167,6 +203,10 @@ model User {
   socialHiddenPosts SocialHiddenPost[]
   socialBlocksFrom SocialBlock[] @relation("SocialBlocker")
   socialBlocksTo SocialBlock[] @relation("SocialBlocked")
+  socialReports SocialReport[]
+  sanctionsReceived SocialSanction[] @relation("SanctionTarget")
+  sanctionsIssued SocialSanction[] @relation("SanctionIssuer")
+  appealDecisions SocialSanction[] @relation("SanctionAppealDecider")
 }
 
 model SocialPost {
@@ -188,9 +228,28 @@ model SocialPost {
   shares SocialShare[]
   saves SocialSavedPost[]
   hiddenBy SocialHiddenPost[]
+  media SocialPostMedia[]
+  moderationHidden Boolean @default(false)
+  moderationHiddenUntil DateTime?
   @@unique([authorId, idempotencyKey])
   @@index([visibility, createdAt, id])
   @@index([authorId, createdAt])
+}
+
+model SocialPostMedia {
+  id String @id @default(cuid())
+  postId String
+  uploadedById String
+  objectKey String @unique
+  mimeType String
+  byteSize Int
+  width Int
+  height Int
+  position Int @default(0)
+  createdAt DateTime @default(now())
+  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  @@index([postId, position])
 }
 
 model SocialComment {
@@ -207,6 +266,8 @@ model SocialComment {
   parent SocialComment? @relation("SocialCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies SocialComment[] @relation("SocialCommentReplies")
   reactions SocialReaction[]
+  moderationHidden Boolean @default(false)
+  moderationHiddenUntil DateTime?
   @@index([postId, createdAt])
   @@index([parentId, createdAt])
 }
@@ -268,6 +329,67 @@ model SocialBlock {
   @@unique([blockerId, blockedId])
   @@index([blockedId])
 }
+model SocialModerationCase {
+  id String @id @default(cuid())
+  targetType SocialReportTarget
+  targetId String
+  targetAuthorId String
+  status SocialModerationStatus @default(OPEN)
+  priority SocialModerationPriority @default(NORMAL)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  resolvedAt DateTime?
+  reports SocialReport[]
+  events SocialModerationEvent[]
+  sanctions SocialSanction[]
+  @@unique([targetType, targetId])
+  @@index([status, priority, updatedAt])
+  @@index([targetAuthorId, createdAt])
+}
+model SocialReport {
+  id String @id @default(cuid())
+  caseId String
+  reporterId String
+  reason SocialReportReason
+  createdAt DateTime @default(now())
+  moderationCase SocialModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  @@unique([caseId, reporterId])
+  @@index([createdAt])
+}
+model SocialModerationEvent {
+  id String @id @default(cuid())
+  caseId String
+  actorId String?
+  action String
+  reason String
+  until DateTime?
+  createdAt DateTime @default(now())
+  moderationCase SocialModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  @@index([caseId, createdAt])
+}
+model SocialSanction {
+  id String @id @default(cuid())
+  caseId String
+  targetUserId String
+  createdById String
+  reason String
+  suspendedUntil DateTime?
+  permanent Boolean @default(false)
+  appealStatus SocialAppealStatus @default(NONE)
+  appealedAt DateTime?
+  appealReason String?
+  appealDecidedById String?
+  appealDecisionReason String?
+  appealDecidedAt DateTime?
+  createdAt DateTime @default(now())
+  moderationCase SocialModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  target User @relation("SanctionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  issuer User @relation("SanctionIssuer", fields: [createdById], references: [id], onDelete: Restrict)
+  appealDecider User? @relation("SanctionAppealDecider", fields: [appealDecidedById], references: [id], onDelete: SetNull)
+  @@index([targetUserId, suspendedUntil])
+  @@index([appealStatus, createdAt])
+}
 model EmailVerificationToken {
   id String @id @default(cuid())
   userId String
@@ -304,6 +426,9 @@ model RefreshToken {
   expiresAt DateTime
   revokedAt DateTime?
   family String
+  createdAt DateTime @default(now())
+  ip String?
+  userAgent String?
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 model RecoveryCode {
