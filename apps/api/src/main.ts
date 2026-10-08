@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { CsrfGuard } from './csrf.guard';
+import { configureSwagger } from './swagger-config';
 
 async function bootstrap() {
   loadEnv({ path: '../../.env' });
@@ -15,11 +16,7 @@ async function bootstrap() {
   app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'", 'https://challenges.cloudflare.com'], frameSrc: ["'self'", 'https://challenges.cloudflare.com'], connectSrc: ["'self'", 'https://challenges.cloudflare.com'], imgSrc: ["'self'", 'data:'], objectSrc: ["'none'"] } } }));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalGuards(new CsrfGuard());
-  if(process.env.NODE_ENV!=='production'){
-    const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
-    const config = new DocumentBuilder().setTitle('Paroisse Amour des Apôtres').setVersion('1.0').addBearerAuth().build();
-    SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
-  }
+  await configureSwagger(app);
   await app.listen(process.env.PORT ?? 3000);
 }
 void bootstrap();

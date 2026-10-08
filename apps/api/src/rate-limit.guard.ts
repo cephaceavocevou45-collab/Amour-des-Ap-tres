@@ -14,8 +14,9 @@ export class RateLimitGuard implements CanActivate {
     const now = Date.now();
     const windowMs = 10 * 60_000;
     const limit = path.endsWith('/login') ? 10
-      : path.endsWith('/social/register') || path.endsWith('/social/email/resend') ? 4
-      : path.endsWith('/social/email/confirm') ? 10
+      : path.includes('/social/reports') ? 100
+      : path.includes('/moderation/sanctions/')&&path.endsWith('/appeal') ? 5
+      : path.endsWith('/social/register') ? 4
       : path.endsWith('/2fa/setup') || path.endsWith('/2fa/new-secret') || path.endsWith('/2fa/recovery-codes') ? 5
       : path.endsWith('/password/forgot') ? 4
       : path.endsWith('/password/reset') ? 10
@@ -26,11 +27,13 @@ export class RateLimitGuard implements CanActivate {
     if (this.buckets.size > 10_000) {
       for (const [key, bucket] of this.buckets) if (bucket.resetAt <= now) this.buckets.delete(key);
     }
-    for (const key of [`${ip}:${path}`, ...(email ? [`account:${email}:${path}`] : [])]) {
+    const userId=typeof request.user?.sub==='string'?request.user.sub:'';
+    const keys:Array<{key:string;limit:number}>=[{key:`${ip}:${path}`,limit}, ...(email ? [{key:`account:${email}:${path}`,limit}] : []),...(userId&&path.includes('/social/reports')?[{key:`user:${userId}:${path}`,limit:8}]:[])];
+    for (const {key,limit:keyLimit} of keys) {
       const current = this.buckets.get(key);
       if(!current&&this.buckets.size>=10_000)throw new HttpException('Trop de tentatives. Réessayez plus tard.',429);
       if (!current || current.resetAt <= now) this.buckets.set(key, { count: 1, resetAt: now + windowMs });
-      else if (current.count >= limit) throw new HttpException('Trop de tentatives. Réessayez plus tard.',429);
+      else if (current.count >= keyLimit) throw new HttpException('Trop de tentatives. Réessayez plus tard.',429);
       else current.count++;
     }
     return true;

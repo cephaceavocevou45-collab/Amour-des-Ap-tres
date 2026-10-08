@@ -13,6 +13,12 @@ class EntryDto {
   @IsUUID() clientUuid!: string;
   @IsOptional() @IsBoolean() confirmDuplicate?: boolean;
 }
+class EntryUpdateDto {
+  @IsString() @MaxLength(120) fullName!:string;
+  @IsEnum(Sex) sex!:Sex;
+  @IsEnum(Zone) zone!:Zone;
+  @IsOptional() @IsBoolean() confirmDuplicate?:boolean;
+}
 class SubmitDto { @IsOptional() @IsString() reason?: string; }
 class CourseUpdateDto {
   @IsOptional() @IsString() @Length(1,10000) previousSummary?:string;
@@ -89,10 +95,14 @@ export class AttendanceController {
     if(localDateKey(sheet.date)!==localDateKey())throw new HttpException('La saisie est réservée à la feuille du jour.',403);
     if(!await this.canAccessSheet(role,req.user.sub,sheet))throw new HttpException('Cette feuille n’est pas comprise dans les responsabilités de votre compte.',403);
     this.requireZoneRole(role,sheet.type,body.zone);
-    if(sheet.status!==SheetStatus.OUVERTE)throw new HttpException('Feuille enregistrée et verrouillée.',409);
+    const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
+    if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
     if(!isWithinAttendanceWindow(sheet.type))throw new HttpException(sheet.type===SheetType.GROUPE_SEMAINE?'La saisie du Président de semaine est ouverte de 10 h à 18 h.':'La saisie du cours biblique est ouverte de 19 h 30 à 21 h 30.',403);
     await this.prisma.$transaction(async tx=>{
-      const locked=await tx.attendanceSheet.updateMany({where:{id,status:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});
+      await tx.$queryRaw`SELECT "id" FROM "AttendanceSheet" WHERE "id"=${id} FOR UPDATE`;
+      const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
+      if(!current||current.status!==SheetStatus.OUVERTE&&!(weekPresident&&current.status===SheetStatus.ENREGISTREE))throw new HttpException('Feuille enregistrée et verrouillée.',409);
+      const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});
       if(locked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
       const existing=await tx.attendanceEntry.findUnique({where:{sheetId_clientUuid:{sheetId:id,clientUuid:body.clientUuid}}});
       if(existing)return;
@@ -112,9 +122,35 @@ export class AttendanceController {
     this.requireZoneRole(req.user.role,sheet.type,entry.zone);
     if(localDateKey(sheet.date)!==localDateKey()||!await this.canAccessSheet(req.user.role,req.user.sub,sheet))throw new HttpException('La modification est réservée à votre feuille du jour.',403);
     if(!this.isWithinWindow(sheet.type))throw new HttpException('La période de modification de cette feuille est terminée ou n’a pas encore commencé.',403);
-    if(sheet.status!==SheetStatus.OUVERTE)throw new HttpException('Feuille enregistrée et verrouillée.',409);
-    await this.prisma.$transaction(async tx=>{const locked=await tx.attendanceSheet.updateMany({where:{id,status:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});if(locked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification de cette feuille est terminée ou n’a pas encore commencé.',403);await tx.attendanceEntry.delete({where:{sheetId_clientUuid:{sheetId:id,clientUuid}}});});
+    const weekPresident=req.user.role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
+    if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
+    await this.prisma.$transaction(async tx=>{const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});if(locked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification de cette feuille est terminée ou n’a pas encore commencé.',403);await tx.attendanceEntry.delete({where:{sheetId_clientUuid:{sheetId:id,clientUuid}}});});
     return this.summaryFor(await this.withEntries(id),req.user.role);
+  }
+
+  @Patch('sheets/:id/entries/:clientUuid') async updateEntry(@Param('id') id:string,@Param('clientUuid') clientUuid:string,@Body() body:EntryUpdateDto,@Req() req:any){
+    const role=req.user.role;if(!['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(role))throw new HttpException('L’administration consulte les feuilles mais ne modifie pas les présences.',403);
+    const sheet=await this.prisma.attendanceSheet.findUnique({where:{id}});
+    if(!sheet)throw new HttpException('Feuille introuvable.',404);
+    const entry=await this.prisma.attendanceEntry.findUnique({where:{sheetId_clientUuid:{sheetId:id,clientUuid}}});
+    if(!entry)throw new HttpException('Présence introuvable.',404);
+    const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
+    if(localDateKey(sheet.date)!==localDateKey()||!await this.canAccessSheet(role,req.user.sub,sheet))throw new HttpException('La modification est réservée à votre feuille du jour.',403);
+    this.requireZoneRole(role,sheet.type,body.zone);
+    if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
+    if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification est terminée ou n’a pas encore commencé.',403);
+    const name=body.fullName.trim().replace(/\s+/g,' ');if(!name)throw new HttpException('Le nom ne peut pas être vide.',400);
+    const sameZone=await this.prisma.attendanceEntry.findMany({where:{sheetId:id,zone:body.zone,id:{not:entry.id}},select:{fullName:true,normalizedName:true}});
+    const duplicate=sameZone.some(row=>normalizeName(row.normalizedName??row.fullName??'')===normalizeName(name));
+    if(duplicate&&!body.confirmDuplicate)throw new HttpException({code:'DUPLICATE_NAME_WARNING',message:'Un nom identique existe déjà dans cette zone.',confirmable:true},409);
+    await this.prisma.$transaction(async tx=>{
+      const available=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});
+      if(available.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
+      if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification est terminée ou n’a pas encore commencé.',403);
+      const updated=await tx.attendanceEntry.update({where:{id:entry.id},data:{fullName:name,normalizedName:normalizeName(name),sex:body.sex,zone:body.zone}});
+      await tx.auditLog.create({data:{userId:req.user.sub,action:'PRESENCE_MODIFIEE',entity:'AttendanceEntry',entityId:entry.id,before:{sex:entry.sex,zone:entry.zone},after:{sex:updated.sex,zone:updated.zone},ip:req.ip}});
+    });
+    return this.summaryFor(await this.withEntries(id),role);
   }
 
   @Post('sheets/:id/submit') async submit(@Param('id') id:string,@Body() _body:SubmitDto,@Req() req:any) {
@@ -124,8 +160,12 @@ export class AttendanceController {
     if(!sheet)throw new HttpException('Feuille introuvable',404);
     if(localDateKey(sheet.date)!==localDateKey()||!await this.canAccessSheet(role,req.user.sub,sheet))throw new HttpException('Cette feuille n’est pas comprise dans les responsabilités de votre compte.',403);
     if(!this.isWithinWindow(sheet.type))throw new HttpException('La période d’enregistrement de cette feuille est terminée ou n’a pas encore commencé.',403);
+    const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
     const saved=await this.prisma.$transaction(async tx=>{
-      const locked=await tx.attendanceSheet.updateMany({where:{id,status:SheetStatus.OUVERTE},data:{status:SheetStatus.ENREGISTREE,submittedAt:new Date(),submittedById:req.user.sub}});
+      await tx.$queryRaw`SELECT "id" FROM "AttendanceSheet" WHERE "id"=${id} FOR UPDATE`;
+      const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
+      if(!current||current.status!==SheetStatus.OUVERTE&&!(weekPresident&&current.status===SheetStatus.ENREGISTREE))return false;
+      const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.ENREGISTREE,submittedAt:new Date(),submittedById:req.user.sub}});
       if(locked.count!==1)return false;
       const entries=await tx.attendanceEntry.findMany({where:{sheetId:id},select:{sex:true,zone:true}});
       const byZone:Record<string,{men:number;women:number;total:number}>={};

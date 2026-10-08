@@ -6,7 +6,7 @@
     "start:dev": "nest build && node dist/apps/api/src/main.js",
     "build": "nest build",
     "lint": "tsc --noEmit",
-    "test": "jest --runInBand",
+    "test": "jest --runInBand --cacheDirectory .jest-cache",
     "prisma:generate": "node scripts/prisma-cli.cjs generate",
     "prisma:migrate": "node scripts/prisma-cli.cjs migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
@@ -16,6 +16,7 @@
     "test:e2e": "node scripts/security-e2e.cjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1147.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
@@ -25,10 +26,11 @@
     "argon2": "^0.41.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "dotenv": "^16.6.1",
     "helmet": "^8.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "dotenv": "^16.6.1"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
