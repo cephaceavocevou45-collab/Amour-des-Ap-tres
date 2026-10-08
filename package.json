@@ -1,8 +1,14 @@
 {
   "name": "paroisse-amour-des-apotres",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
-  "devDependencies": {"@angular/service-worker": "^20.0.0"},
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@angular/service-worker": "^20.0.0",
+    "@playwright/test": "^1.63.0"
+  },
   "scripts": {
     "dev:web": "npm --workspace @paroisse/web start",
     "dev:api": "npm --workspace @paroisse/api run start:dev",
@@ -12,6 +18,7 @@
     "test:tools": "node --test scripts/*.test.cjs",
     "security:scan": "node scripts/secret-scan.cjs",
     "test:e2e": "npm run test:e2e --workspace @paroisse/api",
+    "test:playwright": "playwright test",
     "test-db:diagnose": "node scripts/test-db-diagnose.cjs",
     "test-db:setup": "node scripts/test-db-setup.cjs",
     "backup:create": "sh infra/backup.sh",
