@@ -1,5 +1,32 @@
 # Audit de sécurité — Paroisse Amour des Apôtres
 
+## Vérifications ciblées — 8 octobre 2026 (session actuelle)
+
+- **Correctifs code/tests :** `SocialModerationStatus[]` est utilisé pour les états ouverts, sans changement de logique. Les mocks unitaires couvrent `userNotification` et `socialPostMedia`. Le test d’inscription vérifie désormais le texte exact du message d’accueil (Psaume 119:105). Un test garantit que Swagger n’est pas monté en production.
+- **Unitaires et outils :** 29/29 tests API et 3/3 tests utilitaires réussis. Lint API et web réussis. Build API et web réussis lorsqu’ils sont lancés séparément.
+- **Génération Prisma :** échec confirmé, y compris en nouvelle tentative avec droits élevés : `EPERM` pendant le renommage de `query_engine-windows.dll.node`. Cela bloque la génération et empêche de certifier l’état des artefacts Prisma.
+- **E2E :** `migrate deploy` a visé uniquement `TEST_DATABASE_URL` (`paroisse_test`), a trouvé 16 migrations et signalé aucune migration en attente. Le fichier e2e contient 29 cas; aucun n’a démarré, car Node a échoué par manque de mémoire avant l’exécution (`heap out of memory`). Résultat de cette session : 0/29 exécuté, ni succès ni échec d’assertion. Les nombres e2e historiques en haut de ce document ne décrivent pas cette relance.
+- **Audit des dépendances :** `npm audit --omit=dev` et `npm audit` ont échoué sur `getaddrinfo ENOTFOUND registry.npmjs.org`; aucun avis actuel n’a été reçu. Le dernier état historique consigné le 8 octobre mentionnait 3 avis hauts et 2 modérés en production, ainsi que 32 hauts et 6 modérés dans l’arbre complet. Ce résumé est ancien et ne permet pas d’associer de façon fiable chaque avis à un paquet ni d’évaluer son exploitabilité actuelle. Ne pas le présenter comme le résultat des commandes actuelles.
+
+### Dépendances restantes — statut reporté, à confirmer en réseau
+
+L’arbre local aide à préciser les chemins, mais ne donne pas les avis npm (ID, plage corrigée ni vecteur d’attaque). Les noms ci-dessous sont ceux relevés dans le dernier état historique et les chemins sont ceux de l’arbre local présent; gravité/exploitabilité par paquet non déterminables hors ligne. Décision : **reporté**, aucun paquet modifié sur la base d’une supposition.
+
+| Paquet | Gravité connue pour ce paquet aujourd’hui | Chemin local | Exploitabilité réelle | Décision |
+|---|---|---|---|---|
+| `deepmerge-ts` | non déterminable sans avis actuel; ancien résumé global signale des avis hauts en production | `@paroisse/api > prisma > @prisma/config > deepmerge-ts` | non déterminable sans ID/plage/advisory; dépend d’un chemin de configuration Prisma atteignable | Reporté, relancer `npm audit --omit=dev` avec accès registre |
+| `js-yaml` | non déterminable par version/avis; ancien résumé global signale des avis hauts et modérés | `@nestjs/swagger > js-yaml@5.3.0`; `@nestjs/cli > fork-ts-checker-webpack-plugin > cosmiconfig > js-yaml@4.3.2`; `ts-jest > ... > js-yaml@3.15.2` | non déterminable; les usages YAML transitifs ne suffisent pas à prouver une entrée contrôlable par attaquant | Reporté, relancer l’audit complet avec accès registre |
+| `braces` | non déterminable sans avis actuel; ancien résumé global signale des avis dans l’arbre de développement | `jest > @jest/core > micromatch > braces@3.0.3` | dépend des motifs et entrées effectivement fournis à l’outillage de test; non exposé directement aux requêtes de production selon le chemin local relevé | Reporté, relancer l’audit complet et vérifier l’avis et sa plage |
+| `argparse` | non déterminable par version/avis actuel | `@nestjs/swagger > js-yaml > argparse@2.0.1`; `ts-jest > ... > js-yaml@3.15.2 > argparse@1.0.10` | non déterminable sans advisory; dépend de l’appel des parseurs CLI transitifs | Reporté, ne pas changer sans avis confirmé et tests |
+
+**Décision inscription :** l’absence de confirmation e-mail pour le compte fidèle est intentionnelle selon la demande métier; l’e-mail reste nécessaire à la récupération. Les compensations codées sont la limite d’inscription par IP/adresse, le CAPTCHA Turnstile activable (désactivé par défaut avec message d’état) et les limites des comptes de moins de 24 h (3 publications glissantes par 24 h, sans photo ni partage). Les e2e correspondants n’ont pas pu être validés lors de cette relance mémoire-limitée.
+
+**Statut final de cette session :** pas de certification de sécurité; génération Prisma bloquée par EPERM, e2e bloqués par mémoire, audit npm bloqué par DNS/registre. Ne pas utiliser les nouvelles protections avec des données réelles avant relance réussie de ces contrôles et examen humain des avis npm.
+
+## État actuel — 7 octobre 2026
+
+Les constats historiques plus bas sont conservés comme trace d’audit; leurs statuts sont supersédés par cette synthèse finale. Résultats : 20/20 e2e PostgreSQL, 30/30 tests API, 3/3 tests utilitaires, 1/1 test Playwright XSS, lint et build réussis. **Les noms de présence sont protégés par jour : oui.** Option A donne au responsable affecté les deux zones de son jour; le secrétaire n’accède pas aux feuilles de semaine. L’administrateur voit les noms seulement après consultation nominative motivée et auditée. Les opérations CLI 2FA partagées ont été testées sur la base dédiée. Un humain doit vérifier la CI; npm audit, Docker/TLS et la restauration réelle restent à valider avant mise en production.
+
 **État :** audit initial et première vague de corrections réalisés le 5 octobre 2026. Les statuts ci-dessous distinguent les corrections du code des vérifications encore nécessaires sur la base et l’infrastructure. **Ne pas utiliser avec des données réelles tant que les risques résiduels et migrations ne sont pas traités.**
 
 ## Périmètre et limites
@@ -222,12 +249,33 @@ Le projet reste **non prêt pour les données réelles**. Les tests unitaires et
 
 `prisma migrate deploy` a appliqué les 12 migrations sur la base vide `paroisse_test`. Un second essai historique isolé dans un schéma temporaire de cette même base a démarré à l’état de migration 006, inséré des données synthétiques (ancien compte FIDELE, refresh token actif, feuille/entrée de présence), puis déployé les migrations restantes avec `migrate deploy`. Résultat : le compte FIDELE est devenu PENDING inactif, la session active a été révoquée et la feuille ainsi que l’entrée ont été conservées. Le schéma temporaire a été supprimé. Aucune base fantôme ni privilège CREATEDB n’a été nécessaire. La base de développement n’a pas été visée.
 
+### Mise à jour de sécurité et e2e — 7 octobre 2026
+
+Cette section remplace les anciens résultats e2e ci-dessus pour les scénarios relancés. Tous les essais ont été exécutés avec `TEST_DATABASE_URL` (`paroisse_test`); `DATABASE_URL` n’a pas été lue ni modifiée par les commandes de migration/e2e.
+
+| Contrôle exécuté | Résultat |
+|---|---|
+| Liste des comptes : ADMIN/SUPER_ADMIN autorisés; EDITEUR avec/sans permission refusé en 403; appel sans session en 401 | Réussi |
+| Détails de compte | Aucun endpoint n’existe; chemin inconnu retourne 404 sans donnée révélée |
+| Validation, permissions, suspension par rôle non autorisé | Refus 403 testé |
+| IDOR présences : feuilles d’un autre jour, d’un autre responsable, résumés, ajouts, suppressions, corrections, soumissions et accès nominatif | Refus 403/404 testé sur les routes présentes |
+| Fenêtres cours, lundi 19 h 30–21 h 30, et groupe hebdomadaire chaque jour 10 h–18 h | Frontières testées sur l’horloge injectée, avec tolérance configurée; uniquement la course ajout/soumission simule une fenêtre ouverte |
+| Consultation nominative ADMIN | Sans motif refusée; avec motif autorisé et auditée; noms absents du résumé normal |
+| 2FA | Enrôlement HTTP absent, code requis, code de secours consommé une seule fois, tentative limitée; aucune validation navigateur réelle du flux CLI de remplacement |
+| Suspension FIDELE et responsable | JWT actif refusé immédiatement; refresh rejeté et sessions révoquées |
+| Actualités | Confidentialité MOI_SEUL, blocage mutuel sur fil/commentaires, ownership de modification/suppression, réactions/partages/favoris/masquage et limites post/comment/réaction/partage testés |
+| Signalements et profils | Routes absentes; aucun développement effectué conformément au périmètre différé |
+| Logs e2e | Test automatisé avec capture des logs Nest/console; noms sentinelles, jetons et mots de passe absents |
+
+
+
+Corrections apportées : refus 403 pour la liste des comptes à tout EDITEUR et pour l’attribution de permissions par un non-admin; suspension étendue aux comptes non-administrateurs et rejet des refresh tokens d’un compte suspendu. Aucune fonction média, profil ou signalement/modération n’a été ajoutée.
+
 | Scénario e2e | Résultat observé |
 |---|---|
 | Inscription classique : rôle client refusé, compte PENDING sans session | Réussi |
 | Création/confirmation FIDELE; absence d’accès aux présences et à l’administration | Réussi |
 | Réponses et délais minimaux uniformes entre compte connu/inconnu | Réussi |
-| Président : accès limité au jour/feuille et écritures inter-rôles refusées | Réussi sur les routes testées; IDOR zone et matrice de chaque endpoint non couverts |
 | Admin : totaux sans noms, consultation nominative avec motif journalisée, bornes de dates | Réussi |
 | EDITEUR : liste des comptes sans coordonnées et refus d’auto-validation | **Échoué avant les assertions restantes** : test attend 200 pour un EDITEUR sans permission; le serveur renvoie 401 conformément au contrôle `GESTION_COMPTES` |
 | Sous-admin : connexion distincte, pas d’élévation, permissions accordées par l’admin | Réussi dans son scénario, qui attend 401 pour l’EDITEUR sans permission sur la même route de liste; cette attente contredit la précédente |
@@ -242,3 +290,94 @@ Le projet reste **non prêt pour les données réelles**. Les tests unitaires et
 **Bilan e2e : 13 réussis, 1 échoué sur 14.** Le conflit est dans les spécifications de deux tests : un EDITEUR sans `GESTION_COMPTES` est attendu autorisé à lire une liste expurgée dans un test et refusé dans l’autre. L’accès en lecture et le niveau de permission doivent être tranchés avant une modification; ouvrir l’accès par défaut pour faire passer le premier scénario contournerait le principe d’autorisation configurée. Aucun test n’a été modifié ni aucune protection désactivée.
 
 Le fichier de configuration Jest avait une expression de recherche JSON invalide; les antislashs ont été correctement échappés. La suite e2e s’exécute maintenant et révèle le conflit d’autorisation ci-dessus.
+
+## Vérification finale — 7 octobre 2026 (Option A)
+
+**Décision confirmée :** l’isolation est par jour uniquement. Un président de jour et les responsables autorisés de ce jour gèrent Temple et Salle de vision ensemble. Le secrétaire de présence reste cantonné au cours biblique. Il n’existe pas de rôle ni de champ d’affectation par zone.
+
+**Rôle historique retiré :** `RESPONSABLE_SALLE_VISION` a déjà été remplacé par `RESPONSABLE_SEMAINE` par la migration non destructive `20261005000300_responsable_semaine`; les migrations suivantes ont reporté les jours affectés depuis les dates hebdomadaires. Le rôle retiré n’existe plus dans le schéma ni le code actif. Aucune nouvelle migration de désactivation n’a été ajoutée : l’ancien rôle a été converti dans l’historique en rôle hebdomadaire encore utilisé, et le désactiver indistinctement désactiverait les présidents valides. La suite e2e confirme son absence dans l’enum Prisma. Les migrations ont été déployées sur la base dédiée vide et sur un jeu historique isolé (compte FIDELE, session active et feuille de présence conservée), sans toucher à la base de développement.
+
+| Scénario | Résultat |
+|---|---|
+| Responsable X lit son jour, Temple et Salle de vision | Réussi |
+| Responsable X essaie de lire ou modifier le jour Y dans Temple et Salle de vision | Refus 403/404 sur les feuilles, résumés, ajouts, suppressions, soumissions, corrections et consultations nominatives |
+| Responsable Y tente de lire les noms du jour X via sa semaine | Réussi : la liste ne contient que son jour affecté |
+| Secrétaire du jour Y tente les routes des feuilles de semaine ou des zones Temple/Salle de vision | Refusé ou liste vide, aucun nom divulgué |
+| Accès inter-feuille | 403/404 pour le compte non responsable |
+| Historique et export | Routes absentes : réponse 404 (aucune donnée exposée) |
+| Admin sans consultation nominative | Noms masqués, totaux seuls |
+| Admin avec motif | Noms renvoyés et consultation auditée |
+| Enrôlement CLI 2FA | Opération partagée par la CLI intégrée à l’e2e sur `TEST_DATABASE_URL`; secret chiffré, 10 codes de secours hachés, audit vérifié |
+| Remplacement 2FA | Refus sans facteur actuel; un code de secours permet une opération puis est consommé |
+| Réinitialisation CLI 2FA | Confirmation littérale et facteur du SUPER_ADMIN requis; session famille révoquée et audit vérifié |
+
+**Résultats locaux : 20/20 e2e PostgreSQL réussis, 30/30 tests API unitaires réussis, 3/3 tests d’outils réussis; lint API et Angular réussis.** La CI installe Chromium et exécute le test Playwright. L’audit npm, Docker et les sauvegardes ne font pas partie de cette exécution.
+
+**Les noms de présence sont protégés par jour : oui.** Preuves principales :
+- `denies cross-day, cross-sheet, cross-zone and named access across attendance routes` — refus inter-jour X/Y pour les deux zones, lecture/écriture, filtrage du récapitulatif hebdomadaire, secrétaire et route admin nominative.
+- `limits president reads to own day/sheet and prevents cross-role writes on each attendance route` — propriétaire de feuille, accès au cours et refus de rôle croisé.
+- `shows totals only by default; named admin access requires a reason and is logged` — masquage administratif par défaut et trace de la consultation explicite.
+- `does not write attendance names, tokens, or passwords to application logs` — noms canaris et secrets absents des journaux capturés.
+
+
+### Résultat final XSS — 7 octobre 2026
+
+Correction de l’état Playwright indiqué dans les sections précédentes : Chromium était disponible localement. Le test du rendu d’une publication et d’un commentaire contenant des scripts, balises HTML et attributs d’événement a réussi (**1/1**). L’absence d’exécution JavaScript et l’absence de nœuds HTML injectés ont été vérifiées dans le navigateur. Le test est aussi relié au workflow CI avec installation de Chromium.
+
+**Bilan de vérification de ce tour : 20/20 e2e PostgreSQL; 30/30 tests API; 3/3 tests utilitaires; 1/1 Playwright; lint et build API/Angular réussis.**
+
+### Actualités — incrément interface du fil mobile — 7 octobre 2026
+
+L’écran communautaire expose maintenant les actions déjà prises en charge par l’API : recherche textuelle (paramètre `q`, longueur limitée à 100 caractères), modification des publications de l’utilisateur, panneau de notifications, consultation/déblocage des comptes bloqués et insertion immédiate du repartage dans le fil affiché. Ces fonctions ne créent aucun droit serveur supplémentaire. Lint TypeScript et compilations API/web réussissent après correction d’une erreur de template détectée au premier essai. Les quatre tests unitaires ciblés existants du fil passent; les nouveaux contrôles n’ont pas encore été validés par e2e.
+
+Ce travail ne rend pas le produit équivalent à Facebook Lite. Il améliore le module communautaire déjà défini pour la paroisse. Les photos/vidéos, profils éditables, signalements et console de modération demeurent absents ou reportés; aucune commande correspondante n’est affichée comme disponible. Les fonctions hors périmètre initial (messagerie privée, groupes, pages, stories, directs, place de marché, paiements et appels) ne sont pas incluses.
+
+### Extension au périmètre social — profil membre — 7 octobre 2026
+
+Ajout d’une présentation textuelle de profil (500 caractères maximum), modifiable par le membre connecté, avec affichage du nom selon la règle de confidentialité des mineurs. Aucun téléphone, e-mail ou date de naissance n’est renvoyé. Le profil est accessible par `GET/PATCH /social/profile`, sans identifiant de compte fourni par le client. Migration ajoutée : `20261009000000_social_profile_bio`.
+
+Lint et build API/web réussis; Prisma Client regénéré. Le scénario e2e a été ajouté pour confidentialité, limite de longueur et refus d’un rôle sans accès social. Son exécution est bloquée avant les tests : `prisma migrate deploy` sur la base de test `paroisse_test` retourne `Schema engine error` sans détail, même après vérification non sensible de la configuration. La base de développement n’a pas été utilisée. La migration n’est donc pas déclarée appliquée et l’e2e n’est pas certifié.
+
+### Résolution e2e — profil et horaires — 7 octobre 2026
+
+Le diagnostic a montré que Prisma ne pouvait pas joindre `localhost:5432` depuis le bac à sable. Après accès contrôlé à la seule base `paroisse_test`, la migration `20261009000000_social_profile_bio` a été appliquée et la suite e2e a réussi : **20/20**. Le contrôle vérifie aussi l’absence d’e-mail, téléphone et date de naissance dans le profil, la limite de 500 caractères et le refus d’un compte ADMIN sur cette route réservée aux membres sociaux. Aucun accès/migration sur `DATABASE_URL`.
+
+L’e2e a trouvé un autre défaut réel : la tolérance `ATTENDANCE_GRACE_MINUTES` n’était pas appliquée aux groupes de semaine. Le calcul serveur a été corrigé pour respecter la tolérance valide configurée (0 à 120 minutes) pour les deux types de séance; l’e2e réel a ensuite réussi sans modifier son assertion.
+
+### Actualités — dépôt privé de photos — 8 octobre 2026
+
+Ajout d’un premier parcours d’images : JPEG, PNG et WebP signés, contrôle antivirus ClamAV, décodage et réencodage Sharp en WebP, stockage S3 privé, lecture via une route authentifiée avec les mêmes contrôles de visibilité, de compte actif, de masquage et de blocage que la publication. Les métadonnées d’objet ne sont jamais renvoyées au navigateur. La configuration absente désactive la fonctionnalité et refuse l’envoi.
+
+Migration `20261008000100_social_post_media` appliquée par le script e2e à `paroisse_test` uniquement. Vérifications : **21/21 e2e réussis**; scénario média inclus (réencodage, pas de clé d’objet divulguée, lecture publique authentifiée, lecture d’une publication privée refusée, SVG déguisé rejeté). Lint API/web et builds ont été relancés après l’ajout du scénario final.
+
+Limite opérationnelle : la configuration effective de stockage S3 et ClamAV n’a pas été validée avec de vrais services. Les valeurs d’environnement sont documentées dans `docs/MEDIA_CONFIGURATION.md`; l’envoi reste désactivé jusqu’à leur configuration. Le support des vidéos, l’édition/suppression d’images, les stories et la messagerie ne sont pas inclus dans cet incrément.
+
+### Contrôle des dépendances — 8 octobre 2026
+
+`npm audit --omit=dev --audit-level=high` retourne encore **3 avis hauts et 2 modérés**, dans `deepmerge-ts` transitif de Prisma et `js-yaml` sous Prisma/Nest Swagger. L’audit complet après `npm audit fix` non forcé compte **38 avis (32 hauts, 6 modérés, aucun critique)**; 10 paquets compatibles ont été actualisés. Les avis Jest/braces et js-yaml/argparse restants demandent le passage à Jest 30 (changement majeur) selon npm; ce changement n’a pas été forcé. Risque résiduel à traiter avant production, en qualifiant d’abord une montée majeure du runner et les correctifs du graphe Prisma/Swagger.
+
+### Contrôle de reprise V1 — 8 octobre 2026
+
+Lors de la dernière tentative, `npm audit --omit=dev` et `npm audit` n’ont pas pu joindre `registry.npmjs.org` (`getaddrinfo ENOTFOUND`). Aucun résultat frais n’a donc été obtenu et aucune dépendance n’a été changée dans cette étape. Le dernier relevé exploitable ci-dessus reste le point de comparaison (3 hauts/2 modérés en production; 32 hauts/6 modérés au total), mais il peut être périmé. Relancer les deux audits sur un réseau avec accès au registre puis traiter les vulnérabilités sans `--force` aveugle.
+
+### V1 — modération — 8 octobre 2026
+
+**Corrigé et validé sur TEST_DATABASE_URL.** Signalements POST/COMMENT/PROFILE avec motifs enum fermés et unicité fidèle/contenu; seuil et durée de masquage automatique configurables; file réservée aux MODERATEUR/ADMIN/SUPER_ADMIN; décisions avec motif obligatoire, historique et journal d’audit; sanctions transactionnelles; limites de pouvoir (MODERATEUR : suspension temporaire jusqu’à 30 jours; ADMIN : suppression, suspension définitive et appels); appel unique examiné par un autre administrateur que l’émetteur. Interface de signalement sur publications, commentaires et profils, et page de file dédiée.
+
+`SOCIAL_PHOTOS_ENABLED=true` est exigé en plus de S3 privé et ClamAV; flag désactivé ou absent = envoi/lecture refusés. Porte étape 1 : **24/24 e2e PostgreSQL**, **28/28 tests unitaires API**, lint/typecheck API et web, builds API et web réussis. E2e dédiés : doublon de signalement, masquage au seuil et invisibilité dans le fil, file interdite au fidèle, décision interdite au fidèle, suspension temporaire révoquant immédiatement les sessions, recours interdit au modérateur, audit, contenu privé non signalable et limite par fidèle.
+
+Risques opérationnels restants : valider l’intégration avec S3 et ClamAV réels avant toute activation; faire contrôler humainement le parcours des sanctions et appels. L’audit npm est réalisé à l’étape suivante.
+
+### Version 1 — profils, interface et validation finale — 8 octobre 2026
+
+Les paramètres de profil et de compte sont livrés : présentation textuelle et confidentialité, changement de mot de passe avec l’ancien requis, révocation des autres sessions, liste/révocation de sessions, export JSON et fermeture de compte avec délai de grâce de 14 jours. Les photos de profil sont désactivées lorsque les médias ne sont pas configurés.
+
+Interface testée à 360 px : accueil, inscription, connexion fidèle, mot de passe oublié/réinitialisation, connexion admin et sous-admin, actualités, présences, administration, modération et programme biblique. Menu d’accueil utilisable au clavier. 14/14 tests Playwright passés, dont publication/commentaire/profil avec balises hostiles, attributs d’événement et liens `javascript:` rendus comme texte sans exécution. 25/25 e2e PostgreSQL sur TEST_DATABASE_URL, 28/28 unitaires API, lint et compilations API/web réussis.
+
+La seule langue livrée est le français (`lang=fr`); aucun catalogue Angular multilingue n’est livré. Une revue humaine clavier/lecteur d’écran reste nécessaire.
+
+Les noms de présence sont protégés par jour selon les e2e d’IDOR et de consultation nominative motivée. Les parcours d’activation photo/API refusent l’usage lorsque le flag est coupé; les tests d’activation utilisent des doublures S3/ClamAV. Ne pas activer les photos avant un essai avec stockage privé et scanner réels.
+
+`prisma generate` standard a rencontré sous Windows un verrou `EPERM` en remplaçant le moteur natif. La génération de types sans moteur a permis la compilation et les e2e utilisent le client déjà généré. Fermer les processus Node puis régénérer le moteur natif avant une livraison Windows.
+
+Après cette mise à jour, lint et builds API/Angular ont réussi, et la suite dédiée a été relancée : **21/21 e2e**. Le scénario concurrent a cette fois mis en évidence que l’ajout et la soumission ne verrouillaient pas explicitement la même ligne avant de compter. Les opérations ajout/soumission verrouillent maintenant la ligne AttendanceSheet dans leur transaction via un SELECT FOR UPDATE paramétré; l’assertion des totaux reste inchangée et le test passe.

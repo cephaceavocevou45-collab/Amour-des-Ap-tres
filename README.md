@@ -52,7 +52,7 @@ La récupération du mot de passe envoie un lien à usage unique, valable 30 min
 
 Le programme du lundi conserve le résumé précédent, le passage biblique, le thème et les intervenants choisis dans la liste des personnes et de leurs grades.
 
-Le nouveau compte FIDELE s’inscrit séparément, confirme son adresse par un lien unique valable 30 minutes, et n’obtient aucun accès avant confirmation. Il ne peut pas accéder aux présences ou à l’administration. L’administrateur peut suspendre ou réactiver un compte fidèle avec motif ; la suspension invalide les sessions et est journalisée. Le premier écran Actualités précise que le fil n’est pas encore construit.
+Le compte FIDELE est actif dès l’inscription, sans confirmation par e-mail. L’adresse sert à la récupération du mot de passe oublié. Le compte fidèle n’accède pas aux présences ni à l’administration. L’administrateur peut suspendre ou réactiver un compte avec motif ; la suspension invalide les sessions et est journalisée.
 
 ## Architecture
 
@@ -60,6 +60,22 @@ Le nouveau compte FIDELE s’inscrit séparément, confirme son adresse par un l
 
 Les feuilles de présence, les affectations de rôles, les notifications et les demandes de réinitialisation sont enregistrées dans PostgreSQL.
 
-Pour activer l’inscription fidèle, configurez RESEND_API_KEY, MAIL_FROM, APP_PUBLIC_URL, SOCIAL_MIN_AGE, SOCIAL_CHARTER_VERSION et SOCIAL_CHARTER_TEXT. Si Turnstile est utilisé, renseignez ensemble CAPTCHA_SITE_KEY et CAPTCHA_SECRET_KEY. Sans la charte finale, l’âge retenu ou le service d’e-mail, l’API laisse l’inscription désactivée. Ces valeurs, les modérateurs, le fournisseur de stockage et les mentions légales nécessitent une confirmation paroissiale avant mise en service.
+## Documentation de mise en service
+
+- [Guide administrateur](docs/GUIDE_ADMIN.md) : comptes, rôles, présences et modération.
+- [Déploiement](docs/DEPLOIEMENT.md) : HTTPS, Nginx, secrets et réseau.
+- [Configuration des photos](docs/MEDIA_CONFIGURATION.md) : les photos restent désactivées par défaut.
+- [Checklist de production](docs/CHECKLIST_PRODUCTION.md) : contrôles humains indispensables.
+- [Audit de sécurité](docs/SECURITY_AUDIT.md) et [blocages connus](docs/BLOCAGES.md).
+
+Les tests complets utilisent uniquement `TEST_DATABASE_URL` et refusent les bases dont le nom n’est pas celui de test. L’état vérifié le 8 octobre 2026 est consigné dans `docs/BLOCAGES.md`. L’audit npm doit être relancé depuis un poste pouvant joindre `registry.npmjs.org` avant mise en production.
+
+## Actualités et comptes
+
+Le fil paroissial permet publications, commentaires, réactions, partages, enregistrements, signalements et modération selon les permissions. Les profils textuels et paramètres personnels sont disponibles dans « Mon profil » et « Compte et confidentialité ». Les fonctions médias restent fermées tant que le stockage privé et l’antivirus ne sont pas prêts. Les messages privés, groupes, stories et vidéos sont hors périmètre de cette version.
+
+L’interface est en français (locale affichée `fr`) et s’adapte aux téléphones à partir de 360 px. L’application n’a pas encore de catalogue de traduction Angular multilingue ; l’ajout d’autres langues nécessitera une phase dédiée.
+
+L’inscription fidèle ne dépend pas du service e-mail : un compte est utilisable immédiatement et l’adresse e-mail sert à récupérer un mot de passe oublié. En production, configurez `RESEND_API_KEY`, `MAIL_FROM` et `APP_PUBLIC_URL` pour envoyer les liens de réinitialisation et les courriels liés aux responsabilités. `SOCIAL_MIN_AGE` et la charte ont des valeurs de repli à confirmer par la paroisse. Le CAPTCHA est désactivé par défaut. Pour l’exiger, définissez `CAPTCHA_ENABLED=true` et renseignez ensemble `CAPTCHA_SITE_KEY` et `CAPTCHA_SECRET_KEY` ; l’inscription se bloque si cette configuration est incomplète. Le serveur limite aussi les inscriptions par IP et par adresse e-mail. Pendant leurs premières 24 heures, les comptes sociaux sont limités à trois publications par période glissante de 24 heures ; ils ne peuvent ni partager ni publier de photos.
 
 La classification des routes et leurs contrôles sont décrits dans [docs/API.md](docs/API.md). Cette phase ne remplace pas les rôles de présence existants et n’associe jamais les noms saisis sur une feuille à un compte du réseau social.
