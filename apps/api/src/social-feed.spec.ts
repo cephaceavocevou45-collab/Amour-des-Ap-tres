@@ -19,7 +19,7 @@ describe('social feed access and publication rules',()=>{
 
   it('returns the existing resource for a repeated idempotency key without creating another row',async()=>{
     const existing={id:'post-1',authorId:'faithful-id',body:'Journée paisible',visibility:SocialVisibility.TOUS_LES_FIDELES,pinned:false,createdAt:new Date(),updatedAt:new Date(),author:{id:'faithful-id',fullName:'Compte adulte',dateOfBirth:new Date('1990-01-01')},_count:{comments:0}};
-    const prisma={socialPost:{findUnique:jest.fn().mockResolvedValue(existing),upsert:jest.fn()},socialPostMedia:{findMany:jest.fn().mockResolvedValue([])},socialReaction:{groupBy:jest.fn().mockResolvedValue([]),findFirst:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
+    const prisma={socialPost:{findUnique:jest.fn().mockResolvedValue(existing),upsert:jest.fn()},socialPostMedia:{findMany:jest.fn().mockResolvedValue([])},socialPoll:{findUnique:jest.fn().mockResolvedValue(null)},socialEvent:{findUnique:jest.fn().mockResolvedValue(null)},socialReaction:{groupBy:jest.fn().mockResolvedValue([]),findFirst:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
     const result=await new SocialFeedService(prisma).createPost({sub:'faithful-id',role:UserRole.FIDELE},{body:'Journée paisible',visibility:SocialVisibility.TOUS_LES_FIDELES},'retry_01');
     expect(result.id).toBe(existing.id);
     expect((prisma as any).socialPost.upsert).not.toHaveBeenCalled();
@@ -27,7 +27,7 @@ describe('social feed access and publication rules',()=>{
 
   it('does not reveal the name of a minor through a public post',async()=>{
     const dateOfBirth=new Date();dateOfBirth.setUTCFullYear(dateOfBirth.getUTCFullYear()-16);
-    const prisma={socialPost:{findUnique:jest.fn()},socialPostMedia:{findMany:jest.fn().mockResolvedValue([])},socialReaction:{groupBy:jest.fn().mockResolvedValue([]),findFirst:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
+    const prisma={socialPost:{findUnique:jest.fn()},socialPostMedia:{findMany:jest.fn().mockResolvedValue([])},socialPoll:{findUnique:jest.fn().mockResolvedValue(null)},socialEvent:{findUnique:jest.fn().mockResolvedValue(null)},socialReaction:{groupBy:jest.fn().mockResolvedValue([]),findFirst:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
     const service=new SocialFeedService(prisma);
     const output=await (service as any).shape({id:'p1',body:'Bonjour',visibility:SocialVisibility.TOUS_LES_FIDELES,pinned:false,createdAt:new Date(),updatedAt:new Date(),author:{id:'minor-id',fullName:'Identité privée',dateOfBirth},_count:{comments:0}},'reader-id');
     expect(output.author.displayName).toBe('Membre fidèle');

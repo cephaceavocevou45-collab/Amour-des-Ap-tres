@@ -12,7 +12,7 @@
   "scripts": {
     "dev:web": "npm --workspace @paroisse/web start",
     "dev:api": "npm --workspace @paroisse/api run start:dev",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace @paroisse/api && npm run build --workspace @paroisse/web",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test:tools && npm run test --workspaces --if-present",
     "test:tools": "node --test scripts/*.test.cjs",

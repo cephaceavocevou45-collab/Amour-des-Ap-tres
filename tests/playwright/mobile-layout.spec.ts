@@ -54,3 +54,32 @@ test('le menu mobile de l’accueil s’ouvre au clavier et annonce son état',a
   await expect(toggle).toHaveAttribute('aria-expanded','true');
   await expect(page.locator('#mobile-navigation')).toBeVisible();
 });
+
+test('les textes principaux de la communauté respectent le contraste WCAG AA',async({page})=>{
+  await page.setViewportSize({width:1280,height:900});
+  await prepare(page,'FIDELE');
+  await page.goto('/actualites');
+  const checks=await page.evaluate(()=>{
+    const selectors=['.intro h1','.intro p','.kicker','.composer>label','.poll-toggle','.community-side-nav a','.community-info-card blockquote','.community-info-card p','textarea'];
+    const rgb=(value:string)=>{const match=value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);return match?[Number(match[1]),Number(match[2]),Number(match[3]),match[4]===undefined?1:Number(match[4])]:null;};
+    const luminance=(color:number[])=>{const channels=color.slice(0,3).map(value=>{const v=value/255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4;});return 0.2126*channels[0]+0.7152*channels[1]+0.0722*channels[2];};
+    return selectors.flatMap(selector=>{const element=document.querySelector<HTMLElement>(selector);if(!element)return[];const style=getComputedStyle(element);const foreground=rgb(style.color);let parent:HTMLElement|null=element;let background:number[]|null=null;while(parent&&!background){const parsed=rgb(getComputedStyle(parent).backgroundColor);if(parsed&&parsed[3]===1)background=parsed;parent=parent.parentElement;}if(!foreground||!background)return[{selector,ratio:0}];const ratio=(Math.max(luminance(foreground),luminance(background))+0.05)/(Math.min(luminance(foreground),luminance(background))+0.05);return[{selector,ratio,large:Number.parseFloat(style.fontSize)>=24||(Number.parseFloat(style.fontSize)>=18.66&&Number.parseInt(style.fontWeight,10)>=700)}];});
+  });
+  expect(checks.filter((check:any)=>check.ratio<(check.large?3:4.5)),JSON.stringify(checks)).toEqual([]);
+});
+
+test('le menu de la communauté reste utilisable au clavier sur ordinateur',async({page})=>{
+  await page.setViewportSize({width:1280,height:900});
+  await prepare(page,'FIDELE');
+  await page.goto('/actualites');
+  const toggle=page.getByRole('button',{name:'Ouvrir le menu'});
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  const menu=page.locator('.community-nav');
+  const profile=menu.getByRole('button',{name:'Mon profil'});
+  await expect(menu.getByRole('link',{name:'Fil d’actualité'})).toBeVisible();
+  await expect(profile).toBeVisible();
+  await profile.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('region',{name:'Mon profil'})).toBeVisible();
+});

@@ -17,13 +17,15 @@ jest.setTimeout(120_000);
 let app:any,prisma:PrismaService,baseUrl:string;
 const userIds:string[]=[],sheetIds:string[]=[];
 const observedLogs:string[]=[],sensitiveCanaries=new Set<string>();
+const maxObservedLogEntries=2_000;
 const password='e2e_password_Long_2026!';
+const nativeFetch=globalThis.fetch.bind(globalThis);
 sensitiveCanaries.add(password);
 const testEmail=()=>`${randomUUID()}@security-test.invalid`;
 function localDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function weekday(date:string){const value=new Date(`${date}T00:00:00Z`).getUTCDay();return value===0?7:value;}
 function monday(date:string){const value=new Date(`${date}T00:00:00Z`),day=value.getUTCDay();value.setUTCDate(value.getUTCDate()-(day===0?6:day-1));return value.toISOString().slice(0,10);}
-async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string;createdAt?:Date}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null,emailVerifiedAt:role===UserRole.FIDELE?new Date():undefined,dateOfBirth:role===UserRole.FIDELE?new Date('1990-01-01'):undefined,...(options.createdAt?{createdAt:options.createdAt}:{})}});userIds.push(row.id);return row;}
+async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string;createdAt?:Date;emailVerifiedAt?:Date|null}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null,emailVerifiedAt:options.emailVerifiedAt!==undefined?options.emailVerifiedAt:role===UserRole.FIDELE?new Date():undefined,dateOfBirth:role===UserRole.FIDELE?new Date('1990-01-01'):undefined,...(options.createdAt?{createdAt:options.createdAt}:{})}});userIds.push(row.id);return row;}
 function jwt(user:{id:string;role:UserRole;sessionVersion:number}){const enc=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url'),now=Math.floor(Date.now()/1000),unsigned=`${enc({alg:'HS256',typ:'JWT'})}.${enc({sub:user.id,role:user.role,ver:user.sessionVersion,iat:now,exp:now+600})}`,token=`${unsigned}.${createHmac('sha256',process.env.JWT_ACCESS_SECRET!).update(unsigned).digest('base64url')}`;sensitiveCanaries.add(token);return token;}
 async function call(path:string,options:{method?:string;token?:string;body?:unknown;headers?:Record<string,string>}={}){const headers:Record<string,string>={...(options.body?{'Content-Type':'application/json'}:{}),...(options.token?{Authorization:`Bearer ${options.token}`} : {}),...options.headers};if(options.token)sensitiveCanaries.add(options.token);for(const value of Object.values(headers))if(/paroisse_(?:access|refresh)=/.test(value))sensitiveCanaries.add(value.split('=').slice(1).join('=').split(';')[0]);if(options.body&&typeof options.body==='object'){for(const [key,value]of Object.entries(options.body as any))if(typeof value==='string'&&/(?:password|token|fullName|code)/i.test(key))sensitiveCanaries.add(value);}const response=await fetch(`${baseUrl}/api/v1${path}`,{method:options.method??'GET',headers,...(options.body?{body:JSON.stringify(options.body)}:{})});const raw=await response.text();return {status:response.status,body:raw?JSON.parse(raw):null,headers:response.headers};}
 async function addSheet(type:SheetType,date=localDate()){const existing=await prisma.attendanceSheet.findUnique({where:{type_date:{type,date:new Date(`${date}T00:00:00.000Z`)}}});if(existing){sheetIds.push(existing.id);return existing;}const row=await prisma.attendanceSheet.create({data:{id:`e2e-${randomUUID()}`,type,date:new Date(`${date}T00:00:00.000Z`),status:SheetStatus.OUVERTE}});sheetIds.push(row.id);return row;}
@@ -33,7 +35,7 @@ beforeAll(async()=>{
   process.env.NODE_ENV='test';
   process.env.JWT_ACCESS_SECRET??='security-e2e-only-jwt-secret-not-for-deployment';
   process.env.TOTP_ENCRYPTION_KEY??='security-e2e-only-totp-key-not-for-deployment';
-  const capture=(...args:any[])=>observedLogs.push(args.map(value=>typeof value==='string'?value:JSON.stringify(value)).join(' '));
+  const capture=(...args:any[])=>{if(observedLogs.length>=maxObservedLogEntries)observedLogs.splice(0,maxObservedLogEntries/2);observedLogs.push(args.map(value=>typeof value==='string'?value:JSON.stringify(value)).join(' '));};
   const logger={log:capture,error:capture,warn:capture,debug:capture,verbose:capture,fatal:capture};
   for(const method of ['log','info','warn','error','debug'] as const)jest.spyOn(console,method).mockImplementation((...args:any[])=>capture(...args));
   app=await NestFactory.create(AppModule,{logger:logger as any});
@@ -47,9 +49,11 @@ beforeAll(async()=>{
   await prisma.$connect();
 });
 afterAll(async()=>{
-  if(prisma){await prisma.socialSanction.deleteMany({where:{OR:[{createdById:{in:userIds}},{targetUserId:{in:userIds}}]}});await prisma.socialModerationEvent.deleteMany({where:{actorId:{in:userIds}}});await prisma.socialReport.deleteMany({where:{reporterId:{in:userIds}}});await prisma.socialModerationCase.deleteMany({where:{targetAuthorId:{in:userIds}}});await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
-  if(app)await app.close();
-  jest.restoreAllMocks();
+  try{
+    if(prisma){await prisma.socialSanction.deleteMany({where:{OR:[{createdById:{in:userIds}},{targetUserId:{in:userIds}}]}});await prisma.socialModerationEvent.deleteMany({where:{actorId:{in:userIds}}});await prisma.socialReport.deleteMany({where:{reporterId:{in:userIds}}});await prisma.socialModerationCase.deleteMany({where:{targetAuthorId:{in:userIds}}});await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
+  }finally{
+    try{if(app)await app.close();}finally{if(prisma)await prisma.$disconnect();observedLogs.length=0;sensitiveCanaries.clear();jest.restoreAllMocks();}
+  }
 });
 
 describe('security HTTP e2e on isolated PostgreSQL',()=>{
@@ -64,7 +68,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   it('registers an immediately active FIDELE account without email confirmation and keeps attendance routes inaccessible',async()=>{
     const keys=['SOCIAL_MIN_AGE','SOCIAL_CHARTER_VERSION','SOCIAL_CHARTER_TEXT','RESEND_API_KEY','MAIL_FROM','APP_PUBLIC_URL','CAPTCHA_ENABLED','CAPTCHA_SECRET_KEY','CAPTCHA_SITE_KEY'];const previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
     Object.assign(process.env,{SOCIAL_MIN_AGE:'13',SOCIAL_CHARTER_VERSION:'phase1-e2e-v1',SOCIAL_CHARTER_TEXT:'Charte de test sans valeur juridique.',RESEND_API_KEY:'test-only-not-a-real-key',MAIL_FROM:'Paroisse <test@example.invalid>',APP_PUBLIC_URL:baseUrl,CAPTCHA_ENABLED:'false'});delete process.env.CAPTCHA_SECRET_KEY;delete process.env.CAPTCHA_SITE_KEY;
-    const realFetch=globalThis.fetch.bind(globalThis),sent:any[]=[];jest.spyOn(globalThis,'fetch').mockImplementation(async(input:any,init:any)=>{if(String(input).includes('api.resend.com')){sent.push(JSON.parse(String(init?.body)));return new Response('{}',{status:200});}return realFetch(input,init);});
+    const sent:any[]=[],mail=jest.spyOn(globalThis,'fetch').mockImplementation(async(input:any,init:any)=>{if(String(input).includes('api.resend.com')){sent.push(JSON.parse(String(init?.body)));return new Response('{}',{status:200});}return nativeFetch(input,init);});
     try{
       const email=testEmail(),body={fullName:'New Social Member',phone:'+2290100000000',email,password,dateOfBirth:'1990-03-15',acceptCharter:true,charterVersion:'phase1-e2e-v1'};
       expect((await call('/auth/social/register',{method:'POST',body:{...body,role:'ADMIN'}})).status).toBe(400);
@@ -81,7 +85,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
       expect(await prisma.auditLog.count({where:{userId:admin.id,action:'COMPTE_SUSPENDU',entityId:member.id}})).toBe(1);
       expect((await call(`/auth/social/admin/members/${member.id}/suspension`,{method:'PATCH',token:adminToken,body:{suspended:false}})).status).toBe(200);
       expect((await call('/auth/login',{method:'POST',body:{email,password}})).status).toBe(201);
-    }finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
+    }finally{mail.mockRestore();for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
   });
 
   it('limits sign-ups independently by client IP and normalized e-mail address',async()=>{
@@ -97,14 +101,37 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   });
 
   it('keeps CAPTCHA optional by default and clearly disables sign-up when required keys are missing',async()=>{
-    const keys=['CAPTCHA_ENABLED','CAPTCHA_SECRET_KEY','CAPTCHA_SITE_KEY'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+    const keys=['CAPTCHA_ENABLED','CAPTCHA_SECRET_KEY','CAPTCHA_SITE_KEY','SOCIAL_CHARTER_VERSION','SOCIAL_CHARTER_TEXT'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));let verification:jest.SpyInstance|undefined;const captchaAttempts:string[]=[];
     try{
       delete process.env.CAPTCHA_ENABLED;delete process.env.CAPTCHA_SECRET_KEY;delete process.env.CAPTCHA_SITE_KEY;
+      process.env.SOCIAL_CHARTER_VERSION='phase1-e2e-v1';process.env.SOCIAL_CHARTER_TEXT='Charte de test sans valeur juridique.';
       const optional=await call('/auth/social/registration-config');expect(optional.body.enabled).toBe(true);expect(optional.body.captchaEnabled).toBe(false);expect(optional.body.captchaSiteKey).toBeNull();expect(optional.body.captchaMessage).toContain('désactivée par défaut');
       process.env.CAPTCHA_ENABLED='true';
       const required=await call('/auth/social/registration-config');expect(required.body.enabled).toBe(false);expect(required.body.captchaMessage).toContain('configuration de la vérification anti-robot est incomplète');
-      const refused=await call('/auth/social/register',{method:'POST',body:{fullName:'CAPTCHA Test',email:testEmail(),password,dateOfBirth:'1990-01-01',acceptCharter:true,charterVersion:'phase1-e2e-v1'}});expect(refused.status).toBe(503);
-    }finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
+      const refused=await call('/auth/social/register',{method:'POST',headers:{'X-Forwarded-For':'198.51.100.77'},body:{fullName:'CAPTCHA Test',email:testEmail(),password,dateOfBirth:'1990-01-01',acceptCharter:true,charterVersion:'phase1-e2e-v1'}});expect(refused.status).toBe(503);
+      process.env.CAPTCHA_SECRET_KEY='test-turnstile-secret';process.env.CAPTCHA_SITE_KEY='test-turnstile-site';
+      verification=jest.spyOn(globalThis,'fetch').mockImplementation(async(input:any,init:any)=>{
+        if(String(input).includes('challenges.cloudflare.com/turnstile/v0/siteverify')){
+          const params=new URLSearchParams(String(init?.body??''));
+          const token=params.get('response')??'';captchaAttempts.push(token);
+          return new Response(JSON.stringify({success:token==='valid-test-captcha'}),{status:200,headers:{'Content-Type':'application/json'}});
+        }
+        return nativeFetch(input,init);
+      });
+      const base={fullName:'CAPTCHA Test',phone:'+2290100000000',password,dateOfBirth:'1990-01-01',acceptCharter:true,charterVersion:'phase1-e2e-v1'},captchaHeaders={'X-Forwarded-For':'198.51.100.78'};
+      expect((await call('/auth/social/register',{method:'POST',headers:captchaHeaders,body:{...base,email:testEmail()}})).status).toBe(400);
+      expect((await call('/auth/social/register',{method:'POST',headers:captchaHeaders,body:{...base,email:testEmail(),captchaToken:'invalid-test-captcha'}})).status).toBe(400);
+      const email=testEmail(),accepted=await call('/auth/social/register',{method:'POST',headers:captchaHeaders,body:{...base,email,captchaToken:'valid-test-captcha'}});expect(accepted.status).toBe(201);
+      const created=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(created.id);expect(created.emailVerifiedAt).toBeNull();expect(captchaAttempts).toEqual(['invalid-test-captcha','valid-test-captcha']);
+    }finally{verification?.mockRestore();for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
+  });
+
+  it('does not grant sensitive administration or attendance access to an account with an unconfirmed e-mail',async()=>{
+    const member=await addUser(UserRole.FIDELE,{emailVerifiedAt:null}),token=jwt(member);
+    const denied=['/attendance/today','/attendance/week','/auth/admin/members','/auth/social/admin/members'];
+    for(const path of denied)expect([401,403]).toContain((await call(path,{token})).status);
+    const persisted=await prisma.user.findUniqueOrThrow({where:{id:member.id},select:{emailVerifiedAt:true}});
+    expect(persisted.emailVerifiedAt).toBeNull();
   });
 
   it('equalizes failure messages and applies the same minimum response time to existing and unknown accounts',async()=>{
@@ -391,6 +418,126 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const fs=require('node:fs'),ui=fs.readFileSync(require('node:path').resolve(__dirname,'../../web/src/app/social-home.component.ts'),'utf8');expect(ui).not.toMatch(/innerHTML|bypassSecurityTrustHtml/);
   });
 
+  it('creates public polls with bounded choices, one changeable vote per member and protected results',async()=>{
+    const author=await addUser(UserRole.FIDELE),voter=await addUser(UserRole.FIDELE),editor=await addUser(UserRole.EDITEUR),authorToken=jwt(author),voterToken=jwt(voter),editorToken=jwt(editor);
+    const first=await call('/social/polls',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`poll-${randomUUID()}`},body:{body:'Quel moment choisir pour la rencontre ?',options:['Après le culte','Samedi matin','après le culte']}});
+    expect(first.status).toBe(400);
+    const created=await call('/social/polls',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`poll-${randomUUID()}`},body:{body:'Quel moment choisir pour la rencontre ?',options:['Après le culte','Samedi matin']}});
+    expect(created.status).toBe(201);expect(created.body.poll.totalVotes).toBe(0);expect(created.body.poll.options).toHaveLength(2);
+    const pollId=created.body.poll.id,options=created.body.poll.options;
+    expect((await call(`/social/polls/${pollId}`,{token:editorToken})).status).toBe(403);
+    const firstVote=await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:options[0].id}});expect(firstVote.status).toBe(201);expect(firstVote.body.totalVotes).toBe(1);expect(firstVote.body.userVote).toBe(options[0].id);
+    const changedVote=await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:options[1].id}});expect(changedVote.status).toBe(201);expect(changedVote.body.totalVotes).toBe(1);expect(changedVote.body.userVote).toBe(options[1].id);expect(changedVote.body.options[1].votes).toBe(1);
+    expect(await prisma.socialPollVote.count({where:{pollId,userId:voter.id}})).toBe(1);
+    const voteAudit=await prisma.auditLog.findFirst({where:{action:'SONDAGE_VOTE_MODIFIE',entity:'SocialPoll',entityId:pollId},orderBy:{createdAt:'desc'}});expect(voteAudit).toBeTruthy();expect(voteAudit?.userId).toBeNull();expect(JSON.stringify(voteAudit)).not.toContain(voter.id);
+    expect(changedVote.body).not.toHaveProperty('votes');expect(changedVote.body).not.toHaveProperty('voters');expect(JSON.stringify(changedVote.body)).not.toContain(voter.id);
+    const expired=await call('/social/polls',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`poll-${randomUUID()}`},body:{body:'Sondage expiré',options:['Oui','Non'],closesAt:new Date(Date.now()-60_000).toISOString()}});expect(expired.status).toBe(400);
+    expect((await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:'not-an-option'}})).status).toBe(400);
+    await prisma.socialPoll.update({where:{id:pollId},data:{closesAt:new Date(Date.now()-1000)}});
+    expect((await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:options[0].id}})).status).toBe(409);
+    const privatePost=await prisma.socialPost.create({data:{authorId:author.id,body:'Sondage privé',visibility:'MOI_SEUL',idempotencyKey:`private-poll-${randomUUID()}`}});
+    const privatePoll=await prisma.socialPoll.create({data:{postId:privatePost.id,options:{create:[{text:'Oui',position:0},{text:'Non',position:1}]}}});
+    expect((await call(`/social/polls/${privatePoll.id}`,{token:voterToken})).status).toBe(404);
+    const blockedAuthor=await addUser(UserRole.FIDELE),blockedPost=await prisma.socialPost.create({data:{authorId:blockedAuthor.id,body:'Sondage masqué',visibility:'TOUS_LES_FIDELES',idempotencyKey:`blocked-poll-${randomUUID()}`}});
+    const blockedPoll=await prisma.socialPoll.create({data:{postId:blockedPost.id,options:{create:[{text:'Oui',position:0},{text:'Non',position:1}]}}});
+    await prisma.socialBlock.create({data:{blockerId:voter.id,blockedId:blockedAuthor.id}});
+    expect((await call(`/social/polls/${blockedPoll.id}`,{token:voterToken})).status).toBe(404);
+  });
+
+  it('applies new-account voting quotas without listing voters or exposing private and blocked polls',async()=>{
+    const author=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),newMember=await addUser(UserRole.FIDELE),token=jwt(newMember),polls:string[]=[];
+    for(let index=0;index<6;index++){
+      const post=await prisma.socialPost.create({data:{authorId:author.id,body:`Quota sondage ${index}`,visibility:'TOUS_LES_FIDELES',idempotencyKey:`quota-poll-${index}-${randomUUID()}`}});
+      const poll=await prisma.socialPoll.create({data:{postId:post.id,options:{create:[{text:'Oui',position:0},{text:'Non',position:1}]}}});polls.push(poll.id);
+    }
+    for(let index=0;index<polls.length;index++){
+      const poll=await prisma.socialPoll.findUniqueOrThrow({where:{id:polls[index]},include:{options:true}});
+      const result=await call(`/social/polls/${poll.id}/vote`,{method:'POST',token,body:{optionId:poll.options[0].id}});
+      expect(result.status).toBe(index<5?201:429);
+      if(result.status===201){expect(result.body).not.toHaveProperty('votes');expect(result.body).not.toHaveProperty('voters');expect(JSON.stringify(result.body)).not.toContain(newMember.id);}
+    }
+    expect(await prisma.socialPollVote.count({where:{userId:newMember.id}})).toBe(5);
+  });
+
+  it('publishes parish events with date validation, aggregate attendance and one changeable response per member',async()=>{
+    const author=await addUser(UserRole.FIDELE),guest=await addUser(UserRole.RESPONSABLE_SEMAINE),editor=await addUser(UserRole.EDITEUR),authorToken=jwt(author),guestToken=jwt(guest),editorToken=jwt(editor),startsAt=new Date(Date.now()+2*60_000).toISOString();
+    const invalid=await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Rencontre communautaire',title:'Culte',startsAt}});expect(invalid.status).toBe(400);
+    const created=await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Rencontre communautaire de la paroisse.',title:'Culte d’action de grâce',startsAt:new Date(Date.now()+30*60_000).toISOString(),location:'Sainte-Cécile'}});
+    expect(created.status).toBe(201);expect(created.body.event.counts).toEqual({PARTICIPATING:0,INTERESTED:0,DECLINED:0});
+    const id=created.body.event.id;
+    expect((await call(`/social/events/${id}`,{token:editorToken})).status).toBe(403);
+    const interested=await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'INTERESTED'}});expect(interested.status).toBe(201);expect(interested.body.userRsvp).toBe('INTERESTED');expect(interested.body.counts.INTERESTED).toBe(1);
+    const attending=await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'PARTICIPATING'}});expect(attending.status).toBe(201);expect(attending.body.userRsvp).toBe('PARTICIPATING');expect(attending.body.counts.INTERESTED).toBe(0);expect(attending.body.counts.PARTICIPATING).toBe(1);
+    expect(await prisma.socialEventRsvp.count({where:{eventId:id,userId:guest.id}})).toBe(1);expect(attending.body).not.toHaveProperty('rsvps');expect(attending.body).not.toHaveProperty('participants');expect(JSON.stringify(attending.body)).not.toContain(guest.id);
+    const post=await prisma.socialPost.findUniqueOrThrow({where:{id:created.body.postId}});expect(post.visibility).toBe('TOUS_LES_FIDELES');
+    expect((await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'INVENTED'}})).status).toBe(400);
+    await prisma.socialEvent.update({where:{id},data:{startsAt:new Date(Date.now()-1000)}});
+    expect((await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'DECLINED'}})).status).toBe(409);
+    expect((await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Trop loin',title:'Rencontre paroissiale',startsAt:new Date(Date.now()+366*86400_000).toISOString()}})).status).toBe(400);
+    expect((await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Titre trop long',title:'E'.repeat(161),startsAt:new Date(Date.now()+30*60_000).toISOString()}})).status).toBe(400);
+    expect((await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Lieu trop long',title:'Rencontre paroissiale',startsAt:new Date(Date.now()+30*60_000).toISOString(),location:'L'.repeat(201)}})).status).toBe(400);
+    const suspended=await addUser(UserRole.FIDELE);await prisma.user.update({where:{id:suspended.id},data:{suspendedAt:new Date(),active:false}});
+    expect([401,403]).toContain((await call(`/social/events/${id}/rsvp`,{method:'POST',token:jwt(suspended),body:{status:'INTERESTED'}})).status);
+  });
+
+  it('limits recent-account event responses to five distinct events in 24 hours',async()=>{
+    const author=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),newMember=await addUser(UserRole.FIDELE),token=jwt(newMember),eventIds:string[]=[];
+    for(let index=0;index<6;index++){
+      const post=await prisma.socialPost.create({data:{authorId:author.id,body:`Événement quota ${index}`,visibility:'TOUS_LES_FIDELES',idempotencyKey:`quota-event-${index}-${randomUUID()}`}});
+      const event=await prisma.socialEvent.create({data:{postId:post.id,title:`Rencontre ${index}`,startsAt:new Date(Date.now()+(index+1)*30*60_000)}});eventIds.push(event.id);
+    }
+    for(let index=0;index<eventIds.length;index++){
+      const response=await call(`/social/events/${eventIds[index]}/rsvp`,{method:'POST',token,body:{status:'INTERESTED'}});
+      expect(response.status).toBe(index<5?201:429);
+      if(response.status===201){expect(response.body).not.toHaveProperty('rsvps');expect(response.body).not.toHaveProperty('participants');expect(JSON.stringify(response.body)).not.toContain(newMember.id);}
+    }
+    expect(await prisma.socialEventRsvp.count({where:{userId:newMember.id}})).toBe(5);
+  });
+
+  it('rate-limits poll creation and voting per authenticated account',async()=>{
+    const creator=await addUser(UserRole.FIDELE),creatorToken=jwt(creator);
+    for(let attempt=0;attempt<6;attempt++){
+      const response=await call('/social/polls',{method:'POST',token:creatorToken,headers:{'Idempotency-Key':`limit-${randomUUID()}`},body:{}});
+      expect(response.status).toBe(attempt<5?400:429);
+    }
+    const pollOwner=await addUser(UserRole.FIDELE),voter=await addUser(UserRole.FIDELE),ownerToken=jwt(pollOwner),voterToken=jwt(voter);
+    const created=await call('/social/polls',{method:'POST',token:ownerToken,headers:{'Idempotency-Key':`vote-${randomUUID()}`},body:{body:'Question de limite',options:['Oui','Non']}});expect(created.status).toBe(201);
+    for(let attempt=0;attempt<21;attempt++){
+      const response=await call(`/social/polls/${created.body.poll.id}/vote`,{method:'POST',token:voterToken,body:{optionId:'missing-choice'}});
+      expect(response.status).toBe(attempt<20?400:429);
+    }
+  });
+
+  it('isolates private group discussions and blocks hostile content and excluded members',async()=>{
+    const owner=await addUser(UserRole.FIDELE),member=await addUser(UserRole.FIDELE),outsider=await addUser(UserRole.FIDELE),ownerToken=jwt(owner),memberToken=jwt(member),outsiderToken=jwt(outsider);
+    const created=await call('/social/groups',{method:'POST',token:ownerToken,body:{name:'Groupe privé e2e',description:'Échanges réservés aux membres.',visibility:'PRIVATE'}});
+    expect(created.status).toBe(201);const groupId=created.body.id as string;
+    const requested=await call(`/social/groups/${groupId}/join`,{method:'POST',token:memberToken,body:{}});expect(requested.status).toBe(201);expect(requested.body.status).toBe('PENDING');
+    expect((await call(`/social/groups/${groupId}/posts`,{token:memberToken})).status).toBe(404);
+    expect((await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':`pending-${randomUUID()}`},body:{body:'Écriture interdite avant acceptation'}})).status).toBe(404);
+    expect((await call(`/social/groups/${groupId}/posts`,{token:outsiderToken})).status).toBe(404);
+    expect((await call(`/social/groups/${groupId}/posts`,{method:'POST',token:outsiderToken,headers:{'Idempotency-Key':`outsider-${randomUUID()}`},body:{body:'Écriture interdite sans adhésion'}})).status).toBe(404);
+    expect((await call(`/social/groups/${groupId}/requests/${member.id}/accept`,{method:'POST',token:ownerToken,body:{}})).status).toBe(201);
+    const hostile='<script>window.groupXss=true</script><img src=x onerror="window.groupXss=true">',key=`group-${randomUUID()}`,body={body:hostile};
+    const first=await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':key},body});expect(first.status).toBe(201);
+    expect(first.body.body).toBe(hostile);
+    const repeated=await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':key},body});expect(repeated.status).toBe(201);expect(repeated.body.id).toBe(first.body.id);
+    expect((await call(`/social/groups/${groupId}/posts`,{token:ownerToken})).body).toHaveLength(1);
+    expect((await call(`/social/groups/${groupId}/posts`,{token:outsiderToken})).status).toBe(404);
+    const comment=await call(`/social/groups/posts/${first.body.id}/comments`,{method:'POST',token:ownerToken,body:{body:hostile}});expect(comment.status).toBe(201);expect(comment.body.body).toBe(hostile);
+    expect((await call(`/social/groups/posts/${first.body.id}/comments`,{token:outsiderToken})).status).toBe(404);
+    const ownersPost=await call(`/social/groups/${groupId}/posts`,{method:'POST',token:ownerToken,headers:{'Idempotency-Key':`owner-${randomUUID()}`},body:{body:'Annonce du responsable.'}});expect(ownersPost.status).toBe(201);
+    expect((await call(`/social/blocks/${owner.id}`,{method:'POST',token:memberToken,body:{}})).status).toBe(201);
+    expect((await call(`/social/groups/posts/${ownersPost.body.id}/comments`,{token:memberToken})).status).toBe(404);
+    expect((await call(`/social/groups/posts/${ownersPost.body.id}/comments`,{method:'POST',token:memberToken,body:{body:'Tentative après blocage'}})).status).toBe(404);
+    const afterBlock=await call(`/social/groups/${groupId}/posts`,{token:memberToken});expect(afterBlock.status).toBe(200);expect(afterBlock.body.map((post:any)=>post.id)).toEqual([first.body.id]);
+    const afterBlockComments=await call(`/social/groups/posts/${first.body.id}/comments`,{token:memberToken});expect(afterBlockComments.status).toBe(200);expect(afterBlockComments.body).toHaveLength(0);
+    await prisma.socialGroupMembership.delete({where:{groupId_userId:{groupId,userId:member.id}}});
+    expect((await call(`/social/groups/${groupId}/posts`,{token:memberToken})).status).toBe(404);
+    expect((await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':`excluded-${randomUUID()}`},body:{body:'Après exclusion'}})).status).toBe(404);
+    expect((await call(`/social/groups/posts/${first.body.id}/comments`,{token:memberToken})).status).toBe(404);
+  });
+
   it('enforces report ownership, moderation roles, automatic hiding, audited actions and immediate suspension',async()=>{
     const keys=['SOCIAL_AUTO_HIDE_THRESHOLD','SOCIAL_AUTO_HIDE_HOURS'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
     process.env.SOCIAL_AUTO_HIDE_THRESHOLD='2';process.env.SOCIAL_AUTO_HIDE_HOURS='48';
@@ -504,6 +651,36 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const sharer=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),sharerToken=jwt(sharer);
     for(const id of otherPosts.slice(0,10))expect((await call(`/social/posts/${id}/share`,{method:'POST',token:sharerToken,body:{body:'Partage'}})).status).toBe(201);
     expect((await call(`/social/posts/${otherPosts[10]}/share`,{method:'POST',token:sharerToken,body:{body:'Partage final'}})).status).toBe(429);
+  });
+
+  it('protects public profiles, hides minors identities, and exposes only the newest public posts',async()=>{
+    const author=await addUser(UserRole.FIDELE),viewer=await addUser(UserRole.FIDELE),viewerToken=jwt(viewer);
+    const privatePhone='+2290100000000',authorEmail=author.email;
+    await prisma.user.update({where:{id:author.id},data:{fullName:'Profil visible',phone:privatePhone,socialBio:'Présentation paroissiale'}});
+    const posts=[] as Array<{id:string;body:string}>;
+    for(let index=0;index<22;index++)posts.push(await prisma.socialPost.create({data:{authorId:author.id,idempotencyKey:`public_profile_${index}_${randomUUID()}`,body:`Publication ${index}`,visibility:'TOUS_LES_FIDELES',createdAt:new Date(Date.now()-index*1000)}}));
+    const privatePost=await prisma.socialPost.create({data:{authorId:author.id,idempotencyKey:`private_profile_${randomUUID()}`,body:'Publication personnelle',visibility:'MOI_SEUL'}});
+    const visible=await call(`/social/profiles/${author.id}`,{token:viewerToken});expect(visible.status).toBe(200);expect(visible.body.displayName).toBe('Profil visible');expect(visible.body.bio).toBe('Présentation paroissiale');expect(visible.body.posts).toHaveLength(20);expect(visible.body.posts[0].id).toBe(posts[0].id);expect(visible.body.posts.some((post:any)=>post.id===privatePost.id)).toBe(false);
+    const serialized=JSON.stringify(visible.body);expect(serialized).not.toContain(authorEmail);expect(serialized).not.toContain(privatePhone);expect(visible.body).not.toHaveProperty('email');expect(visible.body).not.toHaveProperty('phone');expect(visible.body).not.toHaveProperty('dateOfBirth');
+    const minor=await addUser(UserRole.FIDELE);await prisma.user.update({where:{id:minor.id},data:{fullName:'NOM MINEUR À PROTÉGER',dateOfBirth:new Date()}});await prisma.socialPost.create({data:{authorId:minor.id,idempotencyKey:`minor_profile_${randomUUID()}`,body:'Publication protégée',visibility:'TOUS_LES_FIDELES'}});
+    const minorProfile=await call(`/social/profiles/${minor.id}`,{token:viewerToken});expect(minorProfile.status).toBe(200);expect(minorProfile.body.displayName).toBe('Membre fidèle');expect(JSON.stringify(minorProfile.body)).not.toContain('NOM MINEUR À PROTÉGER');
+    expect((await call(`/social/profiles/${author.id}`)).status).toBe(401);
+  });
+
+  it('refuses private, suspended, moderated, mutually blocked and undiscoverable profiles',async()=>{
+    const author=await addUser(UserRole.FIDELE),viewer=await addUser(UserRole.FIDELE),reverseViewer=await addUser(UserRole.FIDELE),token=jwt(viewer),reverseToken=jwt(reverseViewer),path=`/social/profiles/${author.id}`;
+    expect((await call(path,{token})).status).toBe(200);
+    await prisma.user.update({where:{id:author.id},data:{socialProfileDiscoverable:false}});expect([403,404]).toContain((await call(path,{token})).status);
+    await prisma.user.update({where:{id:author.id},data:{socialProfileDiscoverable:true,suspendedAt:new Date()}});expect([403,404]).toContain((await call(path,{token})).status);
+    await prisma.user.update({where:{id:author.id},data:{suspendedAt:null,moderationProfileHidden:true}});expect([403,404]).toContain((await call(path,{token})).status);
+    await prisma.user.update({where:{id:author.id},data:{moderationProfileHidden:false}});await prisma.socialBlock.create({data:{blockerId:viewer.id,blockedId:author.id}});expect([403,404]).toContain((await call(path,{token})).status);
+    await prisma.socialBlock.delete({where:{blockerId_blockedId:{blockerId:viewer.id,blockedId:author.id}}});await prisma.socialBlock.create({data:{blockerId:author.id,blockedId:reverseViewer.id}});expect([403,404]).toContain((await call(path,{token:reverseToken})).status);
+  });
+
+  it('rate limits public profile reads per authenticated account',async()=>{
+    const author=await addUser(UserRole.FIDELE),reader=await addUser(UserRole.FIDELE),token=jwt(reader),path=`/social/profiles/${author.id}`;
+    for(let index=0;index<30;index++)expect((await call(path,{token})).status).toBe(200);
+    expect((await call(path,{token})).status).toBe(429);
   });
 
   it('does not write attendance names, tokens, or passwords to application logs',async()=>{
