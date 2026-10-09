@@ -1,12 +1,13 @@
 # Blocages et actions humaines
 
-## Relance ciblée — 8 octobre 2026
+## Diagnostic mémoire e2e — 8 octobre 2026 (résolu)
 
-- `npm run prisma:generate --workspace @paroisse/api` échoue deux fois avec `EPERM` au renommage du moteur Prisma Windows, y compris une tentative avec droits élevés. Diagnostiquer le verrou du fichier (processus/antivirus) sur la machine; ne pas supprimer de moteur tant qu’un processus peut l’utiliser.
-- `npm run test:e2e` a validé la cible dédiée `paroisse_test`; les 16 migrations sont déjà appliquées, dont les migrations 20261008000100 et 20261009000000. Les 29 cas du fichier e2e n’ont pas démarré : Jest/Node a terminé sur `heap out of memory` (code 134), même lancé seul avec limite mémoire augmentée. Résultat e2e de cette session : 0/29 exécuté, aucun résultat de scénario.
-- `npm audit --omit=dev` et `npm audit` sont indisponibles : `getaddrinfo ENOTFOUND registry.npmjs.org`, `audit endpoint returned an error`. Aucun avis frais ne peut être inventorié. Le dernier résumé historique compte 3 hauts + 2 modérés en production, 32 hauts + 6 modérés au total; détails paquet/avis/exploitabilité à confirmer en réseau. Voir `docs/SECURITY_AUDIT.md`.
-- Succès de cette session : 29 tests unitaires API + 3 outils; lint API/web; builds API/web. La génération Prisma reste bloquée malgré le succès de ces compilations.
-- Action humaine : libérer assez de mémoire, résoudre le verrou Windows du moteur Prisma, puis relancer génération, e2e sur `TEST_DATABASE_URL`, audits npm dans un environnement avec accès au registre. Examiner les avis réels avant toute mise en production.
+- Diagnostic : le hook Nest `app.close()` existait, mais `PrismaService` ne possédait pas `OnModuleDestroy`; ajout du hook `$disconnect()`, teardown rendu robuste même si le nettoyage échoue. Le collecteur de journaux e2e pouvait grossir sans borne : il est désormais limité à 2 000 entrées puis tronqué par moitié, et vidé au teardown. Le limiteur de débit en mémoire est plafonné à 10 000 compartiments avec suppression des compartiments expirés; aucune boucle de création de données non nettoyée n’a été trouvée.
+- Le runner configure `NODE_OPTIONS=--max-old-space-size=4096`, lance chaque fichier e2e dans un processus Jest neuf avec `--runInBand`, et attend sa fermeture avant le suivant. Une suite précédente unique comptait 29 cas. 16 migrations vérifiées sur `paroisse_test`; aucune en attente.
+- Résultat final de la relance propre : **29 e2e réussis, 0 échoué, 0 non exécuté**. Les nouvelles vérifications couvrent limite d’inscription par IP et par adresse e-mail, CAPTCHA désactivé par défaut puis jeton absent/invalide/valide, quotas 24 h (3 publications, pas de photo, pas de partage), et refus des fonctions sensibles pour un compte FIDELE non confirmé.
+- Contrôles après corrections : **29/29 tests unitaires API**, **3/3 tests outils**, lint API et build API réussis.
+- Deux tentatives précédentes ont échoué respectivement avec `heap out of memory` puis avec erreur transitoire d’allocation; elles sont supersédées par le passage complet vert obtenu ensuite. Aucune assertion n’a été affaiblie.
+- Commande à relancer par un humain sous PowerShell si nécessaire : `npm.cmd run test:e2e` depuis la racine `D:\exeeller\mes traveaux\paroisse-amour-apotres`. Le script charge les variables localement, impose `TEST_DATABASE_URL` et refuse la cible égale à `DATABASE_URL`; ne pas saisir ou partager les valeurs de connexion.
 
 ## État antérieur — 8 octobre 2026 (avant la relance ciblée ci-dessus)
 
@@ -91,3 +92,55 @@ La suite e2e a trouvé puis vérifié un défaut de concurrence ajout/clôture :
 Phase 1 terminée et validée : **24/24 e2e, 28/28 unitaires, lint/typecheck API/web, builds API/web**. La migration de modération et les e2e ont touché uniquement `paroisse_test`. Aucun blocage technique actuel.
 
 À faire par un humain avant production : tester S3 privé et ClamAV avec les vrais services; maintenir les photos désactivées jusque-là; examiner les règles locales de modération et désigner les administrateurs habilités à statuer sur les appels.
+
+## Consolidation navigateur et stabilité — 8 octobre 2026 (résultat final)
+
+- Le blocage Playwright est résolu. L’ancienne commande Angular était exécutée hors du dossier `apps/web`, puis utilisait une option CLI inconnue; le contrôle de base était aussi réévalué dans les processus enfants après transmission intentionnelle de `TEST_DATABASE_URL`. La configuration démarre maintenant l’API de test sur `3101` et Angular dans `apps/web` sur `4310`, sans réutiliser l’aperçu `3000/4200`. Dans le processus API temporaire, `DATABASE_URL` est remplacée par `TEST_DATABASE_URL`; l’URL de développement n’est pas transmise.
+- Les 21 migrations de `paroisse_test` étaient à jour. Aucun changement de schéma n’a été nécessaire pendant cette consolidation. E2E : **35 réussis, 0 échoué, 0 non exécuté**.
+- Playwright : **16 réussis, 0 échoué, 0 non exécuté**. Douze pages ont été contrôlées à 360 px; menu clavier mobile/ordinateur, contraste AA des textes essentiels de la communauté et parcours XSS sont couverts. Les motifs de signalement sont une liste fermée sans champ libre.
+- `npm run lint` réussit (TypeScript API et web); tests : **29 unitaires API + 3 outils réussis**; les deux builds passent. Le build racine est maintenant séquentiel (API puis web) : son ancien lancement parallèle a dépassé la mémoire disponible.
+- `npm audit --omit=dev` et `npm audit` ont échoué avec `ENOTFOUND registry.npmjs.org` avant de recevoir des avis. L’état de vulnérabilité des dépendances demeure inconnu jusqu’à ce qu’un humain les relance avec accès au registre.
+- Aucun secret n’est reproduit ici. `DATABASE_URL` et la base de développement n’ont pas été touchées.
+# Blocages — extension communauté — 8 octobre 2026
+
+- `prisma generate` échoue sur Windows avec `EPERM` pendant le renommage de `query_engine-windows.dll.node`, même après vérification qu’aucun processus Node n’est visible dans cette session. Le build utilise donc le client préexistant; il ne confirme pas que les nouveaux délégués `socialGroup` sont présents à l’exécution.
+- La tentative de `migrate deploy` a ciblé explicitement `TEST_DATABASE_URL` (`paroisse_test` distincte de `DATABASE_URL`) mais l’engine Prisma s’est arrêté avec `Schema engine error` sans détail. Le port PostgreSQL local 5432 ne répondait pas lors de la vérification; aucune migration de groupe ou média n’a été appliquée.
+- Pour débloquer : démarrer le service PostgreSQL local; fermer toute application qui maintient le moteur Prisma verrouillé; relancer `npm.cmd run prisma:generate --workspace @paroisse/api`; puis exécuter `prisma migrate deploy` en fournissant uniquement l’URL `TEST_DATABASE_URL`. Vérifier ensuite les routes groupes/médias par e2e avant de démarrer l’API avec ces fonctions.
+- Aucun secret ni valeur de connexion n’est consigné ici. La base de développement n’a pas été modifiée.
+
+## Communauté — état du 8 octobre 2026
+
+- Lint/typecheck API et web et builds API/web passent après l’ajout de conversations textuelles dans les groupes. Les trois migrations de groupes, médias et discussions sont appliquées à `paroisse_test` uniquement; un compte de lignes Prisma a confirmé la table de discussion. Aucune migration ni requête n’a ciblé la base de développement.
+- Suite e2e rejouée sur paroisse_test : 30 réussis, 0 échoué. Le scénario ajouté couvre l’accès croisé aux groupes privés, l’acceptation, la publication/commentaire, l’idempotence et le blocage des messages/commentaires. Les limites de débit propres aux groupes et le dépôt/lecture avec vrais services médias restent à vérifier.
+- Photos/vidéos/PDF restent désactivés dans l’application tant qu’un stockage S3 privé et ClamAV ne sont pas configurés. Le transcodage des vidéos n’est pas implémenté; ne pas ouvrir l’envoi au public avant retrait des métadonnées par un pipeline vidéo validé.
+- Le fil, groupes, profil, commentaires, réactions, partage, enregistrements, liens, signalements, événements et sondages sont livrés. Les lives, stories, messagerie privée, partage de documents dans les groupes et contacts/amis ne sont pas livrés. Aucune fausse commande visuelle ne doit être présentée comme active.
+- Avant usage réel : configurer puis essayer S3/ClamAV, faire vérifier le parcours sur téléphone et reprendre l’audit npm lorsque le registre est accessible.
+## Communauté — mise à jour du 8 octobre 2026
+
+- Sondages et événements ajoutés au fil : totaux agrégés, votes modifiables avant clôture, réponses événementielles modifiables avant l’heure de début.
+- Migration d’événements appliquée à la base de test `paroisse_test` uniquement. Résultats de ce passage : 33 e2e réussis, 0 échoué; lint/typecheck API, build API et build Angular réussis.
+- Les événements n’affichent pas les noms des répondants. Les comptes récents restent soumis aux limites quotidiennes; les créations et réponses ont des limites par compte.
+- Limitation restante : la présence de groupes, sondages, événements et interactions ne remplace pas une suite complète de fonctions Facebook. Aucun live, story ou message privé n’a été ajouté ici.
+- Les photos/vidéos/PDF restent désactivés tant que S3 privé et ClamAV ne sont pas configurés et testés. Aucun contenu média ne doit être présenté comme activé.
+- Le moteur Prisma Windows était verrouillé pour la génération standard; le client TypeScript a été généré dans un répertoire staging puis copié en préservant la DLL verrouillée. Fermer les serveurs Node avant de régénérer normalement sur le poste.
+## État courant — 8 octobre 2026
+
+- Vérifications actuelles : 33 e2e réussis, 0 échoué, 0 non exécuté; 29 tests unitaires API réussis. Lint/typecheck et builds API/web réussis.
+- L’API locale a été démarrée sur le port 3000 avec `TEST_DATABASE_URL`; le port web 4200 répond déjà (HTTP 200). Le port 3000 répond aussi (HTTP 200). Les identifiants de développement peuvent ne pas exister dans la base de test.
+- Playwright et les audits npm n’ont pas été relancés dans cette étape. Le stockage S3 privé, ClamAV, test de restauration, HTTPS et mise en production attendent encore une vérification humaine.
+
+- Audit des dépendances tenté le 8 octobre 2026 : `npm audit --omit=dev` et `npm audit` échouent tous deux avant analyse, car `registry.npmjs.org` ne résout pas (`ENOTFOUND`). Aucun avis nouveau ne peut être évalué; réessayer sur une connexion avec accès au registre.
+- Vérification Playwright mobile/XSS tentée après l’ajout d’événements : serveur web de test demandé sur 4300, mais il n’a pas répondu en HTTP avant expiration; les tests navigateur n’ont donc pas démarré (0 exécuté). Les vérifications précédentes restent historiques, pas une preuve de l’interface mise à jour.
+
+## Blocage de vérification — 9 octobre 2026
+
+- L’API de test a refusé la connexion à `localhost:5432` (Prisma P1001). Le diagnostic a confirmé la cible locale `paroisse_test` sans révéler d’identifiants. La migration et les scénarios e2e n’ont donc pas démarré dans ce passage; aucune migration n’a été lancée vers la base de développement.
+- Le serveur Playwright a échoué pour la même raison lors de son démarrage API; le nouveau parcours d’affichage du profil public n’a pas été validé dans un navigateur.
+- À faire sur le poste : démarrer PostgreSQL, confirmer que `TEST_DATABASE_URL` vise `paroisse_test`, puis exécuter `npm.cmd run test:e2e` et `npm.cmd run test:playwright -- tests/playwright/social-xss.spec.ts`. Garder `DATABASE_URL` inchangée.
+
+## Profils publics et XSS des groupes — 9 octobre 2026
+
+- Corrigé le démarrage Playwright : build Angular complet avant le serveur Vite; un build invalide rend maintenant le démarrage du serveur en échec. La liste de tests Playwright a été chargée (16 tests), mais aucun test navigateur n’a été exécuté par moi.
+- Ajouté les scénarios e2e profil (confidentialité, compte suspendu, masquage modération, blocage mutuel, coordonnées, nom mineur, 20 posts récents, authentification, limite de débit) et groupe (lecture/écriture hors adhésion, retrait, blocage).
+- Les scénarios e2e et navigateur sont écrits et TypeScript e2e est compilé. Ils ne sont **pas exécutés par moi** car `localhost:5432` ne répond pas. Les 35 e2e verts rapportés par l’humain n’incluent pas ces nouveaux scénarios.
+- Après avoir démarré le PostgreSQL local et vérifié la cible test, lancer dans PowerShell : `$env:NODE_OPTIONS='--max-old-space-size=4096'; npm run test:e2e --workspace @paroisse/api` puis `npx playwright test`. Les deux s’appuient sur la configuration de base de test; ne pas modifier `DATABASE_URL`.

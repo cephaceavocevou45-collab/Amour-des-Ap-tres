@@ -20,6 +20,14 @@ La file `/admin/moderation` est accessible aux rôles de modération. Chaque dé
 
 Les signalements de publications, commentaires et profils utilisent une liste de motifs fermée. Au seuil configuré, le contenu peut être masqué provisoirement automatiquement en attendant l’examen.
 
+## Sondages et événements
+
+Un membre connecté peut créer un sondage depuis **Actualités → Créer un sondage** : saisir la question, au moins deux choix distincts (six maximum), puis, si nécessaire, une date de clôture dans les 30 jours. Avant la clôture, un membre peut changer son vote; le total reste agrégé et le choix individuel n’est visible que par son auteur. La modification du vote est auditée sans enregistrer l’identité du votant dans cette trace. À la clôture, les nouveaux votes sont refusés.
+
+Pour annoncer une rencontre, choisir **Créer un événement**, renseigner un titre, une date/heure future, puis le lieu et la description facultatifs. La date doit se situer entre cinq minutes et un an dans le futur; une heure de fin facultative doit suivre le début et rester dans les 24 heures. Les membres peuvent indiquer leur réponse avant le début. L’interface et l’API n’exposent que des totaux, sans liste nominative de participants. Les comptes récents sont soumis à des quotas renforcés.
+
+Les événements et sondages signalés se traitent dans la file **Administration → Modération** selon le motif, l’historique et les permissions de l’agent. Les décisions exigent un motif et sont journalisées. Il n’existe pas d’action séparée de clôture manuelle : un sondage ferme à `closesAt`, un événement cesse d’accepter les réponses à son heure de début.
+
 ## Récupération 2FA par CLI
 
 Effectuez la récupération depuis un terminal serveur protégé, après avoir confirmé la base et généré le client Prisma. Ne copiez pas les secrets affichés dans un terminal partagé ou dans un ticket.
@@ -33,3 +41,13 @@ La récupération CLI n’est pas une désactivation de la 2FA. Si l’opérateu
 ## Photos
 
 La fonction est désactivée par défaut. Ne positionnez `SOCIAL_PHOTOS_ENABLED=true` qu’après configuration d’un stockage S3 privé et de ClamAV, puis après les essais d’exploitation décrits dans [MEDIA_CONFIGURATION.md](MEDIA_CONFIGURATION.md). Il n’existe pas d’activation sûre par simple bascule locale.
+
+### Profils membres — 9 octobre 2026
+
+Dans le fil communautaire, sélectionnez le nom d’un auteur pour ouvrir sa fiche publique. La fiche montre uniquement sa présentation et ses publications publiques récentes. Un profil non découvrable ou bloqué n’est pas accessible. Les photos de profil ne sont pas encore activées; l’avatar utilise les initiales. Le réglage « découverte du profil » contrôle la visibilité de cette fiche.
+
+### Accès profil public et groupes — 9 octobre 2026
+
+Le profil membre public est accessible depuis le nom sous ses publications, si le membre autorise sa découverte et qu’aucun blocage ou masquage de modération ne s’applique. Il n’affiche que sa présentation et ses 20 publications publiques les plus récentes. Les mineurs sont affichés comme « Membre fidèle ». Dans un groupe privé, une personne doit être acceptée comme membre pour lire ou publier; une personne retirée perd cet accès.
+
+Les nouveaux e2e de ces règles attendent une base de test démarrée. Ne considérez pas le profil ou les contrôles récents de groupes comme vérifiés en base tant que `npm run test:e2e --workspace @paroisse/api` n’a pas été exécuté avec succès.

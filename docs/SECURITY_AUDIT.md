@@ -1,5 +1,26 @@
 # Audit de sécurité — Paroisse Amour des Apôtres
 
+## État courant — 8 octobre 2026
+
+La suite PostgreSQL e2e est à **33 réussis, 0 échoué, 0 non exécuté**; les tests unitaires API sont à **29/29**. Lint/typecheck API, builds API et Angular réussis. Les migrations de groupes, sondages et événements sont appliquées sur `paroisse_test` uniquement; aucune migration de développement n’a été lancée. L’API de prévisualisation actuellement démarrée utilise `TEST_DATABASE_URL`. L’audit npm n’a pas été relancé dans cette étape; Playwright n’a pas été relancé. Les médias restent désactivés sans stockage privé et antivirus réels.
+
+## Communauté — extension groupes et médias — 8 octobre 2026
+
+- Le fil affiche les liens HTTP(S) saisis dans une publication comme des liens externes, sans récupérer les pages distantes côté serveur. Les protocoles non HTTP(S) et les URL contenant identifiants/mots de passe ne sont pas affichés comme liens.
+- Les groupes comprennent création, adhésion publique, demande privée, validation par le propriétaire, départ et suppression par le propriétaire. Les routes sont authentifiées, limitées aux rôles communautaires, protégées par le rate limiter et les actions de création/validation/suppression sont auditées. Ces nouvelles routes n’ont pas encore été couvertes par des e2e.
+- Les médias comprennent images réencodées, vidéos MP4/WebM et PDF en pièce jointe. Le dépôt reste conditionné au stockage S3 privé et à ClamAV. Les fichiers sont privés, contrôlés côté serveur, limités à 10 Mo et ne sont pas servis depuis un bucket public. PDF est forcé en téléchargement.
+- **Risque résiduel média :** les vidéos sont conservées telles quelles après signature et antivirus et peuvent contenir des métadonnées de localisation. Le transcodage/suppression des métadonnées reste requis avant ouverture générale. Le drapeau de médias doit rester désactivé jusqu’à configuration et validation de S3/ClamAV.
+- **Vérifications de cette étape :** lint API/web et builds API/web réussis. La validation Prisma du schéma passe. Prisma Client n’a pas pu être régénéré (`EPERM` sur le moteur Windows); `migrate deploy` n’a pas pu se connecter au serveur d’essai et aucune nouvelle migration n’a été appliquée. La base de développement n’a pas été ciblée.
+- **État de mise en service :** groupes et nouveaux médias ne sont pas certifiés opérationnels avant génération du client Prisma, application de migrations sur `paroisse_test` et e2e dédiés.
+
+## Relance e2e après diagnostic mémoire — 8 octobre 2026
+
+- **E2E PostgreSQL : 29 réussis, 0 échoué, 0 non exécuté** sur `paroisse_test`; 16 migrations appliquées, aucune en attente. Le runner exécute chaque fichier dans un nouveau processus avec `--runInBand` et plafond Node de 4096 Mo.
+- Les tests couvrent limites d’inscription par IP/e-mail, CAPTCHA (absent/invalide refusés, jeton de test valide accepté), quotas nouveaux comptes (3 publications/24 h, photo et partage refusés) et refus d’accès sensible au compte FIDELE non confirmé.
+- **Cause mémoire corrigée :** Prisma se déconnecte au teardown Nest (`OnModuleDestroy`), les journaux e2e sont bornés à 2 000 entrées et vidés en fin de suite, et le limiteur mémoire reste borné à 10 000 compartiments avec purge des entrées expirées. Aucun cycle de création non nettoyé identifié.
+- Vérifications après ces modifications : unitaires API 29/29, tests outils 3/3, lint API et build API réussis.
+- Deux essais antérieurs de cette session ont rencontré des erreurs d’allocation; ils ne sont pas comptés comme résultat final. Le passage propre de 29/29 est la référence.
+
 ## Vérifications ciblées — 8 octobre 2026 (session actuelle)
 
 - **Correctifs code/tests :** `SocialModerationStatus[]` est utilisé pour les états ouverts, sans changement de logique. Les mocks unitaires couvrent `userNotification` et `socialPostMedia`. Le test d’inscription vérifie désormais le texte exact du message d’accueil (Psaume 119:105). Un test garantit que Swagger n’est pas monté en production.
@@ -381,3 +402,51 @@ Les noms de présence sont protégés par jour selon les e2e d’IDOR et de cons
 `prisma generate` standard a rencontré sous Windows un verrou `EPERM` en remplaçant le moteur natif. La génération de types sans moteur a permis la compilation et les e2e utilisent le client déjà généré. Fermer les processus Node puis régénérer le moteur natif avant une livraison Windows.
 
 Après cette mise à jour, lint et builds API/Angular ont réussi, et la suite dédiée a été relancée : **21/21 e2e**. Le scénario concurrent a cette fois mis en évidence que l’ajout et la soumission ne verrouillaient pas explicitement la même ligne avant de compter. Les opérations ajout/soumission verrouillent maintenant la ligne AttendanceSheet dans leur transaction via un SELECT FOR UPDATE paramétré; l’assertion des totaux reste inchangée et le test passe.
+
+### Communauté — groupes, conversations et médias — 8 octobre 2026 (état de ce tour)
+
+Les migrations `20261012000000_social_groups`, `20261013000000_social_video_and_documents` et `20261014000000_social_group_discussions` ont été appliquées avec `prisma migrate deploy` à `paroisse_test` uniquement. Le client Prisma généré en staging reconnaît les tables; une lecture seule a confirmé que le modèle `SocialGroupPost` répond. La base de développement n’a pas été ciblée.
+
+Les membres peuvent créer des groupes publics/privés, rejoindre ou demander l’accès, valider les demandes de leur propre groupe, quitter ou supprimer leur groupe, publier des messages textuels et commenter. L’API exige l’appartenance au groupe pour toute lecture/écriture; un groupe privé ne révèle ses échanges qu’à ses membres. Les blocages mutuels sont appliqués dans les échanges et commentaires. La suppression d’un échange est limitée à son auteur ou au responsable du groupe. Les actions du fil principal (texte, réactions, commentaires, liens et enregistrement) restent distinctes des groupes.
+
+Dans le fil principal, l’interface prend en charge le texte et les pièces jointes photo, vidéo MP4/WebM et PDF, ainsi qu’un aperçu sûr de lien HTTP(S). Les médias restent désactivés tant que stockage S3 privé et ClamAV ne sont pas réellement configurés; aucune activation n’a été faite dans `.env`. Les vidéos sont analysées mais non transcodées et peuvent garder des métadonnées personnelles. Les PDF sont fournis en téléchargement. Les photos sont réencodées en WebP sans EXIF.
+
+Vérification de ce tour : `tsc --noEmit` API/web et `nest build`/`ng build` réussis; `git diff --check` réussi après nettoyage du fichier staging. La suite e2e a été relancée après ajout d’un scénario d’accès aux groupes : 30/30 réussis sur PostgreSQL de test. Le nouveau scénario vérifie qu’un membre non accepté et un non-membre reçoivent 404, qu’un membre accepté peut publier/commenter, que la clé d’idempotence évite les doublons et que bloquer le responsable masque ses messages et commentaires. Les téléchargements médias réels et les limites de débit des groupes restent à valider. Il reste aussi à valider S3, ClamAV et le transcodage vidéo avec des services réels avant toute ouverture des médias.
+
+Ce livrable est une communauté paroissiale inspirée des usages courants d’un fil social; il ne prétend pas reproduire toutes les fonctions Facebook. Les lives, stories, messagerie privée, partage de documents dans les groupes et contacts/amis restent hors du code livré. Leur réalisation exige des modules et contrôles séparés; aucun bouton factice n’est ajouté pour faire croire qu’ils sont actifs.
+### Communauté — sondages et événements — 8 octobre 2026
+
+Ajout des sondages publics (2 à 6 choix, changement de vote, date de clôture facultative) et des événements paroissiaux (titre, date/heure, lieu facultatif, réponses « Je participe / Intéressé / Je ne peux pas »). Les réponses ne renvoient que des totaux agrégés et le choix propre au membre; aucune liste de participants n’est exposée. Les accès passent par l’authentification membre, les publications visibles, les blocages et les sanctions existantes. Idempotence et limites de débit par compte sont appliquées.
+
+La migration `20261016000000_social_events` a été appliquée par `prisma migrate deploy` uniquement à `paroisse_test`. `DATABASE_URL` n’a pas été utilisée pour une migration. Vérifications après ces changements : lint API/typecheck, build API et build web réussis; e2e PostgreSQL de test : **33 réussis, 0 échoué**. Le test ajouté valide la date, les rôles, l’agrégation et la modification d’une réponse.
+
+Les événements et sondages sont des fonctions paroissiales ciblées; ils ne constituent pas une parité complète avec Facebook. Les médias restent désactivés sans S3 privé et ClamAV réels. Les vidéos sans transcodage sûr, lives, stories et messages privés restent hors périmètre de cette version.
+
+Audit npm et vérification navigateur — 8 octobre 2026 : `npm audit --omit=dev` et `npm audit` ont échoué avant obtention d’avis avec `ENOTFOUND registry.npmjs.org`. Playwright a été lancé pour les écrans mobiles/XSS; son serveur éphémère sur le port 4300 n’a pas répondu avant expiration, donc 0 test navigateur exécuté dans cette mise à jour. Une vérification humaine sur réseau fonctionnel est nécessaire.
+
+### Consolidation sécurité — résultat vérifié le 8 octobre 2026
+
+- **Présences, comptes, authentification, quotas et modération :** 35/35 e2e réussis sur `TEST_DATABASE_URL` (`paroisse_test`); 21 migrations déjà appliquées, aucune migration exécutée vers la base de développement. Cela comprend votes uniques avec contrainte de base, journal d’un changement de vote sans identifiant de membre, sondages clôturés et privés/bloqués refusés, totaux sans liste de votants, quotas de comptes récents, dates et longueurs d’événements, refus RSVP d’un compte suspendu et limites de débit.
+- **XSS navigateur :** un parcours Playwright vérifie les publications, commentaires, question et options de sondage, titre/lieu/description d’événement, nom affiché, présentation et motifs de signalement. Les balises et liens hostiles sont affichés comme texte sans exécution. Les motifs sont limités à cinq valeurs fixes et ne comportent pas de champ de texte libre. Le test inclut les charges `<script>`, attributs d’événement, `javascript:` et image `onerror`.
+- **Présentation/accessibilité vérifiées :** 16/16 tests Playwright réussis; 12 routes sans débordement horizontal à 360 px, navigation menu au clavier sur téléphone et ordinateur, et contraste AA calculé pour les textes essentiels de la communauté. Cette vérification de contraste ne constitue pas un audit exhaustif de chaque composant de toutes les pages.
+- **Validation code :** `npm run lint` (TypeScript API et web), `npm test` (29 tests unitaires API et 3 tests outils) et `npm run build` (Nest puis Angular, en série) réussis. Le lancement parallèle des builds épuisait la mémoire; le script racine a été rendu séquentiel.
+- **Risque résiduel dépendances — reporté :** les deux commandes npm audit (`--omit=dev` et complète) échouent sur `ENOTFOUND registry.npmjs.org` avant de recevoir les avis. Aucune conclusion de sécurité des dépendances ne peut être tirée; relancer les audits sur un réseau ayant accès au registre puis traiter les avis critiques/hauts.
+- **Risque résiduel opérationnel :** les médias restent désactivés tant que S3 privé et ClamAV ne sont pas réellement configurés et testés. HTTPS, restauration de sauvegarde, test d’exploitation externe, et revue humaine des contrastes et textes sur tous les écrans restent nécessaires avant la production.
+
+## Profil membre public — 9 octobre 2026
+
+Les fidèles découvrables peuvent maintenant être ouverts depuis le nom d’auteur d’une publication. La fiche présente le nom d’affichage, la présentation et au plus 20 publications publiques récentes. Elle n’inclut ni coordonnées privées ni publications « Moi seul ». L’API refuse les profils non découvrables, suspendus, masqués par une sanction de modération, et les profils bloqués dans l’un ou l’autre sens. La vue utilise l’interpolation Angular pour afficher le texte sans interpréter le HTML.
+
+Le test e2e dédié a été ajouté pour la visibilité, la confidentialité des champs, les publications privées et le blocage. Il n’a pas pu être exécuté dans cet environnement : PostgreSQL local sur le port 5432 ne répond pas, Prisma a donc échoué avant le démarrage des scénarios. Résultat de cette tentative : **0 e2e exécuté, 0 réussi, 0 échoué**. Les 29 tests unitaires API, les typechecks et les builds API/web passent.
+
+Les comptes ne peuvent pas encore définir un nom d’affichage libre ni ajouter une photo de profil. Les avatars restent des initiales. Les fonctions de modération existaient déjà avant ce changement; leur suite e2e n’a pas été rejouée faute de PostgreSQL disponible. Les médias d’actualité restent désactivés sans S3 privé, antivirus ClamAV et pipeline vidéo validés. Messagerie privée, stories et directs ne sont pas implémentés.
+
+## Contrôles profils et groupes — 9 octobre 2026
+
+Le profil public applique une limite de 30 lectures par membre sur 10 minutes. Les scénarios e2e couvrent maintenant les profils non découvrables, suspendus, masqués par la modération et bloqués dans chacun des deux sens; les réponses vérifient le filtrage des coordonnées, l’anonymisation du nom des mineurs, les 20 publications publiques les plus récentes et le refus sans authentification. Un scénario vérifie aussi la limite de débit.
+
+La discussion privée de groupe est couverte par des cas d’accès lecture/écriture refusés pour les non-membres et demandes en attente, retrait d’adhésion, blocage entre membres, et transport de texte hostile. Le navigateur doit vérifier son rendu comme texte. Le profil et les discussions de groupe ont des cas Playwright XSS qui contrôlent le contenu rendu et les éléments HTML injectés.
+
+Playwright exécute désormais `ng build` avant `ng serve`; un échec de compilation arrête le serveur de test au lieu de laisser l’exécution continuer. `npx playwright test --list` a reconnu 16 tests (liste uniquement; aucun test lancé).
+
+Vérifications effectuées par Codex : lint/typecheck, `npm test` (29 tests API et 3 tests outils), `npm run build` (API et Angular), et compilation TypeScript du fichier e2e : réussis. La base locale n’étant pas joignable, les e2e et les tests navigateur ne sont **pas exécutés par moi**. Les 35 e2e annoncés par l’humain sont des résultats antérieurs et ne couvrent pas les nouveaux tests de profil/groupes.

@@ -1,6 +1,6 @@
-# Activer les photos des Actualités
+# Activer les médias des Actualités
 
-Le dépôt des photos est désactivé tant que le stockage privé et l’antivirus ne sont pas configurés. L’interface masque alors le bouton d’envoi; aucun fichier n’est accepté par l’API sans ces deux services.
+Le dépôt des photos, vidéos et PDF est désactivé tant que le stockage privé et l’antivirus ne sont pas configurés. L’interface masque alors le bouton d’envoi; aucun fichier n’est accepté par l’API sans ces deux services. `SOCIAL_MEDIA_ENABLED=true` active le dépôt lorsque les services sont prêts. L’ancien `SOCIAL_PHOTOS_ENABLED=true` reste accepté pour compatibilité.
 
 ## Services requis
 
@@ -10,9 +10,9 @@ Le dépôt des photos est désactivé tant que le stockage privé et l’antivir
 
 ## Traitement appliqué
 
-L’API limite chaque fichier à 10 Mo et chaque publication à quatre images. Elle inspecte les signatures JPEG, PNG et WebP, les décode avec Sharp, rejette les images animées et les images dépassant 40 mégapixels, les réoriente, les réduit à 2 400 pixels et les réencode en WebP sans recopier les métadonnées EXIF. Le stockage utilise le chiffrement serveur AES-256 lorsqu’il est offert par le fournisseur. Les identifiants des objets ne sont jamais renvoyés au navigateur; la lecture passe par l’API après vérification de la session, du statut du compte, de la visibilité, du masquage et des blocages.
+L’API limite chaque fichier à 10 Mo et chaque publication à quatre fichiers. Elle inspecte les signatures JPEG, PNG et WebP, les décode avec Sharp, rejette les images animées et les images dépassant 40 mégapixels, les réoriente, les réduit à 2 400 pixels et les réencode en WebP sans recopier les métadonnées EXIF. Les vidéos MP4/WebM sont reconnues par leur signature et analysées par ClamAV; les PDF sont transmis comme pièces jointes, jamais affichés dans l’application. Les vidéos ne sont pas encore réencodées : elles peuvent conserver des métadonnées de localisation. Les fidèles doivent vérifier leurs fichiers avant l’envoi; un transcodage qui retire les métadonnées reste nécessaire avant une mise en production ouverte au public. Le stockage utilise le chiffrement serveur AES-256 lorsqu’il est offert par le fournisseur. Les identifiants des objets ne sont jamais renvoyés au navigateur; la lecture passe par l’API après vérification de la session, du statut du compte, de la visibilité, du masquage et des blocages.
 
-La migration `20261008000100_social_post_media` crée les métadonnées, avec des contraintes sur le type de sortie, la taille et les dimensions. Elle a été appliquée à `paroisse_test` par les tests e2e. Les secrets de stockage ne doivent jamais être ajoutés au dépôt ou envoyés dans une conversation.
+La migration `20261008000100_social_post_media` crée les métadonnées. La migration `20261013000000_social_video_and_documents` autorise les vidéos et les PDF tout en conservant les limites de taille et les contrôles MIME. Les secrets de stockage ne doivent jamais être ajoutés au dépôt ou envoyés dans une conversation.
 
 ## Vérification
 
