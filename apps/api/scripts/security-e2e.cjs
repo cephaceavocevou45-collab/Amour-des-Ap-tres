@@ -46,6 +46,12 @@ function run(args) {
   return result.status ?? 1;
 }
 
+const generateStatus = run([
+  path.join(root, 'apps/api/scripts/prisma-cli.cjs'),
+  'generate', '--schema', 'apps/api/prisma/schema.prisma',
+]);
+if (generateStatus !== 0) process.exit(generateStatus);
+
 const migrationStatus = run([
   path.join(root, 'apps/api/scripts/prisma-cli.cjs'),
   'migrate', 'deploy', '--schema', 'apps/api/prisma/schema.prisma',
@@ -62,7 +68,8 @@ function findE2eFiles(directory) {
 
 const jest = path.join(root, 'node_modules/jest/bin/jest.js');
 const config = path.join(root, 'apps/api/test/jest-e2e.json');
-const files = findE2eFiles(path.join(root, 'apps/api/test')).sort();
+const onlyFile = process.argv.find((argument) => argument.startsWith('--only='))?.slice('--only='.length);
+const files = findE2eFiles(path.join(root, 'apps/api/test')).filter((file) => !onlyFile || path.basename(file) === onlyFile).sort();
 if (files.length === 0) {
   console.error('Aucun fichier e2e trouvé.');
   process.exit(2);

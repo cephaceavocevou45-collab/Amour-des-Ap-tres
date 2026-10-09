@@ -144,3 +144,15 @@ Phase 1 terminée et validée : **24/24 e2e, 28/28 unitaires, lint/typecheck API
 - Ajouté les scénarios e2e profil (confidentialité, compte suspendu, masquage modération, blocage mutuel, coordonnées, nom mineur, 20 posts récents, authentification, limite de débit) et groupe (lecture/écriture hors adhésion, retrait, blocage).
 - Les scénarios e2e et navigateur sont écrits et TypeScript e2e est compilé. Ils ne sont **pas exécutés par moi** car `localhost:5432` ne répond pas. Les 35 e2e verts rapportés par l’humain n’incluent pas ces nouveaux scénarios.
 - Après avoir démarré le PostgreSQL local et vérifié la cible test, lancer dans PowerShell : `$env:NODE_OPTIONS='--max-old-space-size=4096'; npm run test:e2e --workspace @paroisse/api` puis `npx playwright test`. Les deux s’appuient sur la configuration de base de test; ne pas modifier `DATABASE_URL`.
+
+## Remplacement de la communauté — état vérifié le 9 octobre 2026
+
+Le serveur Playwright de consolidation démarre désormais depuis le setup global après un build Angular, sur son port dédié; les 16 tests navigateur ont passé. Les e2e API ont passé 26/26 sur `TEST_DATABASE_URL` après migration. Les commandes racine `npm test`, `npm run lint` et `npm run build` ont passé au même état de code.
+
+La migration `20261019000000_replace_legacy_community` retire les anciennes tables du fil communautaire lorsqu’elle est déployée. Elle n’a été appliquée qu’à `paroisse_test`. Avant de l’appliquer à une base contenant les anciennes publications, sondages, événements ou groupes, un humain doit sauvegarder cette base et confirmer que leur suppression est voulue. Les résultats locaux ne certifient pas l’infrastructure de production.
+
+Toujours à faire par un humain avant mise en service : rejouer `npm audit --omit=dev` et `npm audit` quand le registre npm est accessible, vérifier la restauration d’une sauvegarde chiffrée, configurer HTTPS et les secrets de production, faire une revue de conservation des messages, et tester sur les appareils réels. Les pièces jointes restent indisponibles jusqu’à configuration et validation de S3 privé, ClamAV et traitement sûr des médias.
+
+La relance finale du 9 octobre 2026 a réussi : 26/26 e2e, 17/17 Playwright (dont panneau des détails sur téléphone), 29 tests unitaires API + 3 tests outils, lint et builds API/web. La migration destructive de remplacement reste appliquée uniquement sur la base de test.
+
+Audit npm final, 9 octobre 2026 : `npm audit --omit=dev --audit-level=high` et `npm audit --audit-level=high` ont échoué avant l’analyse (`audit endpoint returned an error`, requête bulk au registre sans réponse exploitable). npm n’a pas non plus pu écrire son journal dans son dossier local de cache. Il n’y a donc aucun résultat de vulnérabilités exploitable pour cette exécution; recommencer depuis une machine avec accès au registre et un cache npm inscriptible.

@@ -10,8 +10,6 @@ import { CsrfGuard } from '../src/csrf.guard';
 import { decryptTotpSecret, encryptTotpSecret } from '../src/totp';
 import * as attendanceModule from '../src/attendance';
 import { completeAdminTwoFactorEnrollment, prepareAdminTwoFactorEnrollment, resetAdminTwoFactor } from '../scripts/admin-2fa-operations';
-import { S3Client } from '@aws-sdk/client-s3';
-import { SocialMediaService } from '../src/social-media';
 
 jest.setTimeout(120_000);
 let app:any,prisma:PrismaService,baseUrl:string;
@@ -50,7 +48,7 @@ beforeAll(async()=>{
 });
 afterAll(async()=>{
   try{
-    if(prisma){await prisma.socialSanction.deleteMany({where:{OR:[{createdById:{in:userIds}},{targetUserId:{in:userIds}}]}});await prisma.socialModerationEvent.deleteMany({where:{actorId:{in:userIds}}});await prisma.socialReport.deleteMany({where:{reporterId:{in:userIds}}});await prisma.socialModerationCase.deleteMany({where:{targetAuthorId:{in:userIds}}});await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
+    if(prisma){await prisma.communityConversation.deleteMany({where:{OR:[{createdById:{in:userIds}},{members:{some:{userId:{in:userIds}}}}]}});await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
   }finally{
     try{if(app)await app.close();}finally{if(prisma)await prisma.$disconnect();observedLogs.length=0;sensitiveCanaries.clear();jest.restoreAllMocks();}
   }
@@ -234,7 +232,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   });
 
   it('shows totals only by default; named admin access requires a reason and is logged',async()=>{
-    const historicalDate=new Date(Date.parse(`${localDate()}T00:00:00Z`)-2*86400000).toISOString().slice(0,10),sheet=await addSheet(SheetType.GROUPE_SEMAINE,historicalDate),entry=await prisma.attendanceEntry.create({data:{sheetId:sheet.id,clientUuid:randomUUID(),fullName:'Private attendee',normalizedName:'private attendee',sex:'F',zone:'SALLE_VISION'}}),admin=await addUser(UserRole.ADMIN),token=jwt(admin);
+    const historicalDate=new Date(Date.parse(`${localDate()}T00:00:00Z`)-(2+Math.floor(Math.random()*300))*86400000).toISOString().slice(0,10),sheet=await addSheet(SheetType.GROUPE_SEMAINE,historicalDate),entry=await prisma.attendanceEntry.create({data:{sheetId:sheet.id,clientUuid:randomUUID(),fullName:'Private attendee',normalizedName:'private attendee',sex:'F',zone:'SALLE_VISION'}}),admin=await addUser(UserRole.ADMIN),token=jwt(admin);
     const totals=await call(`/attendance/sheets/${sheet.id}/summary`,{token});expect(totals.status).toBe(200);expect(totals.body.entries).toEqual([]);expect(totals.body.totals.total).toBe(1);
     expect((await call('/attendance/week?start=2020-01-06',{token})).status).toBe(400);expect((await call('/attendance/week?start=2030-01-07',{token})).status).toBe(400);
     expect((await call(`/attendance/sheets/${sheet.id}/names/access`,{method:'POST',token,body:{}})).status).toBe(400);
@@ -372,252 +370,9 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect(source).not.toMatch(/localStorage\.setItem\(['"]paroisse_(?:access|refresh)_token/);
   });
 
-  it('enforces social post ownership, privacy, member roles, idempotency, blocks and escaped text transport',async()=>{
-    const author=await addUser(UserRole.FIDELE),reader=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),admin=await addUser(UserRole.ADMIN),moderator=await addUser(UserRole.MODERATEUR),authorToken=jwt(author),readerToken=jwt(reader),adminToken=jwt(admin),moderatorToken=jwt(moderator);
-    const ownProfile=await call('/social/profile',{token:authorToken});expect(ownProfile.status).toBe(200);expect(ownProfile.body).toHaveProperty('displayName');expect(ownProfile.body).not.toHaveProperty('email');expect(ownProfile.body).not.toHaveProperty('phone');expect(ownProfile.body).not.toHaveProperty('dateOfBirth');
-    expect((await call('/social/profile',{method:'PATCH',token:authorToken,body:{bio:'Je participe à la vie de la paroisse.'}})).body.bio).toBe('Je participe à la vie de la paroisse.');
-    expect((await call('/social/profile',{method:'PATCH',token:authorToken,body:{bio:'a'.repeat(501)}})).status).toBe(400);
-    expect((await call('/social/profile',{method:'PATCH',token:adminToken,body:{bio:'Non autorisé'}})).status).toBe(403);
-    const key=`post_${randomUUID()}`,body='<script>alert("x")</script> Bonjour';
-    const publicPost=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':key},body:{body,visibility:'TOUS_LES_FIDELES'}});
-    expect(publicPost.status).toBe(201);expect(publicPost.body.body).toBe(body);
-    const comment=await call(`/social/posts/${publicPost.body.id}/comments`,{method:'POST',token:readerToken,body:{body:'Un commentaire'}});expect(comment.status).toBe(201);
-    const reply=await call(`/social/posts/${publicPost.body.id}/comments`,{method:'POST',token:authorToken,body:{body:'Une réponse',parentId:comment.body.id}});expect(reply.status).toBe(201);expect(reply.body.parentId).toBe(comment.body.id);
-    expect((await call('/social/reactions',{method:'POST',token:authorToken,body:{targetType:'comment',targetId:comment.body.id,type:'COEUR',active:true}})).status).toBe(201);
-    expect((await call(`/social/posts/${publicPost.body.id}/share`,{method:'POST',token:readerToken,body:{body:'À partager'}})).status).toBe(201);
-    expect((await call(`/social/posts/${publicPost.body.id}/save`,{method:'POST',token:readerToken,body:{saved:true}})).status).toBe(201);
-    await prisma.socialSavedPost.create({data:{userId:author.id,postId:publicPost.body.id}});
-    expect((await call(`/social/posts/${publicPost.body.id}/save`,{method:'POST',token:readerToken,body:{saved:false}})).status).toBe(201);
-    expect(await prisma.socialSavedPost.count({where:{userId:author.id,postId:publicPost.body.id}})).toBe(1);
-    expect(await prisma.socialShare.count({where:{userId:reader.id,postId:publicPost.body.id}})).toBe(1);
-    expect((await call('/social/settings',{method:'PATCH',token:readerToken,body:{notificationsEnabled:false}})).status).toBe(200);
-    expect((await call('/social/settings',{token:readerToken})).body.notificationsEnabled).toBe(false);
-    expect((await call(`/social/posts/${publicPost.body.id}/pin`,{method:'POST',token:adminToken,body:{pinned:true}})).status).toBe(201);
-    const replay=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':key},body:{body,visibility:'TOUS_LES_FIDELES'}});expect(replay.status).toBe(201);expect(replay.body.id).toBe(publicPost.body.id);
-    expect((await call(`/social/posts/${publicPost.body.id}`,{method:'PATCH',token:readerToken,body:{body:'Altéré',visibility:'TOUS_LES_FIDELES'}})).status).toBe(404);
-    expect((await call(`/social/posts/${publicPost.body.id}`,{method:'DELETE',token:readerToken})).status).toBe(404);
-    expect((await call(`/social/comments/${comment.body.id}`,{method:'DELETE',token:authorToken})).status).toBe(404);
-    expect((await call('/social/posts',{method:'POST',token:adminToken,headers:{'Idempotency-Key':`admin_${randomUUID()}`},body:{body:'Rôle refusé',visibility:'TOUS_LES_FIDELES'}})).status).toBe(403);
-    expect((await call('/social/posts',{method:'POST',token:moderatorToken,headers:{'Idempotency-Key':`mod_${randomUUID()}`},body:{body:'Rôle refusé',visibility:'TOUS_LES_FIDELES'}})).status).toBe(403);
-    const privatePost=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`private_${randomUUID()}`},body:{body:'Pour moi seul',visibility:'MOI_SEUL'}});expect(privatePost.status).toBe(201);
-    expect((await call('/social/posts',{token:readerToken})).body.items.some((item:any)=>item.id===privatePost.body.id)).toBe(false);
-    expect((await call(`/social/posts/${privatePost.body.id}/comments`,{token:readerToken})).status).toBe(404);
-    expect((await call(`/social/posts/${privatePost.body.id}`,{method:'PATCH',token:readerToken,body:{body:'Test',visibility:'MOI_SEUL'}})).status).toBe(404);
-    expect((await call('/social/reactions',{method:'POST',token:readerToken,body:{targetType:'post',targetId:publicPost.body.id,type:'AIME',active:true}})).status).toBe(201);
-    expect((await call(`/social/posts/${publicPost.body.id}/hide`,{method:'POST',token:readerToken})).status).toBe(201);
-    expect(await prisma.socialHiddenPost.count({where:{userId:reader.id,postId:publicPost.body.id}})).toBe(1);
-    expect(await prisma.socialReaction.count({where:{userId:reader.id,targetKey:`post:${publicPost.body.id}`,type:'AIME'}})).toBe(1);
-    expect((await call(`/social/blocks/${author.id}`,{method:'POST',token:readerToken})).status).toBe(201);
-    const feed=await call('/social/posts',{token:readerToken});expect(feed.status).toBe(200);expect(feed.body.items.some((item:any)=>item.id===publicPost.body.id)).toBe(false);
-    expect((await call(`/social/posts/${publicPost.body.id}/comments`,{token:readerToken})).status).toBe(404);
-    const reversePost=await call('/social/posts',{method:'POST',token:readerToken,headers:{'Idempotency-Key':`reverse_${randomUUID()}`},body:{body:'Post du bloqueur',visibility:'TOUS_LES_FIDELES'}});expect(reversePost.status).toBe(201);
-    const reverseFeed=await call('/social/posts',{token:authorToken});expect(reverseFeed.status).toBe(200);expect(reverseFeed.body.items.some((item:any)=>item.id===reversePost.body.id)).toBe(false);
-    expect((await call(`/social/posts/${reversePost.body.id}/comments`,{token:authorToken})).status).toBe(404);
-    expect((await call('/social/reactions',{method:'POST',token:readerToken,body:{targetType:'post',targetId:publicPost.body.id,type:'AIME',active:true}})).status).toBe(404);
-    expect((await call(`/social/members/${author.id}`,{token:readerToken})).status).toBe(404);
-    const fs=require('node:fs'),ui=fs.readFileSync(require('node:path').resolve(__dirname,'../../web/src/app/social-home.component.ts'),'utf8');expect(ui).not.toMatch(/innerHTML|bypassSecurityTrustHtml/);
-  });
-
-  it('creates public polls with bounded choices, one changeable vote per member and protected results',async()=>{
-    const author=await addUser(UserRole.FIDELE),voter=await addUser(UserRole.FIDELE),editor=await addUser(UserRole.EDITEUR),authorToken=jwt(author),voterToken=jwt(voter),editorToken=jwt(editor);
-    const first=await call('/social/polls',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`poll-${randomUUID()}`},body:{body:'Quel moment choisir pour la rencontre ?',options:['Après le culte','Samedi matin','après le culte']}});
-    expect(first.status).toBe(400);
-    const created=await call('/social/polls',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`poll-${randomUUID()}`},body:{body:'Quel moment choisir pour la rencontre ?',options:['Après le culte','Samedi matin']}});
-    expect(created.status).toBe(201);expect(created.body.poll.totalVotes).toBe(0);expect(created.body.poll.options).toHaveLength(2);
-    const pollId=created.body.poll.id,options=created.body.poll.options;
-    expect((await call(`/social/polls/${pollId}`,{token:editorToken})).status).toBe(403);
-    const firstVote=await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:options[0].id}});expect(firstVote.status).toBe(201);expect(firstVote.body.totalVotes).toBe(1);expect(firstVote.body.userVote).toBe(options[0].id);
-    const changedVote=await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:options[1].id}});expect(changedVote.status).toBe(201);expect(changedVote.body.totalVotes).toBe(1);expect(changedVote.body.userVote).toBe(options[1].id);expect(changedVote.body.options[1].votes).toBe(1);
-    expect(await prisma.socialPollVote.count({where:{pollId,userId:voter.id}})).toBe(1);
-    const voteAudit=await prisma.auditLog.findFirst({where:{action:'SONDAGE_VOTE_MODIFIE',entity:'SocialPoll',entityId:pollId},orderBy:{createdAt:'desc'}});expect(voteAudit).toBeTruthy();expect(voteAudit?.userId).toBeNull();expect(JSON.stringify(voteAudit)).not.toContain(voter.id);
-    expect(changedVote.body).not.toHaveProperty('votes');expect(changedVote.body).not.toHaveProperty('voters');expect(JSON.stringify(changedVote.body)).not.toContain(voter.id);
-    const expired=await call('/social/polls',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`poll-${randomUUID()}`},body:{body:'Sondage expiré',options:['Oui','Non'],closesAt:new Date(Date.now()-60_000).toISOString()}});expect(expired.status).toBe(400);
-    expect((await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:'not-an-option'}})).status).toBe(400);
-    await prisma.socialPoll.update({where:{id:pollId},data:{closesAt:new Date(Date.now()-1000)}});
-    expect((await call(`/social/polls/${pollId}/vote`,{method:'POST',token:voterToken,body:{optionId:options[0].id}})).status).toBe(409);
-    const privatePost=await prisma.socialPost.create({data:{authorId:author.id,body:'Sondage privé',visibility:'MOI_SEUL',idempotencyKey:`private-poll-${randomUUID()}`}});
-    const privatePoll=await prisma.socialPoll.create({data:{postId:privatePost.id,options:{create:[{text:'Oui',position:0},{text:'Non',position:1}]}}});
-    expect((await call(`/social/polls/${privatePoll.id}`,{token:voterToken})).status).toBe(404);
-    const blockedAuthor=await addUser(UserRole.FIDELE),blockedPost=await prisma.socialPost.create({data:{authorId:blockedAuthor.id,body:'Sondage masqué',visibility:'TOUS_LES_FIDELES',idempotencyKey:`blocked-poll-${randomUUID()}`}});
-    const blockedPoll=await prisma.socialPoll.create({data:{postId:blockedPost.id,options:{create:[{text:'Oui',position:0},{text:'Non',position:1}]}}});
-    await prisma.socialBlock.create({data:{blockerId:voter.id,blockedId:blockedAuthor.id}});
-    expect((await call(`/social/polls/${blockedPoll.id}`,{token:voterToken})).status).toBe(404);
-  });
-
-  it('applies new-account voting quotas without listing voters or exposing private and blocked polls',async()=>{
-    const author=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),newMember=await addUser(UserRole.FIDELE),token=jwt(newMember),polls:string[]=[];
-    for(let index=0;index<6;index++){
-      const post=await prisma.socialPost.create({data:{authorId:author.id,body:`Quota sondage ${index}`,visibility:'TOUS_LES_FIDELES',idempotencyKey:`quota-poll-${index}-${randomUUID()}`}});
-      const poll=await prisma.socialPoll.create({data:{postId:post.id,options:{create:[{text:'Oui',position:0},{text:'Non',position:1}]}}});polls.push(poll.id);
-    }
-    for(let index=0;index<polls.length;index++){
-      const poll=await prisma.socialPoll.findUniqueOrThrow({where:{id:polls[index]},include:{options:true}});
-      const result=await call(`/social/polls/${poll.id}/vote`,{method:'POST',token,body:{optionId:poll.options[0].id}});
-      expect(result.status).toBe(index<5?201:429);
-      if(result.status===201){expect(result.body).not.toHaveProperty('votes');expect(result.body).not.toHaveProperty('voters');expect(JSON.stringify(result.body)).not.toContain(newMember.id);}
-    }
-    expect(await prisma.socialPollVote.count({where:{userId:newMember.id}})).toBe(5);
-  });
-
-  it('publishes parish events with date validation, aggregate attendance and one changeable response per member',async()=>{
-    const author=await addUser(UserRole.FIDELE),guest=await addUser(UserRole.RESPONSABLE_SEMAINE),editor=await addUser(UserRole.EDITEUR),authorToken=jwt(author),guestToken=jwt(guest),editorToken=jwt(editor),startsAt=new Date(Date.now()+2*60_000).toISOString();
-    const invalid=await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Rencontre communautaire',title:'Culte',startsAt}});expect(invalid.status).toBe(400);
-    const created=await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Rencontre communautaire de la paroisse.',title:'Culte d’action de grâce',startsAt:new Date(Date.now()+30*60_000).toISOString(),location:'Sainte-Cécile'}});
-    expect(created.status).toBe(201);expect(created.body.event.counts).toEqual({PARTICIPATING:0,INTERESTED:0,DECLINED:0});
-    const id=created.body.event.id;
-    expect((await call(`/social/events/${id}`,{token:editorToken})).status).toBe(403);
-    const interested=await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'INTERESTED'}});expect(interested.status).toBe(201);expect(interested.body.userRsvp).toBe('INTERESTED');expect(interested.body.counts.INTERESTED).toBe(1);
-    const attending=await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'PARTICIPATING'}});expect(attending.status).toBe(201);expect(attending.body.userRsvp).toBe('PARTICIPATING');expect(attending.body.counts.INTERESTED).toBe(0);expect(attending.body.counts.PARTICIPATING).toBe(1);
-    expect(await prisma.socialEventRsvp.count({where:{eventId:id,userId:guest.id}})).toBe(1);expect(attending.body).not.toHaveProperty('rsvps');expect(attending.body).not.toHaveProperty('participants');expect(JSON.stringify(attending.body)).not.toContain(guest.id);
-    const post=await prisma.socialPost.findUniqueOrThrow({where:{id:created.body.postId}});expect(post.visibility).toBe('TOUS_LES_FIDELES');
-    expect((await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'INVENTED'}})).status).toBe(400);
-    await prisma.socialEvent.update({where:{id},data:{startsAt:new Date(Date.now()-1000)}});
-    expect((await call(`/social/events/${id}/rsvp`,{method:'POST',token:guestToken,body:{status:'DECLINED'}})).status).toBe(409);
-    expect((await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Trop loin',title:'Rencontre paroissiale',startsAt:new Date(Date.now()+366*86400_000).toISOString()}})).status).toBe(400);
-    expect((await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Titre trop long',title:'E'.repeat(161),startsAt:new Date(Date.now()+30*60_000).toISOString()}})).status).toBe(400);
-    expect((await call('/social/events',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`event-${randomUUID()}`},body:{body:'Lieu trop long',title:'Rencontre paroissiale',startsAt:new Date(Date.now()+30*60_000).toISOString(),location:'L'.repeat(201)}})).status).toBe(400);
-    const suspended=await addUser(UserRole.FIDELE);await prisma.user.update({where:{id:suspended.id},data:{suspendedAt:new Date(),active:false}});
-    expect([401,403]).toContain((await call(`/social/events/${id}/rsvp`,{method:'POST',token:jwt(suspended),body:{status:'INTERESTED'}})).status);
-  });
-
-  it('limits recent-account event responses to five distinct events in 24 hours',async()=>{
-    const author=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),newMember=await addUser(UserRole.FIDELE),token=jwt(newMember),eventIds:string[]=[];
-    for(let index=0;index<6;index++){
-      const post=await prisma.socialPost.create({data:{authorId:author.id,body:`Événement quota ${index}`,visibility:'TOUS_LES_FIDELES',idempotencyKey:`quota-event-${index}-${randomUUID()}`}});
-      const event=await prisma.socialEvent.create({data:{postId:post.id,title:`Rencontre ${index}`,startsAt:new Date(Date.now()+(index+1)*30*60_000)}});eventIds.push(event.id);
-    }
-    for(let index=0;index<eventIds.length;index++){
-      const response=await call(`/social/events/${eventIds[index]}/rsvp`,{method:'POST',token,body:{status:'INTERESTED'}});
-      expect(response.status).toBe(index<5?201:429);
-      if(response.status===201){expect(response.body).not.toHaveProperty('rsvps');expect(response.body).not.toHaveProperty('participants');expect(JSON.stringify(response.body)).not.toContain(newMember.id);}
-    }
-    expect(await prisma.socialEventRsvp.count({where:{userId:newMember.id}})).toBe(5);
-  });
-
-  it('rate-limits poll creation and voting per authenticated account',async()=>{
-    const creator=await addUser(UserRole.FIDELE),creatorToken=jwt(creator);
-    for(let attempt=0;attempt<6;attempt++){
-      const response=await call('/social/polls',{method:'POST',token:creatorToken,headers:{'Idempotency-Key':`limit-${randomUUID()}`},body:{}});
-      expect(response.status).toBe(attempt<5?400:429);
-    }
-    const pollOwner=await addUser(UserRole.FIDELE),voter=await addUser(UserRole.FIDELE),ownerToken=jwt(pollOwner),voterToken=jwt(voter);
-    const created=await call('/social/polls',{method:'POST',token:ownerToken,headers:{'Idempotency-Key':`vote-${randomUUID()}`},body:{body:'Question de limite',options:['Oui','Non']}});expect(created.status).toBe(201);
-    for(let attempt=0;attempt<21;attempt++){
-      const response=await call(`/social/polls/${created.body.poll.id}/vote`,{method:'POST',token:voterToken,body:{optionId:'missing-choice'}});
-      expect(response.status).toBe(attempt<20?400:429);
-    }
-  });
-
-  it('isolates private group discussions and blocks hostile content and excluded members',async()=>{
-    const owner=await addUser(UserRole.FIDELE),member=await addUser(UserRole.FIDELE),outsider=await addUser(UserRole.FIDELE),ownerToken=jwt(owner),memberToken=jwt(member),outsiderToken=jwt(outsider);
-    const created=await call('/social/groups',{method:'POST',token:ownerToken,body:{name:'Groupe privé e2e',description:'Échanges réservés aux membres.',visibility:'PRIVATE'}});
-    expect(created.status).toBe(201);const groupId=created.body.id as string;
-    const requested=await call(`/social/groups/${groupId}/join`,{method:'POST',token:memberToken,body:{}});expect(requested.status).toBe(201);expect(requested.body.status).toBe('PENDING');
-    expect((await call(`/social/groups/${groupId}/posts`,{token:memberToken})).status).toBe(404);
-    expect((await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':`pending-${randomUUID()}`},body:{body:'Écriture interdite avant acceptation'}})).status).toBe(404);
-    expect((await call(`/social/groups/${groupId}/posts`,{token:outsiderToken})).status).toBe(404);
-    expect((await call(`/social/groups/${groupId}/posts`,{method:'POST',token:outsiderToken,headers:{'Idempotency-Key':`outsider-${randomUUID()}`},body:{body:'Écriture interdite sans adhésion'}})).status).toBe(404);
-    expect((await call(`/social/groups/${groupId}/requests/${member.id}/accept`,{method:'POST',token:ownerToken,body:{}})).status).toBe(201);
-    const hostile='<script>window.groupXss=true</script><img src=x onerror="window.groupXss=true">',key=`group-${randomUUID()}`,body={body:hostile};
-    const first=await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':key},body});expect(first.status).toBe(201);
-    expect(first.body.body).toBe(hostile);
-    const repeated=await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':key},body});expect(repeated.status).toBe(201);expect(repeated.body.id).toBe(first.body.id);
-    expect((await call(`/social/groups/${groupId}/posts`,{token:ownerToken})).body).toHaveLength(1);
-    expect((await call(`/social/groups/${groupId}/posts`,{token:outsiderToken})).status).toBe(404);
-    const comment=await call(`/social/groups/posts/${first.body.id}/comments`,{method:'POST',token:ownerToken,body:{body:hostile}});expect(comment.status).toBe(201);expect(comment.body.body).toBe(hostile);
-    expect((await call(`/social/groups/posts/${first.body.id}/comments`,{token:outsiderToken})).status).toBe(404);
-    const ownersPost=await call(`/social/groups/${groupId}/posts`,{method:'POST',token:ownerToken,headers:{'Idempotency-Key':`owner-${randomUUID()}`},body:{body:'Annonce du responsable.'}});expect(ownersPost.status).toBe(201);
-    expect((await call(`/social/blocks/${owner.id}`,{method:'POST',token:memberToken,body:{}})).status).toBe(201);
-    expect((await call(`/social/groups/posts/${ownersPost.body.id}/comments`,{token:memberToken})).status).toBe(404);
-    expect((await call(`/social/groups/posts/${ownersPost.body.id}/comments`,{method:'POST',token:memberToken,body:{body:'Tentative après blocage'}})).status).toBe(404);
-    const afterBlock=await call(`/social/groups/${groupId}/posts`,{token:memberToken});expect(afterBlock.status).toBe(200);expect(afterBlock.body.map((post:any)=>post.id)).toEqual([first.body.id]);
-    const afterBlockComments=await call(`/social/groups/posts/${first.body.id}/comments`,{token:memberToken});expect(afterBlockComments.status).toBe(200);expect(afterBlockComments.body).toHaveLength(0);
-    await prisma.socialGroupMembership.delete({where:{groupId_userId:{groupId,userId:member.id}}});
-    expect((await call(`/social/groups/${groupId}/posts`,{token:memberToken})).status).toBe(404);
-    expect((await call(`/social/groups/${groupId}/posts`,{method:'POST',token:memberToken,headers:{'Idempotency-Key':`excluded-${randomUUID()}`},body:{body:'Après exclusion'}})).status).toBe(404);
-    expect((await call(`/social/groups/posts/${first.body.id}/comments`,{token:memberToken})).status).toBe(404);
-  });
-
-  it('enforces report ownership, moderation roles, automatic hiding, audited actions and immediate suspension',async()=>{
-    const keys=['SOCIAL_AUTO_HIDE_THRESHOLD','SOCIAL_AUTO_HIDE_HOURS'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
-    process.env.SOCIAL_AUTO_HIDE_THRESHOLD='2';process.env.SOCIAL_AUTO_HIDE_HOURS='48';
-    try{
-      const author=await addUser(UserRole.FIDELE),reporterA=await addUser(UserRole.FIDELE),reporterB=await addUser(UserRole.FIDELE),stranger=await addUser(UserRole.FIDELE),moderator=await addUser(UserRole.MODERATEUR),admin=await addUser(UserRole.ADMIN);
-      const authorToken=jwt(author),tokenA=jwt(reporterA),tokenB=jwt(reporterB),strangerToken=jwt(stranger),moderatorToken=jwt(moderator),adminToken=jwt(admin);
-      const post=await call('/social/posts',{method:'POST',token:authorToken,headers:{'Idempotency-Key':`moderation_${randomUUID()}`},body:{body:'Publication à examiner',visibility:'TOUS_LES_FIDELES'}});expect(post.status).toBe(201);
-      const first=await call('/social/reports',{method:'POST',token:tokenA,body:{targetType:'POST',targetId:post.body.id,reason:'SPAM'}});expect(first.status).toBe(201);
-      expect((await call('/social/reports',{method:'POST',token:tokenA,body:{targetType:'POST',targetId:post.body.id,reason:'SPAM'}})).status).toBe(409);
-      expect((await call('/social/reports',{method:'POST',token:tokenB,body:{targetType:'POST',targetId:post.body.id,reason:'CONTENU_INAPPROPRIE'}})).status).toBe(201);
-      expect((await call('/social/posts',{token:strangerToken})).body.items.some((row:any)=>row.id===post.body.id)).toBe(false);
-      expect((await call('/social/moderation/cases',{token:strangerToken})).status).toBe(403);
-      const cases=await call('/social/moderation/cases',{token:moderatorToken});expect(cases.status).toBe(200);
-      const moderationCase=cases.body.find((row:any)=>row.targetId===post.body.id);expect(moderationCase.status).toBe('AUTO_HIDDEN');expect(moderationCase.reportsCount??moderationCase._count?.reports).toBeTruthy();
-      expect((await call(`/social/moderation/cases/${moderationCase.id}`,{method:'PATCH',token:tokenA,body:{action:'REJETER',reason:'Motif valable pour test'}})).status).toBe(403);
-      const suspended=await call(`/social/moderation/cases/${moderationCase.id}`,{method:'PATCH',token:moderatorToken,body:{action:'SUSPENDRE_TEMPORAIREMENT',reason:'Suspension temporaire e2e',durationHours:1}});expect(suspended.status).toBe(200);expect(suspended.body.sanctionId).toBeTruthy();
-      expect((await call('/auth/session',{token:authorToken})).status).toBe(401);
-      const user=await prisma.user.findUniqueOrThrow({where:{id:author.id}});expect(user.suspendedAt).toBeTruthy();expect(await prisma.refreshToken.count({where:{userId:author.id,revokedAt:null}})).toBe(0);
-      expect((await call('/social/moderation/cases',{token:moderatorToken})).status).toBe(200);
-      expect((await call(`/social/moderation/sanctions/${suspended.body.sanctionId}/appeal/decision`,{method:'POST',token:moderatorToken,body:{accept:true,reason:'Interdit au modérateur'}})).status).toBe(403);
-      expect(await prisma.auditLog.count({where:{entity:'SocialModerationCase',entityId:moderationCase.id,action:'MODERATION_SUSPENDRE_TEMPORAIREMENT'}})).toBe(1);
-      expect(await prisma.socialModerationEvent.count({where:{caseId:moderationCase.id}})).toBeGreaterThanOrEqual(2);
-      const privatePost=await call('/social/posts',{method:'POST',token:tokenA,headers:{'Idempotency-Key':`private_mod_${randomUUID()}`},body:{body:'Texte privé',visibility:'MOI_SEUL'}});expect(privatePost.status).toBe(201);
-      expect((await call('/social/reports',{method:'POST',token:tokenB,body:{targetType:'POST',targetId:privatePost.body.id,reason:'SPAM'}})).status).toBe(404);
-      const comment=await call(`/social/posts/${privatePost.body.id}/comments`,{method:'POST',token:tokenA,body:{body:'Commentaire privé'}});expect(comment.status).toBe(201);
-      expect((await call('/social/reports',{method:'POST',token:tokenB,body:{targetType:'COMMENT',targetId:comment.body.id,reason:'HARCELEMENT'}})).status).toBe(404);
-      expect((await call('/social/reports',{method:'POST',token:tokenB,body:{targetType:'PROFILE',targetId:reporterA.id,reason:'USURPATION'}})).status).toBe(201);
-    }finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
-  });
-
-  it('stores re-encoded community images privately and denies access to private post media',async()=>{
-    const keys=['MEDIA_S3_ENDPOINT','MEDIA_S3_REGION','MEDIA_S3_BUCKET','MEDIA_S3_ACCESS_KEY','MEDIA_S3_SECRET_KEY','MEDIA_S3_FORCE_PATH_STYLE','CLAMAV_HOST','CLAMAV_PORT'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
-    Object.assign(process.env,{SOCIAL_PHOTOS_ENABLED:'true',MEDIA_S3_ENDPOINT:'http://localhost:9000',MEDIA_S3_REGION:'test-1',MEDIA_S3_BUCKET:'paroisse-test',MEDIA_S3_ACCESS_KEY:'test-access-only',MEDIA_S3_SECRET_KEY:'test-secret-only',MEDIA_S3_FORCE_PATH_STYLE:'true',CLAMAV_HOST:'127.0.0.1',CLAMAV_PORT:'3310'});
-    const author=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),reader=await addUser(UserRole.FIDELE),authorToken=jwt(author),readerToken=jwt(reader),mediaService=app.get(SocialMediaService);
-    const scan=jest.spyOn(mediaService,'scan').mockResolvedValue(undefined);
-    const s3Send=jest.spyOn(S3Client.prototype,'send').mockImplementation(async(command:any)=>command.constructor.name==='GetObjectCommand'?{Body:{transformToByteArray:async()=>Uint8Array.from([82,73,70,70,4,0,0,0,87,69,66,80])}} as any:{} as any);
-    try{
-      const png=await (require('sharp') as any)({create:{width:2,height:2,channels:3,background:{r:240,g:20,b:30}}}).png().toBuffer();
-      async function upload(visibility:string,key:string){const form=new FormData();form.append('body','Photo de la communauté');form.append('visibility',visibility);form.append('media',new Blob([png],{type:'image/png'}),'photo.png');const response=await fetch(`${baseUrl}/api/v1/social/posts/media`,{method:'POST',headers:{Authorization:`Bearer ${authorToken}`,'Idempotency-Key':key},body:form});const raw=await response.text();return {status:response.status,body:raw?JSON.parse(raw):null};}
-      expect((await call('/social/media/config',{token:authorToken})).body.enabled).toBe(true);
-      const created=await upload('TOUS_LES_FIDELES',`image_${randomUUID()}`);if(created.status!==201)throw new Error(JSON.stringify(created.body));expect(created.status).toBe(201);expect(created.body.media).toHaveLength(1);expect(created.body.media[0]).not.toHaveProperty('objectKey');expect(created.body.media[0].mimeType).toBe('image/webp');expect(scan).toHaveBeenCalledTimes(1);expect(s3Send).toHaveBeenCalled();
-      const visible=await fetch(`${baseUrl}/api/v1/social/media/${created.body.media[0].id}`,{headers:{Authorization:`Bearer ${readerToken}`}});expect(visible.status).toBe(200);expect(visible.headers.get('content-type')).toBe('image/webp');
-      const privatePost=await upload('MOI_SEUL',`image_private_${randomUUID()}`);expect(privatePost.status).toBe(201);
-      const denied=await fetch(`${baseUrl}/api/v1/social/media/${privatePost.body.media[0].id}`,{headers:{Authorization:`Bearer ${readerToken}`}});expect(denied.status).toBe(404);
-      const malformed=new FormData();malformed.append('body','Fichier falsifié');malformed.append('visibility','TOUS_LES_FIDELES');malformed.append('media',new Blob(['<svg onload="alert(1)"></svg>'],{type:'image/png'}),'image.png');
-      const rejected=await fetch(`${baseUrl}/api/v1/social/posts/media`,{method:'POST',headers:{Authorization:`Bearer ${authorToken}`,'Idempotency-Key':`spoof_${randomUUID()}`},body:malformed});expect(rejected.status).toBe(400);expect(scan).toHaveBeenCalledTimes(2);
-    }finally{scan.mockRestore();s3Send.mockRestore();for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
-  });
-
-  it('keeps every photo endpoint disabled unless the explicit feature flag is enabled',async()=>{
-    const keys=['SOCIAL_PHOTOS_ENABLED','MEDIA_S3_ENDPOINT','MEDIA_S3_REGION','MEDIA_S3_BUCKET','MEDIA_S3_ACCESS_KEY','MEDIA_S3_SECRET_KEY','CLAMAV_HOST','CLAMAV_PORT'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
-    Object.assign(process.env,{SOCIAL_PHOTOS_ENABLED:'false',MEDIA_S3_ENDPOINT:'http://localhost:9000',MEDIA_S3_REGION:'test-1',MEDIA_S3_BUCKET:'paroisse-test',MEDIA_S3_ACCESS_KEY:'test-access-only',MEDIA_S3_SECRET_KEY:'test-secret-only',CLAMAV_HOST:'127.0.0.1',CLAMAV_PORT:'3310'});
-    try{const member=await addUser(UserRole.FIDELE),token=jwt(member);expect((await call('/social/media/config',{token})).body.enabled).toBe(false);const form=new FormData();form.append('body','Tentative désactivée');form.append('visibility','TOUS_LES_FIDELES');form.append('media',new Blob(['not-an-image'],{type:'image/png'}),'photo.png');const result=await fetch(`${baseUrl}/api/v1/social/posts/media`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Idempotency-Key':`disabled_${randomUUID()}`},body:form});expect(result.status).toBe(503);expect((await call('/social/media/not-a-real-image',{token})).status).toBe(503);}finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
-  });
-
-  it('limits recent accounts to three posts per rolling day and denies sharing or photos for 24 hours',async()=>{
-    const member=await addUser(UserRole.FIDELE),token=jwt(member);
-    for(let index=0;index<3;index++)expect((await call('/social/posts',{method:'POST',token,headers:{'Idempotency-Key':`recent_${randomUUID()}`},body:{body:`Publication récente ${index}`,visibility:'TOUS_LES_FIDELES'}})).status).toBe(201);
-    expect((await call('/social/posts',{method:'POST',token,headers:{'Idempotency-Key':`recent_${randomUUID()}`},body:{body:'Quatrième publication récente',visibility:'TOUS_LES_FIDELES'}})).status).toBe(429);
-
-    const older=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),source=await prisma.socialPost.create({data:{authorId:older.id,idempotencyKey:`older_${randomUUID()}`,body:'Publication publique',visibility:'TOUS_LES_FIDELES'}});
-    expect((await call(`/social/posts/${source.id}/share`,{method:'POST',token,body:{body:'Partage refusé'}})).status).toBe(403);
-
-    const keys=['SOCIAL_PHOTOS_ENABLED','MEDIA_S3_ENDPOINT','MEDIA_S3_REGION','MEDIA_S3_BUCKET','MEDIA_S3_ACCESS_KEY','MEDIA_S3_SECRET_KEY','CLAMAV_HOST','CLAMAV_PORT'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
-    Object.assign(process.env,{SOCIAL_PHOTOS_ENABLED:'true',MEDIA_S3_ENDPOINT:'http://localhost:9000',MEDIA_S3_REGION:'test-1',MEDIA_S3_BUCKET:'paroisse-test',MEDIA_S3_ACCESS_KEY:'test-access-only',MEDIA_S3_SECRET_KEY:'test-secret-only',CLAMAV_HOST:'127.0.0.1',CLAMAV_PORT:'3310'});
-    try{const form=new FormData();form.append('body','Photo refusée pendant les premières 24 heures');form.append('visibility','TOUS_LES_FIDELES');form.append('media',new Blob(['image non traitée'],{type:'image/png'}),'recent.png');const result=await fetch(`${baseUrl}/api/v1/social/posts/media`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Idempotency-Key':`recent_photo_${randomUUID()}`},body:form});expect(result.status).toBe(403);}finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
-  });
-
-  it('rate-limits repeated content reports per member',async()=>{
-    const author=await addUser(UserRole.FIDELE),reporter=await addUser(UserRole.FIDELE),authorToken=jwt(author),reporterToken=jwt(reporter);
-    for(let index=0;index<9;index++){
-      const post=await prisma.socialPost.create({data:{authorId:author.id,body:`Publication signalable ${index}`,visibility:'TOUS_LES_FIDELES',idempotencyKey:`report_limit_${index}_${randomUUID()}`}});
-      const report=await call('/social/reports',{method:'POST',token:reporterToken,body:{targetType:'POST',targetId:post.id,reason:'SPAM'}});
-      expect(report.status).toBe(index<8?201:429);
-    }
-  });
-
   it('supports private account settings, session control, password change, export and 14-day account closure',async()=>{
     const member=await addUser(UserRole.FIDELE),other=await addUser(UserRole.FIDELE),token=jwt(member),currentRaw=randomBytes(32).toString('base64url'),otherRaw=randomBytes(32).toString('base64url'),currentHash=createHash('sha256').update(currentRaw).digest('hex');
-    const current=await prisma.refreshToken.create({data:{userId:member.id,hashedToken:currentHash,expiresAt:new Date(Date.now()+86400000),family:randomUUID()}}),otherSession=await prisma.refreshToken.create({data:{userId:member.id,hashedToken:createHash('sha256').update(otherRaw).digest('hex'),expiresAt:new Date(Date.now()+86400000),family:randomUUID()}}),otherToken=jwt(other);
+    const current=await prisma.refreshToken.create({data:{userId:member.id,hashedToken:currentHash,expiresAt:new Date(Date.now()+86400000),family:randomUUID()}}),otherSession=await prisma.refreshToken.create({data:{userId:member.id,hashedToken:createHash('sha256').update(otherRaw).digest('hex'),expiresAt:new Date(Date.now()+86400000),family:randomUUID()}});
     const listed=await call('/auth/social/account/sessions',{token,headers:{Cookie:`paroisse_refresh=${currentRaw}`}});expect(listed.status).toBe(200);expect(listed.body).toHaveLength(2);expect(listed.body.find((row:any)=>row.id===current.id).isCurrent).toBe(true);expect(JSON.stringify(listed.body)).not.toContain(currentHash);expect(JSON.stringify(listed.body)).not.toContain(currentRaw);
     expect((await call(`/auth/social/account/sessions/${otherSession.id}`,{method:'DELETE',token:jwt(other)})).status).toBe(403);
     expect((await call(`/auth/social/account/sessions/${otherSession.id}`,{method:'DELETE',token})).status).toBe(200);
@@ -626,61 +381,11 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await prisma.refreshToken.findUniqueOrThrow({where:{id:current.id}})).revokedAt).toBeNull();
     expect((await call('/auth/login',{method:'POST',body:{email:member.email,password}})).status).toBe(401);
     expect((await call('/auth/login',{method:'POST',body:{email:member.email,password:'New_Strong_Password_2026!'}})).status).toBe(201);
-    const post=await call('/social/posts',{method:'POST',token:jwt(member),headers:{'Idempotency-Key':`export_${randomUUID()}`},body:{body:'Ma publication exportée',visibility:'TOUS_LES_FIDELES'}});expect(post.status).toBe(201);
-    const exported=await call('/auth/social/account/export',{token});expect(exported.status).toBe(200);expect(exported.body.posts.some((row:any)=>row.id===post.body.id)).toBe(true);expect(JSON.stringify(exported.body)).not.toContain('passwordHash');
-    expect((await call('/social/settings',{method:'PATCH',token,body:{profileDiscoverable:false}})).body.profileDiscoverable).toBe(false);
-    expect((await call('/social/profile',{token})).body.profileDiscoverable).toBe(false);
+    const exported=await call('/auth/social/account/export',{token});expect(exported.status).toBe(200);expect(exported.body).toHaveProperty('sentMessages');expect(JSON.stringify(exported.body)).not.toContain('passwordHash');
     const closed=await call('/auth/social/account',{method:'DELETE',token,body:{reason:'Je souhaite fermer mon compte'}});expect(closed.status).toBe(200);expect(closed.body.graceDays).toBe(14);expect(new Date(closed.body.scheduledAt).getTime()-Date.now()).toBeGreaterThan(13*86400000);expect((await call('/auth/session',{token})).status).toBe(401);
     expect((await call('/auth/social/account/deletion/cancel',{method:'POST',body:{email:member.email,password:'New_Strong_Password_2026!'}})).status).toBe(201);
     expect((await prisma.user.findUniqueOrThrow({where:{id:member.id}})).deletionScheduledAt).toBeNull();expect((await call('/auth/login',{method:'POST',body:{email:member.email,password:'New_Strong_Password_2026!'}})).status).toBe(201);
     expect((await call('/auth/social/account/deletion/cancel',{method:'POST',body:{email:member.email,password:'incorrect-password'}})).body.message).toBe('Si le compte est en période de fermeture et que le mot de passe concorde, la demande sera annulée.');
-    const own=await prisma.socialPost.findUniqueOrThrow({where:{id:post.body.id}});expect(own.authorId).toBe(member.id);expect(otherToken).toBeTruthy();
-  });
-
-  it('applies social post, comment and reaction rate limits per action',async()=>{
-    const member=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),token=jwt(member),postBody=(body:string)=>call('/social/posts',{method:'POST',token,headers:{'Idempotency-Key':`rate_${randomUUID()}`},body:{body,visibility:'TOUS_LES_FIDELES'}});
-    let first:any;for(let i=0;i<6;i++){const result=await postBody(`Publication rate ${i}`);expect(result.status).toBe(201);if(!first)first=result;}
-    expect((await postBody('Publication rate finale')).status).toBe(429);
-    for(let i=0;i<20;i++)expect((await call(`/social/posts/${first.body.id}/comments`,{method:'POST',token,body:{body:`Commentaire rate ${i}`}})).status).toBe(201);
-    expect((await call(`/social/posts/${first.body.id}/comments`,{method:'POST',token,body:{body:'Commentaire rate final'}})).status).toBe(429);
-    for(let i=0;i<90;i++)expect((await call('/social/reactions',{method:'POST',token,body:{targetType:'post',targetId:first.body.id,type:'AIME',active:i%2===0}})).status).toBe(201);
-    expect((await call('/social/reactions',{method:'POST',token,body:{targetType:'post',targetId:first.body.id,type:'AIME',active:false}})).status).toBe(429);
-    expect((await call(`/social/posts/${first.body.id}/report`,{method:'POST',token,body:{reason:'SPAM'}})).status).toBe(404);
-    const author=await addUser(UserRole.FIDELE),otherPosts=[] as string[];
-    for(let i=0;i<11;i++){const p=await prisma.socialPost.create({data:{authorId:author.id,idempotencyKey:`share_rate_${i}`,body:`Share target ${i}`,visibility:'TOUS_LES_FIDELES'}});otherPosts.push(p.id);}
-    const sharer=await addUser(UserRole.FIDELE,{createdAt:new Date(Date.now()-25*60*60_000)}),sharerToken=jwt(sharer);
-    for(const id of otherPosts.slice(0,10))expect((await call(`/social/posts/${id}/share`,{method:'POST',token:sharerToken,body:{body:'Partage'}})).status).toBe(201);
-    expect((await call(`/social/posts/${otherPosts[10]}/share`,{method:'POST',token:sharerToken,body:{body:'Partage final'}})).status).toBe(429);
-  });
-
-  it('protects public profiles, hides minors identities, and exposes only the newest public posts',async()=>{
-    const author=await addUser(UserRole.FIDELE),viewer=await addUser(UserRole.FIDELE),viewerToken=jwt(viewer);
-    const privatePhone='+2290100000000',authorEmail=author.email;
-    await prisma.user.update({where:{id:author.id},data:{fullName:'Profil visible',phone:privatePhone,socialBio:'Présentation paroissiale'}});
-    const posts=[] as Array<{id:string;body:string}>;
-    for(let index=0;index<22;index++)posts.push(await prisma.socialPost.create({data:{authorId:author.id,idempotencyKey:`public_profile_${index}_${randomUUID()}`,body:`Publication ${index}`,visibility:'TOUS_LES_FIDELES',createdAt:new Date(Date.now()-index*1000)}}));
-    const privatePost=await prisma.socialPost.create({data:{authorId:author.id,idempotencyKey:`private_profile_${randomUUID()}`,body:'Publication personnelle',visibility:'MOI_SEUL'}});
-    const visible=await call(`/social/profiles/${author.id}`,{token:viewerToken});expect(visible.status).toBe(200);expect(visible.body.displayName).toBe('Profil visible');expect(visible.body.bio).toBe('Présentation paroissiale');expect(visible.body.posts).toHaveLength(20);expect(visible.body.posts[0].id).toBe(posts[0].id);expect(visible.body.posts.some((post:any)=>post.id===privatePost.id)).toBe(false);
-    const serialized=JSON.stringify(visible.body);expect(serialized).not.toContain(authorEmail);expect(serialized).not.toContain(privatePhone);expect(visible.body).not.toHaveProperty('email');expect(visible.body).not.toHaveProperty('phone');expect(visible.body).not.toHaveProperty('dateOfBirth');
-    const minor=await addUser(UserRole.FIDELE);await prisma.user.update({where:{id:minor.id},data:{fullName:'NOM MINEUR À PROTÉGER',dateOfBirth:new Date()}});await prisma.socialPost.create({data:{authorId:minor.id,idempotencyKey:`minor_profile_${randomUUID()}`,body:'Publication protégée',visibility:'TOUS_LES_FIDELES'}});
-    const minorProfile=await call(`/social/profiles/${minor.id}`,{token:viewerToken});expect(minorProfile.status).toBe(200);expect(minorProfile.body.displayName).toBe('Membre fidèle');expect(JSON.stringify(minorProfile.body)).not.toContain('NOM MINEUR À PROTÉGER');
-    expect((await call(`/social/profiles/${author.id}`)).status).toBe(401);
-  });
-
-  it('refuses private, suspended, moderated, mutually blocked and undiscoverable profiles',async()=>{
-    const author=await addUser(UserRole.FIDELE),viewer=await addUser(UserRole.FIDELE),reverseViewer=await addUser(UserRole.FIDELE),token=jwt(viewer),reverseToken=jwt(reverseViewer),path=`/social/profiles/${author.id}`;
-    expect((await call(path,{token})).status).toBe(200);
-    await prisma.user.update({where:{id:author.id},data:{socialProfileDiscoverable:false}});expect([403,404]).toContain((await call(path,{token})).status);
-    await prisma.user.update({where:{id:author.id},data:{socialProfileDiscoverable:true,suspendedAt:new Date()}});expect([403,404]).toContain((await call(path,{token})).status);
-    await prisma.user.update({where:{id:author.id},data:{suspendedAt:null,moderationProfileHidden:true}});expect([403,404]).toContain((await call(path,{token})).status);
-    await prisma.user.update({where:{id:author.id},data:{moderationProfileHidden:false}});await prisma.socialBlock.create({data:{blockerId:viewer.id,blockedId:author.id}});expect([403,404]).toContain((await call(path,{token})).status);
-    await prisma.socialBlock.delete({where:{blockerId_blockedId:{blockerId:viewer.id,blockedId:author.id}}});await prisma.socialBlock.create({data:{blockerId:author.id,blockedId:reverseViewer.id}});expect([403,404]).toContain((await call(path,{token:reverseToken})).status);
-  });
-
-  it('rate limits public profile reads per authenticated account',async()=>{
-    const author=await addUser(UserRole.FIDELE),reader=await addUser(UserRole.FIDELE),token=jwt(reader),path=`/social/profiles/${author.id}`;
-    for(let index=0;index<30;index++)expect((await call(path,{token})).status).toBe(200);
-    expect((await call(path,{token})).status).toBe(429);
   });
 
   it('does not write attendance names, tokens, or passwords to application logs',async()=>{

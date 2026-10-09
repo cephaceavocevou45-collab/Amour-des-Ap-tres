@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
 }
 datasource db {
   provider = "postgresql"
@@ -36,62 +37,6 @@ enum Zone {
   FIDELES
   TEMPLE
   SALLE_VISION
-}
-enum SocialVisibility {
-  TOUS_LES_FIDELES
-  MOI_SEUL
-}
-enum SocialGroupVisibility {
-  PUBLIC
-  PRIVATE
-}
-enum SocialGroupMemberStatus {
-  MEMBER
-  PENDING
-}
-enum SocialGroupMemberRole {
-  OWNER
-  MODERATOR
-  MEMBER
-}
-enum SocialReactionType {
-  AIME
-  COEUR
-}
-
-enum SocialEventRsvpStatus {
-  PARTICIPATING
-  INTERESTED
-  DECLINED
-}
-enum SocialReportTarget {
-  POST
-  COMMENT
-  PROFILE
-}
-enum SocialReportReason {
-  SPAM
-  HARCELEMENT
-  CONTENU_INAPPROPRIE
-  USURPATION
-  AUTRE
-}
-enum SocialModerationStatus {
-  OPEN
-  AUTO_HIDDEN
-  REVIEWED
-  DISMISSED
-}
-enum SocialModerationPriority {
-  NORMAL
-  ELEVEE
-  URGENTE
-}
-enum SocialAppealStatus {
-  NONE
-  PENDING
-  ACCEPTED
-  REJECTED
 }
 enum PersonRoleName {
   LEADER
@@ -213,198 +158,97 @@ model User {
   notifications UserNotification[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
-  socialPosts SocialPost[]
-  socialMedia SocialPostMedia[]
-  socialComments SocialComment[]
-  socialReactions SocialReaction[]
-  socialShares SocialShare[]
-  socialSavedPosts SocialSavedPost[]
-  socialHiddenPosts SocialHiddenPost[]
   socialBlocksFrom SocialBlock[] @relation("SocialBlocker")
   socialBlocksTo SocialBlock[] @relation("SocialBlocked")
-  socialGroupsOwned SocialGroup[] @relation("SocialGroupOwner")
-  socialGroupMemberships SocialGroupMembership[]
-  socialGroupPosts SocialGroupPost[]
-  socialGroupComments SocialGroupComment[]
-  socialPollVotes SocialPollVote[]
-  socialEventRsvps SocialEventRsvp[]
-  socialReports SocialReport[]
-  sanctionsReceived SocialSanction[] @relation("SanctionTarget")
-  sanctionsIssued SocialSanction[] @relation("SanctionIssuer")
-  appealDecisions SocialSanction[] @relation("SanctionAppealDecider")
+  sentMessages CommunityMessage[] @relation("MessageSender")
+  conversationMemberships CommunityConversationMember[]
+  messageReactions CommunityMessageReaction[]
+  messageReports CommunityMessageReport[]
+  messageReportDecisions CommunityMessageReport[] @relation("MessageReportDecision")
 }
 
-model SocialPost {
+enum CommunityConversationType {
+  DIRECT
+  GROUP
+}
+
+model CommunityConversation {
   id String @id @default(cuid())
-  authorId String
-  body String @db.Text
-  visibility SocialVisibility @default(TOUS_LES_FIDELES)
-  pinned Boolean @default(false)
-  idempotencyKey String?
+  type CommunityConversationType
+  title String? @db.VarChar(100)
+  directKey String? @unique
+  createdById String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  closedAt DateTime?
+  members CommunityConversationMember[]
+  messages CommunityMessage[]
+  @@index([updatedAt, id])
+}
+
+model CommunityConversationMember {
+  conversationId String
+  userId String
+  joinedAt DateTime @default(now())
+  leftAt DateTime?
+  lastReadAt DateTime?
+  mutedUntil DateTime?
+  conversation CommunityConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([conversationId, userId])
+  @@index([userId, leftAt, lastReadAt])
+}
+
+model CommunityMessage {
+  id String @id @default(cuid())
+  conversationId String
+  senderId String
+  replyToId String?
+  body String @db.VarChar(5000)
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  editedAt DateTime?
   deletedAt DateTime?
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  sourcePostId String?
-  sourcePost SocialPost? @relation("SocialReposts", fields: [sourcePostId], references: [id], onDelete: Cascade)
-  reposts SocialPost[] @relation("SocialReposts")
-  comments SocialComment[]
-  reactions SocialReaction[]
-  shares SocialShare[]
-  saves SocialSavedPost[]
-  hiddenBy SocialHiddenPost[]
-  media SocialPostMedia[]
-  poll SocialPoll?
-  event SocialEvent?
   moderationHidden Boolean @default(false)
   moderationHiddenUntil DateTime?
-  @@unique([authorId, idempotencyKey])
-  @@index([visibility, createdAt, id])
-  @@index([authorId, createdAt])
+  conversation CommunityConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender User @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo CommunityMessage? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies CommunityMessage[] @relation("MessageReplies")
+  reactions CommunityMessageReaction[]
+  reports CommunityMessageReport[]
+  @@unique([senderId, idempotencyKey])
+  @@index([conversationId, createdAt, id])
+  @@index([senderId, createdAt])
 }
 
-model SocialPostMedia {
-  id String @id @default(cuid())
-  postId String
-  uploadedById String
-  objectKey String @unique
-  mimeType String
-  byteSize Int
-  width Int
-  height Int
-  position Int @default(0)
-  createdAt DateTime @default(now())
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
-  @@index([postId, position])
-}
-
-model SocialPoll {
-  id String @id @default(cuid())
-  postId String @unique
-  closesAt DateTime?
-  createdAt DateTime @default(now())
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  options SocialPollOption[]
-  votes SocialPollVote[]
-  @@index([closesAt])
-}
-
-model SocialPollOption {
-  id String @id @default(cuid())
-  pollId String
-  text String @db.VarChar(120)
-  position Int
-  poll SocialPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
-  votes SocialPollVote[]
-  @@unique([id, pollId])
-  @@unique([pollId, position])
-  @@index([pollId, position])
-}
-
-model SocialPollVote {
-  pollId String
-  optionId String
+model CommunityMessageReaction {
+  messageId String
   userId String
+  emoji String @db.VarChar(16)
   createdAt DateTime @default(now())
-  poll SocialPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
-  option SocialPollOption @relation(fields: [optionId, pollId], references: [id, pollId], onDelete: Cascade)
+  message CommunityMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@id([pollId, userId])
-  @@index([optionId, pollId])
+  @@id([messageId, userId, emoji])
   @@index([userId, createdAt])
 }
 
-model SocialEvent {
+model CommunityMessageReport {
   id String @id @default(cuid())
-  postId String @unique
-  title String @db.VarChar(160)
-  startsAt DateTime
-  endsAt DateTime?
-  location String? @db.VarChar(200)
+  messageId String
+  reporterId String
+  reason String
+  detail String? @db.VarChar(1000)
+  status String @default("OPEN") @db.VarChar(20)
+  decisionReason String? @db.VarChar(1000)
+  decidedById String?
+  decidedAt DateTime?
   createdAt DateTime @default(now())
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  rsvps SocialEventRsvp[]
-  @@index([startsAt])
-}
-
-model SocialEventRsvp {
-  eventId String
-  userId String
-  status SocialEventRsvpStatus
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  event SocialEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@id([eventId, userId])
-  @@index([userId, createdAt])
-}
-
-model SocialComment {
-  id String @id @default(cuid())
-  postId String
-  authorId String
-  parentId String?
-  body String @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parent SocialComment? @relation("SocialCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies SocialComment[] @relation("SocialCommentReplies")
-  reactions SocialReaction[]
-  moderationHidden Boolean @default(false)
-  moderationHiddenUntil DateTime?
-  @@index([postId, createdAt])
-  @@index([parentId, createdAt])
-}
-
-model SocialReaction {
-  id String @id @default(cuid())
-  userId String
-  postId String?
-  commentId String?
-  targetKey String
-  type SocialReactionType
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post SocialPost? @relation(fields: [postId], references: [id], onDelete: Cascade)
-  comment SocialComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  @@unique([userId, targetKey, type])
-  @@index([targetKey])
-}
-
-model SocialShare {
-  id String @id @default(cuid())
-  userId String
-  postId String
-  body String? @db.Text
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  @@unique([userId, postId])
+  message CommunityMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  decidedBy User? @relation("MessageReportDecision", fields: [decidedById], references: [id], onDelete: SetNull)
+  @@unique([messageId, reporterId])
   @@index([createdAt])
-}
-
-model SocialSavedPost {
-  id String @id @default(cuid())
-  userId String
-  postId String
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  @@unique([userId, postId])
-}
-
-model SocialHiddenPost {
-  id String @id @default(cuid())
-  userId String
-  postId String
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  @@unique([userId, postId])
 }
 
 model SocialBlock {
@@ -416,121 +260,6 @@ model SocialBlock {
   blocked User @relation("SocialBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
   @@unique([blockerId, blockedId])
   @@index([blockedId])
-}
-model SocialGroup {
-  id String @id @default(cuid())
-  name String @db.VarChar(100)
-  description String @db.VarChar(500)
-  visibility SocialGroupVisibility @default(PUBLIC)
-  createdById String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  createdBy User @relation("SocialGroupOwner", fields: [createdById], references: [id], onDelete: Cascade)
-  memberships SocialGroupMembership[]
-  posts SocialGroupPost[]
-  @@index([visibility, createdAt])
-  @@index([createdById, createdAt])
-}
-model SocialGroupMembership {
-  id String @id @default(cuid())
-  groupId String
-  userId String
-  role SocialGroupMemberRole @default(MEMBER)
-  status SocialGroupMemberStatus @default(MEMBER)
-  createdAt DateTime @default(now())
-  group SocialGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@unique([groupId, userId])
-  @@index([userId, status])
-  @@index([groupId, status, createdAt])
-}
-model SocialGroupPost {
-  id String @id @default(cuid())
-  groupId String
-  authorId String
-  idempotencyKey String
-  body String @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-  group SocialGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  comments SocialGroupComment[]
-  @@unique([groupId, authorId, idempotencyKey])
-  @@index([groupId, createdAt, id])
-  @@index([authorId, createdAt])
-}
-model SocialGroupComment {
-  id String @id @default(cuid())
-  postId String
-  authorId String
-  body String @db.Text
-  createdAt DateTime @default(now())
-  deletedAt DateTime?
-  post SocialGroupPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  @@index([postId, createdAt])
-}
-model SocialModerationCase {
-  id String @id @default(cuid())
-  targetType SocialReportTarget
-  targetId String
-  targetAuthorId String
-  status SocialModerationStatus @default(OPEN)
-  priority SocialModerationPriority @default(NORMAL)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  resolvedAt DateTime?
-  reports SocialReport[]
-  events SocialModerationEvent[]
-  sanctions SocialSanction[]
-  @@unique([targetType, targetId])
-  @@index([status, priority, updatedAt])
-  @@index([targetAuthorId, createdAt])
-}
-model SocialReport {
-  id String @id @default(cuid())
-  caseId String
-  reporterId String
-  reason SocialReportReason
-  createdAt DateTime @default(now())
-  moderationCase SocialModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
-  @@unique([caseId, reporterId])
-  @@index([createdAt])
-}
-model SocialModerationEvent {
-  id String @id @default(cuid())
-  caseId String
-  actorId String?
-  action String
-  reason String
-  until DateTime?
-  createdAt DateTime @default(now())
-  moderationCase SocialModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  @@index([caseId, createdAt])
-}
-model SocialSanction {
-  id String @id @default(cuid())
-  caseId String
-  targetUserId String
-  createdById String
-  reason String
-  suspendedUntil DateTime?
-  permanent Boolean @default(false)
-  appealStatus SocialAppealStatus @default(NONE)
-  appealedAt DateTime?
-  appealReason String?
-  appealDecidedById String?
-  appealDecisionReason String?
-  appealDecidedAt DateTime?
-  createdAt DateTime @default(now())
-  moderationCase SocialModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  target User @relation("SanctionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
-  issuer User @relation("SanctionIssuer", fields: [createdById], references: [id], onDelete: Restrict)
-  appealDecider User? @relation("SanctionAppealDecider", fields: [appealDecidedById], references: [id], onDelete: SetNull)
-  @@index([targetUserId, suspendedUntil])
-  @@index([appealStatus, createdAt])
 }
 model EmailVerificationToken {
   id String @id @default(cuid())

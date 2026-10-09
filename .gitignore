@@ -7,6 +7,7 @@ dist/
 coverage/
 /test-results/
 **/.jest-cache/
+apps/api/src/generated/
 *.log
 *.dump
 *.sql.gz

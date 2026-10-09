@@ -10,6 +10,7 @@ import { configureSwagger } from './swagger-config';
 async function bootstrap() {
   loadEnv({ path: '../../.env' });
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
   if(process.env.NODE_ENV==='production')app.getHttpAdapter().getInstance().set('trust proxy',(address:string)=>address==='172.30.0.2'||address==='::ffff:172.30.0.2');
   app.setGlobalPrefix('api/v1');
   app.enableCors({ origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:4200', credentials: true });
@@ -17,6 +18,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalGuards(new CsrfGuard());
   await configureSwagger(app);
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PLAYWRIGHT_API_PORT ?? process.env.PORT ?? 3000;
+  await app.listen(port);
 }
 void bootstrap();

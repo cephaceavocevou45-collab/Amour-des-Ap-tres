@@ -51,3 +51,15 @@ Dans le fil communautaire, sélectionnez le nom d’un auteur pour ouvrir sa fic
 Le profil membre public est accessible depuis le nom sous ses publications, si le membre autorise sa découverte et qu’aucun blocage ou masquage de modération ne s’applique. Il n’affiche que sa présentation et ses 20 publications publiques les plus récentes. Les mineurs sont affichés comme « Membre fidèle ». Dans un groupe privé, une personne doit être acceptée comme membre pour lire ou publier; une personne retirée perd cet accès.
 
 Les nouveaux e2e de ces règles attendent une base de test démarrée. Ne considérez pas le profil ou les contrôles récents de groupes comme vérifiés en base tant que `npm run test:e2e --workspace @paroisse/api` n’a pas été exécuté avec succès.
+
+## Messagerie paroissiale
+
+Les comptes actifs ouvrent **Messages** (routes `/messages` et `/actualites`). La liste permet de rechercher et filtrer les conversations. **Nouvelle conversation** permet de choisir un membre pour un échange direct ou de sélectionner au moins deux autres membres et nommer un groupe. L’adhésion autorise l’accès au contenu; une personne retirée d’un groupe perd cet accès. Sélectionnez une conversation pour écrire du texte, répondre à un message ou ajouter une réaction. Le panneau **Détails de la conversation** présente les membres. Le bouton de déconnexion termine la session.
+
+Un message peut être signalé depuis son action de signalement; les motifs sont fermés. Un membre peut bloquer un contact. Les comptes autorisés à modérer traitent la file dédiée `/admin/moderation`; chaque action doit fournir un motif et est auditée. La suspension révoque les sessions du compte concerné.
+
+Le service actualise les messages périodiquement (environ 15 secondes), plutôt que par connexion temps réel. Les messages sont stockés côté serveur sans chiffrement de bout en bout. Les pièces jointes, photos, vidéos, appels, stories et lives ne sont pas disponibles dans cette version. N’ajoutez pas de bouton de média tant que le stockage privé, l’analyse antivirus et le traitement des fichiers ne sont pas installés et vérifiés.
+
+La migration de remplacement de l’ancien fil communautaire supprime ses anciennes publications, réactions, commentaires, sondages, événements et groupes lorsqu’elle est appliquée. Avant toute application à la base de production, l’administrateur doit effectuer et vérifier une sauvegarde et confirmer que l’abandon des anciennes données est accepté.
+
+Contrôle mobile ajouté : le bouton « Détails de la conversation » ouvre le panneau des membres et liens de navigation sur téléphone. Il est testé à 360 px dans Playwright.

@@ -8,12 +8,7 @@ import { JwtAuthGuard } from './auth.guard';
 import { RateLimitGuard } from './rate-limit.guard';
 import { RetentionService } from './retention.service';
 import { SocialAccountsController, SocialAccountsService } from './social-accounts';
-import { SocialFeedController, SocialFeedService } from './social-feed';
-import { SocialMediaController, SocialMediaService } from './social-media';
-import { SocialModerationController, SocialModerationService } from './social-moderation';
-import { SocialGroupsController, SocialGroupsService } from './social-groups';
-import { SocialPollsController, SocialPollsService } from './social-polls';
-import { SocialEventsController, SocialEventsService } from './social-events';
+import { CommunityMessagingController, CommunityMessagingService } from './community-messaging';
 
-@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, SocialAccountsController, SocialFeedController, SocialMediaController, SocialModerationController, SocialGroupsController, SocialPollsController, SocialEventsController], providers: [AuthService, SocialAccountsService, SocialFeedService, SocialMediaService, SocialModerationService, SocialGroupsService, SocialPollsService, SocialEventsService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
+@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, SocialAccountsController, CommunityMessagingController], providers: [AuthService, SocialAccountsService, CommunityMessagingService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
 export class AppModule {}

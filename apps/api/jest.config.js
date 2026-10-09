@@ -1,6 +1,8 @@
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   testRegex: '.*\\.spec\\.ts$',
-  transform: { '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.json' }] },
+  testPathIgnorePatterns: ['/node_modules/', '/dist/', '/src/generated/'],
+  modulePathIgnorePatterns: ['/dist/', '/src/generated/'],
+  transform: { '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }] },
   testEnvironment: 'node'
 };

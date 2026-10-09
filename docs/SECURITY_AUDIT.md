@@ -450,3 +450,19 @@ La discussion privée de groupe est couverte par des cas d’accès lecture/écr
 Playwright exécute désormais `ng build` avant `ng serve`; un échec de compilation arrête le serveur de test au lieu de laisser l’exécution continuer. `npx playwright test --list` a reconnu 16 tests (liste uniquement; aucun test lancé).
 
 Vérifications effectuées par Codex : lint/typecheck, `npm test` (29 tests API et 3 tests outils), `npm run build` (API et Angular), et compilation TypeScript du fichier e2e : réussis. La base locale n’étant pas joignable, les e2e et les tests navigateur ne sont **pas exécutés par moi**. Les 35 e2e annoncés par l’humain sont des résultats antérieurs et ne couvrent pas les nouveaux tests de profil/groupes.
+
+## Remplacement de la communauté par la messagerie — 9 octobre 2026
+
+À la demande du propriétaire du projet, l’ancienne communauté sous forme de fil de publications a été retirée du code actif. La migration `20261019000000_replace_legacy_community` supprime les anciennes tables de publications, commentaires, réactions, sondages, événements et groupes du modèle précédent; elle conserve les données de blocage nécessaires au contrôle des échanges. Elle a été appliquée uniquement à `paroisse_test`. Son application à une autre base supprimera les anciennes données communautaires : faire une sauvegarde et confirmer leur suppression avant déploiement.
+
+Le module actuellement livré est une messagerie paroissiale avec conversations directes et groupes privés, texte, réponses, réactions, statut de lecture, blocage et signalement. Les contrôles serveur vérifient l’adhésion avant lecture/écriture; la modération est séparée. Les mises à jour du fil sont interrogées toutes les 15 secondes, il ne s’agit pas d’un transport temps réel WebSocket. Le contenu des messages n’est pas chiffré de bout en bout.
+
+Vérification locale de cette consolidation : `npm test` (29 tests API + 3 tests outils), `npm run lint`, `npm run build`, e2e contre `TEST_DATABASE_URL` (26/26) et Playwright (16/16), incluant compilation Angular avant démarrage et écrans mobiles/XSS. Ces résultats décrivent le code local vérifié le 9 octobre 2026; ils ne certifient pas une installation de production ni l’audit des dépendances. `npm audit` doit être retenté avec accès au registre, son dernier résultat étant bloqué par DNS.
+
+Limites de sécurité/fonctionnelles restantes : aucun envoi de pièce jointe, photo ou vidéo n’est disponible; aucun stockage S3 privé, antivirus ClamAV ou transcodage n’est activé. Les lives, stories et autres fonctions non implémentées ne doivent pas être présentées comme disponibles. Avant usage réel, revoir les politiques de conservation des messages, confirmer la suppression des anciennes données sur la base cible, vérifier la restauration des sauvegardes et exécuter l’audit npm depuis un réseau autorisé.
+
+### Retest final — 9 octobre 2026
+
+Après correction de l’ouverture du panneau de détails sur petit écran, vérifications répétées sur la version courante : tests unitaires 29/29 API et 3/3 outils; `npm run lint` réussi; `npm run build` réussi; e2e contre `paroisse_test` 26/26 (4 messagerie + 22 sécurité); Playwright 17/17 après build Angular frais. Le 17e test vérifie que le panneau de détails s’ouvre à 360 px. L’application de ces migrations sur la base de développement ou la base de production n’a pas été testée ni effectuée.
+
+Audit npm final, 9 octobre 2026 : `npm audit --omit=dev --audit-level=high` et `npm audit --audit-level=high` ont échoué avant l’analyse (`audit endpoint returned an error`, requête bulk au registre sans réponse exploitable). npm n’a pas non plus pu écrire son journal dans son dossier local de cache. Il n’y a donc aucun résultat de vulnérabilités exploitable pour cette exécution; recommencer depuis une machine avec accès au registre et un cache npm inscriptible.
