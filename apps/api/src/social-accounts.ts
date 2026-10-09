@@ -46,7 +46,7 @@ export class SocialAccountsService {
     const captchaEnabled=process.env.CAPTCHA_ENABLED==='true',hasSecret=!!process.env.CAPTCHA_SECRET_KEY?.trim(),hasSiteKey=!!process.env.CAPTCHA_SITE_KEY?.trim();
     const captchaConfigured=hasSecret===hasSiteKey&&(!captchaEnabled||hasSecret&&hasSiteKey);
     const mailConfigured=!!(process.env.RESEND_API_KEY&&process.env.MAIL_FROM&&process.env.APP_PUBLIC_URL);
-    const captchaMessage=!captchaConfigured?'L’inscription est désactivée : CAPTCHA_ENABLED=true exige CAPTCHA_SITE_KEY et CAPTCHA_SECRET_KEY.':captchaEnabled?'Une vérification anti-robot est requise pour créer un compte.':'La vérification anti-robot est désactivée par défaut. Les inscriptions restent limitées par adresse IP et adresse e-mail.';
+    const captchaMessage=!captchaConfigured?'La configuration de la vérification anti-robot est incomplète : CAPTCHA_ENABLED=true exige CAPTCHA_SITE_KEY et CAPTCHA_SECRET_KEY.':captchaEnabled?'Une vérification anti-robot est requise pour créer un compte.':'La vérification anti-robot est désactivée par défaut. Les inscriptions restent limitées par adresse IP et adresse e-mail.';
     return {enabled:captchaConfigured,minimumAge,charterVersion,charterText,captchaEnabled:captchaEnabled&&captchaConfigured,captchaMessage,captchaSiteKey:captchaEnabled&&captchaConfigured?process.env.CAPTCHA_SITE_KEY!:null,mailConfigured};
   }
 

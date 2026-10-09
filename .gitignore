@@ -5,6 +5,8 @@ dist/
 .env.*
 !.env.example
 coverage/
+/test-results/
+**/.jest-cache/
 *.log
 *.dump
 *.sql.gz

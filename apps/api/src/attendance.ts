@@ -110,6 +110,10 @@ export class AttendanceController {
       const duplicate=zoneEntries.some(entry=>normalizeName(entry.normalizedName??entry.fullName??'')===normalizeName(body.fullName));
       if(duplicate&&!body.confirmDuplicate)throw new HttpException({code:'DUPLICATE_NAME_WARNING',message:'Un nom identique existe déjà dans cette zone.',confirmable:true},409);
       await tx.attendanceEntry.create({data:{sheetId:id,clientUuid:body.clientUuid,fullName:body.fullName.trim().replace(/\s+/g,' '),normalizedName:normalizeName(body.fullName),sex:body.sex,zone:body.zone,createdById:req.user.sub}});
+      const currentEntries=await tx.attendanceEntry.findMany({where:{sheetId:id},select:{sex:true,zone:true}});
+      const totalsByZone:Record<string,{men:number;women:number;total:number}>={};
+      for(const zone of Object.values(Zone)){const rows=currentEntries.filter(entry=>entry.zone===zone);totalsByZone[zone]={men:rows.filter(entry=>entry.sex===Sex.M).length,women:rows.filter(entry=>entry.sex===Sex.F).length,total:rows.length};}
+      await tx.attendanceSheet.update({where:{id},data:{totalMen:currentEntries.filter(entry=>entry.sex===Sex.M).length,totalWomen:currentEntries.filter(entry=>entry.sex===Sex.F).length,totalAll:currentEntries.length,totalsByZone}});
     });
     return this.summaryFor(await this.withEntries(id),role);
   }

@@ -41,7 +41,7 @@ export class SocialFeedService {
   private throttle(userId:string,action:string,body?:string){
     const now=Date.now(),key=`${userId}:${action}`,state=this.activity.get(key)??{times:[],hashes:new Map<string,number>()};
     state.times=state.times.filter(time=>now-time<10*60_000);for(const [hash,time]of state.hashes)if(now-time>10*60_000)state.hashes.delete(hash);
-    const limits:Record<string,number>={post:6,comment:20,reaction:90,share:10};
+    const limits:Record<string,number>={post:6,comment:20,reaction:90,share:10,profile:30};
     if(state.times.length>=(limits[action]??30))throw new HttpException('Vous avez effectué trop d’actions. Réessayez plus tard.',429);
     if(body){const hash=createHash('sha256').update(body.trim().toLowerCase()).digest('hex'),previous=state.hashes.get(hash);if(previous&&now-previous<60_000)throw new HttpException('Un contenu identique vient d’être envoyé. Attendez avant de le republier.',409);state.hashes.set(hash,now);}
     state.times.push(now);this.activity.set(key,state);
@@ -66,7 +66,11 @@ export class SocialFeedService {
   private async shape(post:any,userId:string){
     const counts=await this.prisma.socialReaction.groupBy({by:['type'],where:{targetKey:`post:${post.id}`},_count:{_all:true}});
     const media=await this.prisma.socialPostMedia.findMany({where:{postId:post.id},orderBy:{position:'asc'},select:{id:true,mimeType:true,width:true,height:true,byteSize:true,position:true}});
-    return {id:post.id,body:post.body,visibility:post.visibility,pinned:post.pinned,createdAt:post.createdAt,updatedAt:post.updatedAt,author:{id:post.author.id,displayName:this.displayName(post.author)},sharedPost:post.sourcePost?{id:post.sourcePost.id,body:post.sourcePost.body,author:{id:post.sourcePost.author.id,displayName:this.displayName(post.sourcePost.author)}}:null,media,commentCount:post._count?.comments??0,likes:counts.find(row=>row.type===SocialReactionType.AIME)?._count._all??0,hearts:counts.find(row=>row.type===SocialReactionType.COEUR)?._count._all??0,likedByMe:await this.prisma.socialReaction.findFirst({where:{userId,targetKey:`post:${post.id}`,type:SocialReactionType.AIME},select:{id:true}}).then(Boolean),heartedByMe:await this.prisma.socialReaction.findFirst({where:{userId,targetKey:`post:${post.id}`,type:SocialReactionType.COEUR},select:{id:true}}).then(Boolean)};
+    const poll=await this.prisma.socialPoll.findUnique({where:{postId:post.id},include:{options:{orderBy:{position:'asc'},include:{_count:{select:{votes:true}}}},votes:{where:{userId},select:{optionId:true}}}});
+    const totalVotes=poll?.options.reduce((sum,option)=>sum+option._count.votes,0)??0;
+    const event=await this.prisma.socialEvent.findUnique({where:{postId:post.id},include:{rsvps:{select:{userId:true,status:true}}}});
+    const eventCounts={PARTICIPATING:0,INTERESTED:0,DECLINED:0};for(const response of event?.rsvps??[])eventCounts[response.status]++;
+    return {id:post.id,body:post.body,visibility:post.visibility,pinned:post.pinned,createdAt:post.createdAt,updatedAt:post.updatedAt,author:{id:post.author.id,displayName:this.displayName(post.author)},sharedPost:post.sourcePost?{id:post.sourcePost.id,body:post.sourcePost.body,author:{id:post.sourcePost.author.id,displayName:this.displayName(post.sourcePost.author)}}:null,media,poll:poll?{id:poll.id,closesAt:poll.closesAt,closed:Boolean(poll.closesAt&&poll.closesAt<=new Date()),totalVotes,userVote:poll.votes[0]?.optionId??null,options:poll.options.map(option=>({id:option.id,text:option.text,votes:option._count.votes,percentage:totalVotes?Math.round(option._count.votes*100/totalVotes):0}))}:null,event:event?{id:event.id,title:event.title,startsAt:event.startsAt,endsAt:event.endsAt,location:event.location,counts:eventCounts,userRsvp:event.rsvps.find(response=>response.userId===userId)?.status??null}:null,commentCount:post._count?.comments??0,likes:counts.find(row=>row.type===SocialReactionType.AIME)?._count._all??0,hearts:counts.find(row=>row.type===SocialReactionType.COEUR)?._count._all??0,likedByMe:await this.prisma.socialReaction.findFirst({where:{userId,targetKey:`post:${post.id}`,type:SocialReactionType.AIME},select:{id:true}}).then(Boolean),heartedByMe:await this.prisma.socialReaction.findFirst({where:{userId,targetKey:`post:${post.id}`,type:SocialReactionType.COEUR},select:{id:true}}).then(Boolean)};
   }
 
   async feed(user:{sub:string;role:string},cursor?:string,takeInput?:string,savedOnly=false,searchInput?:string){
@@ -112,6 +116,14 @@ export class SocialFeedService {
   async settings(user:{sub:string;role:string}){const userId=this.requireMember(user),row=await this.prisma.user.findUnique({where:{id:userId},select:{socialNotificationsEnabled:true,socialProfileDiscoverable:true}});return {notificationsEnabled:row?.socialNotificationsEnabled??false,profileDiscoverable:row?.socialProfileDiscoverable??true};}
   async updateSettings(user:{sub:string;role:string},dto:SocialSettingsDto){const userId=this.requireMember(user);const data:any={};if(dto.notificationsEnabled!==undefined)data.socialNotificationsEnabled=dto.notificationsEnabled;if(dto.profileDiscoverable!==undefined)data.socialProfileDiscoverable=dto.profileDiscoverable;const row=await this.prisma.user.update({where:{id:userId},data,select:{socialNotificationsEnabled:true,socialProfileDiscoverable:true}});return {notificationsEnabled:row.socialNotificationsEnabled,profileDiscoverable:row.socialProfileDiscoverable};}
   async profile(user:{sub:string;role:string}){const userId=this.requireMember(user),member=await this.prisma.user.findUnique({where:{id:userId},select:{fullName:true,dateOfBirth:true,socialBio:true,socialProfileDiscoverable:true}});if(!member)throw new HttpException('Profil introuvable.',404);return {displayName:this.displayName(member),bio:member.socialBio??'',profileDiscoverable:member.socialProfileDiscoverable};}
+  async publicProfile(user:{sub:string;role:string},targetId:string){
+    const userId=this.requireMember(user),now=new Date();this.throttle(userId,'profile');
+    const member=await this.prisma.user.findFirst({where:{id:targetId,role:{in:SOCIAL_MEMBER_ROLES},active:true,suspendedAt:null,socialProfileDiscoverable:true,AND:[{OR:[{moderationProfileHidden:false},{moderationProfileHiddenUntil:{lte:now}}]}]},select:{id:true,fullName:true,dateOfBirth:true,socialBio:true}});
+    if(!member)throw new HttpException('Profil introuvable.',404);
+    if(member.id!==userId){const block=await this.prisma.socialBlock.findFirst({where:{OR:[{blockerId:userId,blockedId:member.id},{blockerId:member.id,blockedId:userId}]},select:{id:true}});if(block)throw new HttpException('Profil introuvable.',404);}
+    const rows=await this.prisma.socialPost.findMany({where:{authorId:member.id,visibility:SocialVisibility.TOUS_LES_FIDELES,deletedAt:null,AND:[{OR:[{moderationHidden:false},{moderationHiddenUntil:{lte:now}}]},{hiddenBy:{none:{userId}}}]},orderBy:[{createdAt:'desc'},{id:'desc'}],take:20,include:{author:{select:{id:true,fullName:true,dateOfBirth:true}},sourcePost:{include:{author:{select:{id:true,fullName:true,dateOfBirth:true}}}},_count:{select:{comments:{where:{deletedAt:null,OR:[{moderationHidden:false},{moderationHiddenUntil:{lte:now}}]}}}}}});
+    return {id:member.id,displayName:this.displayName(member),bio:member.socialBio??'',posts:await Promise.all(rows.map(post=>this.shape(post,userId)))};
+  }
   async updateProfile(user:{sub:string;role:string},dto:SocialProfileDto){const userId=this.requireMember(user),bio=dto.bio?.trim()??'';if(bio.length>500)throw new BadRequestException('La présentation est limitée à 500 caractères.');const member=await this.prisma.user.update({where:{id:userId},data:{socialBio:bio||null},select:{fullName:true,dateOfBirth:true,socialBio:true}});return {displayName:this.displayName(member),bio:member.socialBio??''};}
 }
 
@@ -138,5 +150,6 @@ export class SocialFeedController {
   @Get('settings') settings(@Req() req:any){return this.feed.settings(req.user);}
   @Patch('settings') updateSettings(@Req() req:any,@Body() body:SocialSettingsDto){return this.feed.updateSettings(req.user,body);}
   @Get('profile') profile(@Req() req:any){return this.feed.profile(req.user);}
+  @Get('profiles/:id') publicProfile(@Req() req:any,@Param('id') id:string){return this.feed.publicProfile(req.user,id);}
   @Patch('profile') updateProfile(@Req() req:any,@Body() body:SocialProfileDto){return this.feed.updateProfile(req.user,body);}
 }

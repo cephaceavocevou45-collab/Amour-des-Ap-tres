@@ -11,7 +11,7 @@ import { JwtAuthGuard } from './auth.guard';
 
 const MEMBER_ROLES: UserRole[] = [UserRole.FIDELE, UserRole.SECRETAIRE_PRESENCE, UserRole.RESPONSABLE_SEMAINE];
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const MAX_IMAGES_PER_POST = 4;
+const MAX_MEDIA_PER_POST = 4;
 const MEDIA_LIMIT_PER_HOUR = 12;
 
 class MediaPostDto {
@@ -19,7 +19,7 @@ class MediaPostDto {
   @IsOptional() @IsEnum(SocialVisibility) visibility?: SocialVisibility;
 }
 type UploadedImage = { buffer: Buffer; size: number };
-type StoredImage = { objectKey: string; width: number; height: number; byteSize: number };
+type StoredImage = { objectKey: string; mimeType: string; width: number; height: number; byteSize: number };
 
 @Injectable()
 export class SocialMediaService {
@@ -31,7 +31,7 @@ export class SocialMediaService {
     const endpoint = process.env.MEDIA_S3_ENDPOINT?.trim();
     const scanner = process.env.CLAMAV_HOST?.trim();
     const required = [process.env.MEDIA_S3_BUCKET, process.env.MEDIA_S3_REGION, process.env.MEDIA_S3_ACCESS_KEY, process.env.MEDIA_S3_SECRET_KEY];
-    if (process.env.SOCIAL_PHOTOS_ENABLED !== 'true' || !endpoint || !scanner || required.some(value => !value?.trim())) return false;
+    if ((process.env.SOCIAL_MEDIA_ENABLED !== 'true' && process.env.SOCIAL_PHOTOS_ENABLED !== 'true') || !endpoint || !scanner || required.some(value => !value?.trim())) return false;
     try { const url = new URL(endpoint); return url.protocol === 'https:' || ['localhost', '127.0.0.1', '::1'].includes(url.hostname); } catch { return false; }
   }
 
@@ -43,7 +43,7 @@ export class SocialMediaService {
   }
 
   private ensureConfigured() {
-    if (!this.enabled()) throw new ServiceUnavailableException('Le partage de photos est momentanément indisponible.');
+    if (!this.enabled()) throw new ServiceUnavailableException('Le partage de fichiers est momentanément indisponible.');
   }
 
   private client() {
@@ -64,6 +64,30 @@ export class SocialMediaService {
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
     if (buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
     return null;
+  }
+
+  private detectAttachment(buffer: Buffer): 'application/pdf' | 'video/mp4' | 'video/webm' | null {
+    if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') return 'application/pdf';
+    if (buffer.length >= 12 && buffer.toString('ascii', 4, 8) === 'ftyp') return 'video/mp4';
+    if (buffer.length >= 4 && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return 'video/webm';
+    return null;
+  }
+
+  private async normalizeMedia(file: UploadedImage): Promise<StoredImage> {
+    if (!file?.buffer?.length) throw new BadRequestException('Le fichier est vide ou illisible.');
+    if (this.detectImage(file.buffer)) return this.normalizeImage(file);
+    if (file.buffer.length > MAX_FILE_BYTES) throw new BadRequestException('Chaque fichier doit peser 10 Mo au maximum.');
+    const mimeType = this.detectAttachment(file.buffer);
+    if (!mimeType) throw new BadRequestException('Formats acceptés : images JPEG, PNG ou WebP, vidéos MP4 ou WebM, et documents PDF.');
+    await this.scan(file.buffer);
+    const extension = mimeType === 'application/pdf' ? 'pdf' : mimeType === 'video/webm' ? 'webm' : 'mp4';
+    const objectKey = `community/${randomUUID()}.${extension}`;
+    try {
+      await this.client().send(new PutObjectCommand({ Bucket: this.bucket(), Key: objectKey, Body: file.buffer, ContentType: mimeType, CacheControl: 'private, max-age=300', ServerSideEncryption: 'AES256' }));
+    } catch {
+      throw new ServiceUnavailableException('Le stockage privé des fichiers est momentanément indisponible.');
+    }
+    return { objectKey, mimeType, width: 0, height: 0, byteSize: file.buffer.length };
   }
 
   async scan(buffer: Buffer) {
@@ -115,7 +139,7 @@ export class SocialMediaService {
       } catch {
         throw new ServiceUnavailableException('Le stockage des images est momentanément indisponible.');
       }
-      return { objectKey, width: result.info.width, height: result.info.height, byteSize: result.data.length };
+      return { objectKey, mimeType: 'image/webp', width: result.info.width, height: result.info.height, byteSize: result.data.length };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof ServiceUnavailableException || error instanceof HttpException) throw error;
       throw new BadRequestException('Le fichier image est endommagé ou n’a pas pu être traité.');
@@ -138,8 +162,8 @@ export class SocialMediaService {
     const userId = this.requireMember(user);
     this.ensureConfigured();
     const account=await this.prisma.user.findUnique({where:{id:userId},select:{createdAt:true}});
-    if(account&&Date.now()-account.createdAt.getTime()<24*60*60_000)throw new HttpException('Les photos sont disponibles après 24 heures d’ancienneté du compte.',403);
-    if (!Array.isArray(files) || files.length < 1 || files.length > MAX_IMAGES_PER_POST) throw new BadRequestException('Ajoutez de 1 à 4 images à votre publication.');
+    if(account&&Date.now()-account.createdAt.getTime()<24*60*60_000)throw new HttpException('Le partage de fichiers est disponible après 24 heures d’ancienneté du compte.',403);
+    if (!Array.isArray(files) || files.length < 1 || files.length > MAX_MEDIA_PER_POST) throw new BadRequestException('Ajoutez de 1 à 4 fichiers à votre publication.');
     const body = dto.body?.trim() ?? '';
     if (body.length > 5000) throw new BadRequestException('Le texte est limité à 5 000 caractères.');
     const key = (idempotencyKey ?? '').trim();
@@ -152,9 +176,9 @@ export class SocialMediaService {
     recent.push(now); this.uploadTimes.set(userId, recent);
     const objects: StoredImage[] = [];
     try {
-      for (const file of files) objects.push(await this.normalizeImage(file));
+      for (const file of files) objects.push(await this.normalizeMedia(file));
       const post = await this.prisma.socialPost.create({
-        data: { authorId: userId, idempotencyKey: key, body, visibility: dto.visibility ?? SocialVisibility.TOUS_LES_FIDELES, media: { create: objects.map((image, position) => ({ uploadedById: userId, objectKey: image.objectKey, mimeType: 'image/webp', byteSize: image.byteSize, width: image.width, height: image.height, position })) } },
+        data: { authorId: userId, idempotencyKey: key, body, visibility: dto.visibility ?? SocialVisibility.TOUS_LES_FIDELES, media: { create: objects.map((image, position) => ({ uploadedById: userId, objectKey: image.objectKey, mimeType: image.mimeType, byteSize: image.byteSize, width: image.width, height: image.height, position })) } },
         include: { author: { select: { id: true, fullName: true, dateOfBirth: true } }, media: { orderBy: { position: 'asc' } }, _count: { select: { comments: true } } },
       });
       return { id: post.id, body: post.body, visibility: post.visibility, pinned: post.pinned, createdAt: post.createdAt, author: { id: post.author.id, displayName: await this.safeMemberName(userId) }, sharedPost: null, commentCount: post._count.comments, likes: 0, hearts: 0, likedByMe: false, heartedByMe: false, media: post.media.map(({ id, mimeType, width, height, byteSize, position }) => ({ id, mimeType, width, height, byteSize, position })) };
@@ -176,7 +200,7 @@ export class SocialMediaService {
     try { object = await this.client().send(new GetObjectCommand({ Bucket: this.bucket(), Key: media.objectKey })); }
     catch { throw new ServiceUnavailableException('Le stockage des images est momentanément indisponible.'); }
     if (!object.Body) throw new HttpException('Image introuvable.', 404);
-    return Buffer.from(await object.Body.transformToByteArray());
+    return { buffer: Buffer.from(await object.Body.transformToByteArray()), mimeType: media.mimeType };
   }
 }
 
@@ -186,23 +210,23 @@ export class SocialMediaController {
   constructor(private readonly media: SocialMediaService) {}
 
   @Post('posts/media')
-  @UseInterceptors(AnyFilesInterceptor({ limits: { files: MAX_IMAGES_PER_POST, fileSize: MAX_FILE_BYTES, fields: 4, parts: 8 } }))
+  @UseInterceptors(AnyFilesInterceptor({ limits: { files: MAX_MEDIA_PER_POST, fileSize: MAX_FILE_BYTES, fields: 4, parts: 8 } }))
   create(@Req() req: any, @Body() body: MediaPostDto, @UploadedFiles() files: UploadedImage[], @Headers('idempotency-key') key?: string) {
     return this.media.createPost(req.user, body, files, key);
   }
 
   @Get('media/config')
-  config(@Req() req: any) { this.media.memberConfig(req.user); return { enabled: this.media.enabled(), maximumFiles: MAX_IMAGES_PER_POST, maximumBytesPerFile: MAX_FILE_BYTES }; }
+  config(@Req() req: any) { this.media.memberConfig(req.user); return { enabled: this.media.enabled(), maximumFiles: MAX_MEDIA_PER_POST, maximumBytesPerFile: MAX_FILE_BYTES }; }
 
   @Get('media/:id')
   async read(@Req() req: any, @Param('id') id: string, @Res() response: any) {
-    const image = await this.media.image(req.user, id);
-    response.setHeader('Content-Type', 'image/webp');
-    response.setHeader('Content-Length', image.length);
-    response.setHeader('Content-Disposition', 'inline; filename="paroisse.webp"');
+    const media = await this.media.image(req.user, id);
+    response.setHeader('Content-Type', media.mimeType);
+    response.setHeader('Content-Length', media.buffer.length);
+    response.setHeader('Content-Disposition', media.mimeType === 'application/pdf' ? 'attachment; filename="document-paroissial.pdf"' : 'inline; filename="media-paroissial"');
     response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cross-Origin-Resource-Policy', 'same-site');
-    response.status(200).send(image);
+    response.status(200).send(media.buffer);
   }
 }
