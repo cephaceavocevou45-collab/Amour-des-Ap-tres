@@ -9,6 +9,7 @@ import { RateLimitGuard } from './rate-limit.guard';
 import { RetentionService } from './retention.service';
 import { HealthController, HealthService } from './health';
 import { EmailQuotaService } from './email-quota.service';
+import { ReauthService } from './reauth';
 
-@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController], providers: [AuthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
+@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
 export class AppModule {}

@@ -22,6 +22,7 @@
     "test-db:diagnose": "node scripts/test-db-diagnose.cjs",
     "test-db:setup": "node scripts/test-db-setup.cjs",
     "backup:create": "sh infra/backup.sh",
-    "backup:restore-test": "sh infra/backup-restore-test.sh"
+    "backup:restore-test": "sh infra/backup-restore-test.sh",
+    "db:least-privilege": "node scripts/db-least-privilege.cjs"
   }
 }

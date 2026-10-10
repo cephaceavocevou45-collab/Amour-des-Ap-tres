@@ -186,6 +186,7 @@ model RefreshToken {
   revokedAt DateTime?
   family String
   createdAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
   ip String?
   userAgent String?
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

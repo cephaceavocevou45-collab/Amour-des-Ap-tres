@@ -16,6 +16,7 @@ import { environment } from './environments/environment';
 const routes: Routes = [
   {path:'', component:HomeComponent},
   {path:'connexion',component:AuthComponent,data:{mode:'login'}},
+  {path:'inscription-responsable',component:AuthComponent,data:{mode:'responsible-registration'}},
   {path:'mot-de-passe-oublie',component:AuthComponent,data:{mode:'forgot'}},
   {path:'nouveau-mot-de-passe',redirectTo:'mot-de-passe-oublie'},
   {path:'premiere-connexion',component:AuthComponent,data:{mode:'first-password-change'}},

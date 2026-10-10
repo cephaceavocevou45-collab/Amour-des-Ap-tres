@@ -2,13 +2,17 @@
 
 ## Créer et gérer les responsables
 
+Les candidats peuvent envoyer une demande d'accès depuis **Demander un accès** sur l'écran de connexion responsable. Ils ne peuvent choisir que « Secrétaire des présences — cours biblique » ou « Président d'un jour — présences de la semaine »; le président choisit un jour parmi lundi et dimanche. La demande demande nom, adresse e-mail, numéro au format international (présumé WhatsApp, sans vérification automatique) et mot de passe. Elle ne donne aucun accès tant qu'elle n'est pas approuvée.
+
+Dans **Comptes responsables**, les demandes en attente portent l'indication **Demande en attente de validation**. Vérifiez l'identité et le rôle demandé, saisissez un motif, cochez **Accès actif**, puis enregistrez. L'accès s'ouvre alors et la demande passe à l'état validé; toute modification est auditée et les sessions précédentes sont révoquées. Les demandes non retenues peuvent rester désactivées.
+
 1. Connectez-vous à l'espace administrateur sur un appareil de confiance.
 2. Depuis **Comptes responsables**, saisissez le nom, l'adresse e-mail, le rôle et un motif précis. Choisissez un jour (lundi à dimanche) pour un président.
 3. Pour un sous-administrateur, cochez uniquement les accès nécessaires. `GESTION_COMPTES` permet de gérer les comptes selon les restrictions du serveur; `PROGRAMME_BIBLIQUE` autorise la préparation du cours.
 4. Transmettez le mot de passe temporaire affiché une seule fois par un canal privé sûr. Le titulaire doit le remplacer à sa première connexion. Ne le copiez pas dans un e-mail ou une conversation non protégée.
 5. Toute désactivation, réactivation, modification de rôle/jour ou permission demande un motif; elle est auditée et révoque les sessions de l'utilisateur.
 
-La création est réservée à ADMIN/SUPER_ADMIN. Les responsables et sous-administrateurs ne peuvent pas créer ni promouvoir un compte administrateur. `EDITEUR` est le nom technique conservé pour le sous-administrateur.
+La création directe de comptes et l'approbation sont réservées à ADMIN/SUPER_ADMIN. Les demandes publiques ne peuvent pas créer ni promouvoir un compte administrateur ou sous-administrateur. Les responsables et sous-administrateurs ne peuvent pas s'approuver eux-mêmes. `EDITEUR` est le nom technique conservé pour le sous-administrateur.
 
 ## Présences
 
@@ -29,3 +33,8 @@ Les comptes ADMIN/SUPER_ADMIN doivent avoir une application TOTP. Conservez les 
 Les sauvegardes sont chiffrées avant envoi hors du serveur. Vérifiez régulièrement la restauration dans une base vide distincte et comparez schéma et nombres de lignes. Une sauvegarde n'est pas considérée comme fiable avant restauration testée. Après perte d'appareil ou départ d'un responsable, désactivez immédiatement le compte et vérifiez l'audit des accès.
 
 Les outils de fil communautaire, messagerie, groupes, stories, directs, médias, signalements et modération ne font plus partie de l'application active.
+# Sécurité de session et actions sensibles
+
+Les sessions expirent après 30 minutes d'inactivité et au plus tard après 30 jours (réglables par `SESSION_IDLE_MINUTES` et `SESSION_ABSOLUTE_DAYS`). Dans l'espace de présence, **Déconnecter tous les appareils** révoque l'ensemble des sessions du compte et déconnecte aussi l'appareil actuel.
+
+La consultation nominative, la création/désactivation d'un compte et les changements de rôle ou permissions demandent une nouvelle confirmation du mot de passe actuel ou du code TOTP actuel. Cette confirmation est contrôlée par l'API; elle ne se limite pas à une invite de l'interface. Les changements restent soumis aux autorisations et au motif d'audit requis.

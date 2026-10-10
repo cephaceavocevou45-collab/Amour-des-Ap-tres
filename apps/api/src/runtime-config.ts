@@ -1,0 +1,44 @@
+import { INestApplication } from '@nestjs/common';
+import helmet from 'helmet';
+
+const REQUIRED_PRODUCTION_VALUES = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'TOTP_ENCRYPTION_KEY', 'RESEND_API_KEY', 'MAIL_FROM', 'APP_PUBLIC_URL'] as const;
+
+export function assertProductionConfiguration(env: NodeJS.ProcessEnv): void {
+  if (env.NODE_ENV !== 'production') return;
+  for (const name of REQUIRED_PRODUCTION_VALUES) {
+    const value = env[name]?.trim();
+    if (!value || /(?:change[-_ ]?me|example|placeholder|replace[-_ ]?me|test[-_ ]?only|your[-_ ](?:key|secret)|private[-_ ]?provider[-_ ]?key|dummy|sample)/i.test(value)) {
+      throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
+    }
+  }
+  if ((env.JWT_ACCESS_SECRET?.length ?? 0) < 32 || (env.TOTP_ENCRYPTION_KEY?.length ?? 0) < 24) {
+    throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
+  }
+  try {
+    const publicUrl = new URL(env.APP_PUBLIC_URL!);
+    if (publicUrl.protocol !== 'https:' || publicUrl.origin !== env.APP_PUBLIC_URL || publicUrl.username || publicUrl.password) throw new Error();
+  } catch {
+    throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
+  }
+}
+
+export function corsOrigin(env: NodeJS.ProcessEnv): string {
+  return env.NODE_ENV === 'production' ? env.APP_PUBLIC_URL! : env.FRONTEND_ORIGIN ?? 'http://localhost:4200';
+}
+
+export function sessionCookieOptions(production: boolean, maxAge: number) {
+  return { httpOnly: true, secure: production, sameSite: 'strict' as const, path: '/', maxAge };
+}
+
+export function applySecurityHeaders(app: INestApplication, production: boolean): void {
+  app.use(helmet({
+    contentSecurityPolicy: { directives: {
+      defaultSrc: ["'self'"], scriptSrc: ["'self'"], frameSrc: ["'none'"], frameAncestors: ["'none'"],
+      connectSrc: ["'self'"], imgSrc: ["'self'", 'data:'], objectSrc: ["'none'"], baseUri: ["'self'"], formAction: ["'self'"],
+    } },
+    hsts: production ? { maxAge: 31_536_000, includeSubDomains: true, preload: true } : false,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    noSniff: true,
+    frameguard: { action: 'deny' },
+  }));
+}

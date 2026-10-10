@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { AddressInfo } from 'node:net';
 import * as argon2 from 'argon2';
+import * as express from 'express';
 import { UserRole, SheetType, SheetStatus } from '../src/generated/prisma';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
@@ -10,6 +11,7 @@ import { CsrfGuard } from '../src/csrf.guard';
 import { decryptTotpSecret, encryptTotpSecret } from '../src/totp';
 import * as attendanceModule from '../src/attendance';
 import { completeAdminTwoFactorEnrollment, prepareAdminTwoFactorEnrollment, resetAdminTwoFactor } from '../scripts/admin-2fa-operations';
+import { configureSwagger } from '../src/swagger-config';
 
 jest.setTimeout(120_000);
 let app:any,prisma:PrismaService,baseUrl:string;
@@ -17,6 +19,7 @@ const userIds:string[]=[],sheetIds:string[]=[];
 const observedLogs:string[]=[],sensitiveCanaries=new Set<string>();
 const maxObservedLogEntries=2_000;
 const password='e2e_password_Long_2026!';
+let requestAddress=1;
 const nativeFetch=globalThis.fetch.bind(globalThis);
 sensitiveCanaries.add(password);
 const testEmail=()=>`${randomUUID()}@security-test.invalid`;
@@ -24,8 +27,8 @@ function localDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Po
 function weekday(date:string){const value=new Date(`${date}T00:00:00Z`).getUTCDay();return value===0?7:value;}
 function monday(date:string){const value=new Date(`${date}T00:00:00Z`),day=value.getUTCDay();value.setUTCDate(value.getUTCDate()-(day===0?6:day-1));return value.toISOString().slice(0,10);}
 async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string;createdAt?:Date}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null,...(options.createdAt?{createdAt:options.createdAt}:{})}});userIds.push(row.id);return row;}
-function jwt(user:{id:string;role:UserRole;sessionVersion:number}){const enc=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url'),now=Math.floor(Date.now()/1000),unsigned=`${enc({alg:'HS256',typ:'JWT'})}.${enc({sub:user.id,role:user.role,ver:user.sessionVersion,iat:now,exp:now+600})}`,token=`${unsigned}.${createHmac('sha256',process.env.JWT_ACCESS_SECRET!).update(unsigned).digest('base64url')}`;sensitiveCanaries.add(token);return token;}
-async function call(path:string,options:{method?:string;token?:string;body?:unknown;headers?:Record<string,string>}={}){const headers:Record<string,string>={...(options.body?{'Content-Type':'application/json'}:{}),...(options.token?{Authorization:`Bearer ${options.token}`} : {}),...options.headers};if(options.token)sensitiveCanaries.add(options.token);for(const value of Object.values(headers))if(/paroisse_(?:access|refresh)=/.test(value))sensitiveCanaries.add(value.split('=').slice(1).join('=').split(';')[0]);if(options.body&&typeof options.body==='object'){for(const [key,value]of Object.entries(options.body as any))if(typeof value==='string'&&/(?:password|token|fullName|code)/i.test(key))sensitiveCanaries.add(value);}const response=await fetch(`${baseUrl}/api/v1${path}`,{method:options.method??'GET',headers,...(options.body?{body:JSON.stringify(options.body)}:{})});const raw=await response.text();return {status:response.status,body:raw?JSON.parse(raw):null,headers:response.headers};}
+function jwt(user:{id:string;role:UserRole;sessionVersion:number},family?:string){const enc=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url'),now=Math.floor(Date.now()/1000),unsigned=`${enc({alg:'HS256',typ:'JWT'})}.${enc({sub:user.id,role:user.role,ver:user.sessionVersion,...(family?{fam:family}:{}),iat:now,exp:now+600})}`,token=`${unsigned}.${createHmac('sha256',process.env.JWT_ACCESS_SECRET!).update(unsigned).digest('base64url')}`;sensitiveCanaries.add(token);return token;}
+async function call(path:string,options:{method?:string;token?:string;body?:unknown;headers?:Record<string,string>}={}){const sensitiveAction=/\/admin\/members(?:\/[^/]+)?(?:\/permissions)?$/.test(path)&&['POST','PATCH'].includes(options.method??'GET')||path.endsWith('/names/access');let requestBody=options.body;if(sensitiveAction&&options.token&&requestBody&&typeof requestBody==='object')requestBody={...(requestBody as any),reauthPassword:password};const address=`198.18.${Math.floor(requestAddress/256)%256}.${requestAddress%256}`;requestAddress++;const headers:Record<string,string>={...(requestBody?{'Content-Type':'application/json'}:{}),'X-Forwarded-For':address,...(options.token?{Authorization:`Bearer ${options.token}`} : {}),...options.headers};if(options.token)sensitiveCanaries.add(options.token);for(const value of Object.values(headers))if(/paroisse_(?:access|refresh)=/.test(value))sensitiveCanaries.add(value.split('=').slice(1).join('=').split(';')[0]);if(requestBody&&typeof requestBody==='object'){for(const [key,value]of Object.entries(requestBody as any))if(typeof value==='string'&&/(?:password|token|fullName|code)/i.test(key))sensitiveCanaries.add(value);}const response=await fetch(`${baseUrl}/api/v1${path}`,{method:options.method??'GET',headers,...(requestBody?{body:JSON.stringify(requestBody)}:{})});const raw=await response.text();return {status:response.status,body:raw?JSON.parse(raw):null,headers:response.headers};}
 async function addSheet(type:SheetType,date=localDate()){const existing=await prisma.attendanceSheet.findUnique({where:{type_date:{type,date:new Date(`${date}T00:00:00.000Z`)}}});if(existing){sheetIds.push(existing.id);return existing;}const row=await prisma.attendanceSheet.create({data:{id:`e2e-${randomUUID()}`,type,date:new Date(`${date}T00:00:00.000Z`),status:SheetStatus.OUVERTE}});sheetIds.push(row.id);return row;}
 
 beforeAll(async()=>{
@@ -36,11 +39,13 @@ beforeAll(async()=>{
   const capture=(...args:any[])=>{if(observedLogs.length>=maxObservedLogEntries)observedLogs.splice(0,maxObservedLogEntries/2);observedLogs.push(args.map(value=>typeof value==='string'?value:JSON.stringify(value)).join(' '));};
   const logger={log:capture,error:capture,warn:capture,debug:capture,verbose:capture,fatal:capture};
   for(const method of ['log','info','warn','error','debug'] as const)jest.spyOn(console,method).mockImplementation((...args:any[])=>capture(...args));
-  app=await NestFactory.create(AppModule,{logger:logger as any});
+  app=await NestFactory.create(AppModule,{logger:logger as any,bodyParser:false});
+  app.use(express.json({limit:'64kb'}));app.use(express.urlencoded({extended:false,limit:'64kb'}));
   app.getHttpAdapter().getInstance().set('trust proxy','loopback');
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));
   app.useGlobalGuards(new CsrfGuard());
+  await configureSwagger(app,'production');
   await app.listen(0,'127.0.0.1');
   baseUrl=`http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
   prisma=app.get(PrismaService);
@@ -57,12 +62,37 @@ afterAll(async()=>{
 describe('security HTTP e2e on isolated PostgreSQL',()=>{
   it('retire toutes les routes de la communauté et l’inscription publique',async()=>{
     const removed=[
-      ['POST','/auth/register'],['POST','/auth/social/register'],['GET','/auth/social/registration-config'],
+      ['POST','/auth/social/register'],['GET','/auth/social/registration-config'],
       ['GET','/community/conversations'],['POST','/community/conversations/direct'],['POST','/community/conversations/group'],['GET','/community/stories'],['POST','/community/stories'],['GET','/community/lives'],['POST','/community/lives'],
       ['GET','/community/content/programmes'],['GET','/community/groups'],['GET','/social/posts'],['POST','/social/posts'],['POST','/social/reports'],['POST','/media/upload'],['POST','/auth/social/email/confirm']
     ];
     for(const [method,path] of removed)expect((await call(path,{method})).status).toBe(404);
     expect(Object.values(UserRole)).not.toContain('FIDELE');expect(Object.values(UserRole)).not.toContain('MODERATEUR');expect(Object.values(UserRole)).not.toContain('PENDING');
+  });
+  it('ne publie aucune route Swagger ni documentation OpenAPI en configuration production',async()=>{
+    for(const path of ['/api/docs','/api/docs-json','/api/docs-yaml','/api-json','/docs','/api/v1/api/docs'])expect((await call(path)).status).toBe(404);
+  });
+  it('stores public registration requests for attendance roles as inactive until admin approval',async()=>{
+    const admin=await addUser(UserRole.ADMIN),adminToken=jwt(admin),email=testEmail(),signupPassword='Responsible_signup_password_2026!';
+    const body={fullName:'Candidat secrétaire E2E',email,phone:'+2290150000000',requestedRole:'SECRETAIRE_PRESENCE',password:signupPassword};
+    const created=await call('/auth/register',{method:'POST',body});
+    expect(created.status).toBe(201);expect(created.body.message).toContain('validation');
+    const row=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(row.id);
+    expect(row).toMatchObject({role:UserRole.SECRETAIRE_PRESENCE,active:false,assignedDayOfWeek:null});
+    expect((await call('/auth/login',{method:'POST',body:{email,password:signupPassword}})).status).toBe(401);
+    expect((await call('/auth/admin/members',{token:adminToken})).body.find((item:any)=>item.id===row.id)).toMatchObject({approvalPending:true,active:false});
+    expect((await call(`/auth/admin/members/${row.id}`,{method:'PATCH',token:adminToken,body:{active:true,reason:'Demande vérifiée par le chargé paroissial.'}})).status).toBe(200);
+    expect(await prisma.user.findUniqueOrThrow({where:{id:row.id}})).toMatchObject({active:true});
+    expect((await call('/auth/admin/members',{token:adminToken})).body.find((item:any)=>item.id===row.id)).toMatchObject({approvalPending:false,active:true});
+    expect(await prisma.auditLog.count({where:{action:'DEMANDE_ACCES_PRESENCES_VALIDEE',entityId:row.id}})).toBe(1);
+    expect((await call('/auth/login',{method:'POST',body:{email,password:signupPassword}})).status).toBe(201);
+    expect(await prisma.auditLog.count({where:{action:'DEMANDE_ACCES_PRESENCES',entityId:row.id}})).toBe(1);
+    const presidentEmail=testEmail(),presidentPassword='President_signup_password_2026!';
+    expect((await call('/auth/register',{method:'POST',body:{fullName:'Candidat président E2E',email:presidentEmail,phone:'+2290150000001',requestedRole:'RESPONSABLE_SEMAINE',assignedDayOfWeek:3,password:presidentPassword}})).status).toBe(201);
+    const president=await prisma.user.findUniqueOrThrow({where:{email:presidentEmail}});userIds.push(president.id);
+    expect(president).toMatchObject({role:UserRole.RESPONSABLE_SEMAINE,active:false,assignedDayOfWeek:3});
+    expect((await call('/auth/login',{method:'POST',body:{email:presidentEmail,password:presidentPassword}})).status).toBe(401);
+    expect((await call('/auth/register',{method:'POST',body:{fullName:'Tentative admin E2E',email:testEmail(),phone:'+2290150000002',requestedRole:'ADMIN',password:signupPassword}})).status).toBe(400);
   });
   it('creates responsible accounts only through administration and forces the first password change',async()=>{
     const admin=await addUser(UserRole.ADMIN),adminToken=jwt(admin),memberEmail=testEmail();
@@ -76,10 +106,58 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call('/auth/admin/members',{token:adminToken})).body.some((item:any)=>item.id===row.id)).toBe(true);
     expect(await prisma.auditLog.count({where:{action:'COMPTE_RESPONSABLE_CREE',entityId:row.id}})).toBe(1);
   });
+  it('requires a fresh password or current 2FA proof for sensitive administrator actions and revokes every device session',async()=>{
+    const admin=await addUser(UserRole.ADMIN),token=jwt(admin),sheet=await addSheet(SheetType.GROUPE_SEMAINE),accountEmail=testEmail();
+    const unproved=await fetch(`${baseUrl}/api/v1/auth/admin/members`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({fullName:'Compte contrôlé E2E',email:accountEmail,role:'EDITEUR',reason:'Création autorisée par un administrateur.'})});
+    expect(unproved.status).toBe(401);
+    const namesPath=`/attendance/sheets/${sheet.id}/names/access`;
+    const unprovedNames=await fetch(`${baseUrl}/api/v1${namesPath}`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({reason:'VERIFICATION_DEMANDE'})});
+    expect(unprovedNames.status).toBe(401);
+    const sessionId=await prisma.refreshToken.create({data:{userId:admin.id,hashedToken:createHash('sha256').update(randomBytes(32)).digest('hex'),expiresAt:new Date(Date.now()+60_000),family:randomUUID()}});
+    const revoked=await call('/auth/account/sessions/revoke-all',{method:'POST',token});
+    expect(revoked.status).toBe(201);
+    expect(await prisma.refreshToken.count({where:{userId:admin.id,revokedAt:null}})).toBe(0);
+    expect((await call('/attendance/today',{token})).status).toBe(401);
+    expect(await prisma.refreshToken.findUnique({where:{id:sessionId.id}})).toMatchObject({revokedAt:expect.any(Date)});
+  });
   it('equalizes failure messages and applies the same minimum response time to existing and unknown accounts',async()=>{
     const known=await addUser(UserRole.SECRETAIRE_PRESENCE),inputs=[known.email,testEmail()],durations:number[]=[],messages:any[]=[];
     for(const email of inputs){const started=Date.now(),result=await call('/auth/login',{method:'POST',body:{email,password:'incorrect-password'}});durations.push(Date.now()-started);messages.push(result.body);expect(result.status).toBe(401);}
     expect(messages[0]).toEqual(messages[1]);expect(durations.every(value=>value>=450)).toBe(true);expect(Math.abs(durations[0]-durations[1])).toBeLessThan(350);
+  });
+  it('slows repeated password failures without permanently locking a valid account and rate-limits reset-code guessing',async()=>{
+    const user=await addUser(UserRole.SECRETAIRE_PRESENCE),durations:number[]=[];
+    const sourceIp='198.18.200.1';for(let index=0;index<4;index++){const started=Date.now(),result=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':sourceIp},body:{email:user.email,password:'wrong-password'}});durations.push(Date.now()-started);expect(result.status).toBe(401);}
+    expect(durations[3]).toBeGreaterThan(durations[0]);
+    expect((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':sourceIp},body:{email:user.email,password}})).status).toBe(201);
+    const email=testEmail();let last:any;
+    for(let index=0;index<5;index++)last=await call('/auth/password/forgot',{method:'POST',body:{email}});
+    expect(last.status).toBe(429);
+  });
+  it('expires idle and absolute-old sessions on protected requests and revokes the session family',async()=>{
+    const user=await addUser(UserRole.SECRETAIRE_PRESENCE),makeSession=async(createdAge:number,lastSeenAge:number)=>{const family=randomUUID(),now=Date.now(),raw=randomBytes(32);await prisma.refreshToken.create({data:{userId:user.id,hashedToken:createHash('sha256').update(raw).digest('hex'),family,createdAt:new Date(now-createdAge),lastSeenAt:new Date(now-lastSeenAge),expiresAt:new Date(now+60*60_000)}});return family;};
+    const idleFamily=await makeSession(60_000,31*60_000);expect((await call('/auth/session',{token:jwt(user,idleFamily)})).status).toBe(401);expect(await prisma.refreshToken.count({where:{userId:user.id,family:idleFamily,revokedAt:null}})).toBe(0);
+    const absoluteFamily=await makeSession(31*86_400_000,60_000);expect((await call('/auth/session',{token:jwt(user,absoluteFamily)})).status).toBe(401);expect(await prisma.refreshToken.count({where:{userId:user.id,family:absoluteFamily,revokedAt:null}})).toBe(0);
+  });
+  it('requires CSRF proof for cookie-authenticated writes and rejects oversized request bodies',async()=>{
+    const user=await addUser(UserRole.SECRETAIRE_PRESENCE),login=await call('/auth/login',{method:'POST',body:{email:user.email,password}});
+    expect(login.status).toBe(201);
+    const cookies=login.headers.get('set-cookie')??'',access=cookies.match(/paroisse_access=([^;]+)/)?.[1],csrf=cookies.match(/paroisse_csrf=([^;]+)/)?.[1];
+    expect(access).toBeTruthy();expect(csrf).toBeTruthy();
+    const revokeUrl=`${baseUrl}/api/v1/auth/account/sessions/revoke-all`,cookie=`paroisse_access=${access}; paroisse_csrf=${csrf}`;
+    const blocked=await fetch(revokeUrl,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json'},body:'{}'});expect(blocked.status).toBe(403);
+    const allowed=await fetch(revokeUrl,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json','x-csrf-token':csrf!},body:'{}'});expect(allowed.status).toBe(201);
+    const oversized=await fetch(`${baseUrl}/api/v1/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:user.email,password:'x'.repeat(70_000)})});
+    expect(oversized.status).toBe(413);
+  });
+  it('rejects overlong attendance names while accepting legitimate accents, apostrophes and punctuation',async()=>{
+    const date=localDate(),president=await addUser(UserRole.RESPONSABLE_SEMAINE,{day:weekday(date)}),sheetId=`GROUPE_SEMAINE-${date}`;sheetIds.push(sheetId);
+    jest.useFakeTimers({doNotFake:['setTimeout','clearTimeout','setInterval','clearInterval','setImmediate','clearImmediate','nextTick','queueMicrotask']});jest.setSystemTime(new Date(`${date}T11:00:00.000Z`));
+    try{
+      const tooLong=await call(`/attendance/sheets/${sheetId}/entries`,{method:'POST',token:jwt(president),body:{fullName:'A'.repeat(121),sex:'F',zone:'TEMPLE',clientUuid:randomUUID()}});expect(tooLong.status).toBe(400);
+      const valid=await call(`/attendance/sheets/${sheetId}/entries`,{method:'POST',token:jwt(president),body:{fullName:'Élodie D’Oliveira — N’Guessan',sex:'F',zone:'TEMPLE',clientUuid:randomUUID()}});if(![201,409].includes(valid.status))throw new Error(`Réponse inattendue pour un nom valide : ${JSON.stringify(valid.body)}`);expect([201,409]).toContain(valid.status);
+      if(valid.status===201)expect(valid.body.entries.some((entry:any)=>entry.fullName==='Élodie D’Oliveira — N’Guessan')).toBe(true);
+    }finally{jest.useRealTimers();}
   });
 
   it('limits president reads to own day/sheet and prevents cross-role writes on each attendance route',async()=>{
@@ -223,8 +301,8 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const stored=await (prisma as any).recoveryCode.findMany({where:{userId:admin.id}});expect(stored).toHaveLength(10);expect(stored.some((row:any)=>codes.body.codes.includes(row.codeHash))).toBe(false);
     const login=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:codes.body.codes[0]}});expect(login.status).toBe(201);expect(login.body).not.toHaveProperty('accessToken');expect(login.headers.get('set-cookie')).toMatch(/HttpOnly/i);
     expect((await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:codes.body.codes[0]}})).status).toBe(401);
-    for(let i=0;i<4;i++)expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,body:{code:'000000'}})).status).toBe(401);
-    expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,body:{code:'000000'}})).status).toBe(429);
+    const bruteForceIp='198.18.210.1';for(let i=0;i<5;i++)expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,headers:{'X-Forwarded-For':bruteForceIp},body:{code:'000000'}})).status).toBe(401);
+    expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,headers:{'X-Forwarded-For':bruteForceIp},body:{code:'000000'}})).status).toBe(429);
     expect((await call('/auth/admin/members')).status).toBe(401);
   });
 
@@ -270,8 +348,8 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   it('revokes an entire refresh-token family after token reuse',async()=>{
     const user=await addUser(UserRole.SECRETAIRE_PRESENCE),raw=randomBytes(32).toString('base64url'),family=randomUUID();
     await prisma.refreshToken.create({data:{userId:user.id,hashedToken:createHash('sha256').update(raw).digest('hex'),family,expiresAt:new Date(Date.now()+3600000)}});
-    expect((await call('/auth/refresh',{method:'POST',headers:{Cookie:`paroisse_refresh=${raw}`}})).status).toBe(201);
-    expect((await call('/auth/refresh',{method:'POST',headers:{Cookie:`paroisse_refresh=${raw}`}})).status).toBe(401);
+    expect((await call('/auth/refresh',{method:'POST',headers:{Cookie:`paroisse_refresh=${raw}; paroisse_csrf=test-csrf`,'x-csrf-token':'test-csrf'}})).status).toBe(201);
+    expect((await call('/auth/refresh',{method:'POST',headers:{Cookie:`paroisse_refresh=${raw}; paroisse_csrf=test-csrf`,'x-csrf-token':'test-csrf'}})).status).toBe(401);
     expect(await prisma.refreshToken.count({where:{family,revokedAt:null}})).toBe(0);
   });
 
@@ -300,7 +378,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call(`/auth/account/sessions/${otherSession.id}`,{method:'DELETE',token:jwt(other)})).status).toBe(403);
     expect((await call(`/auth/account/sessions/${otherSession.id}`,{method:'DELETE',token})).status).toBe(200);
     expect((await prisma.refreshToken.findUniqueOrThrow({where:{id:otherSession.id}})).revokedAt).toBeTruthy();
-    const passwordChange=await call('/auth/account/password',{method:'POST',token,headers:{Cookie:`paroisse_refresh=${currentRaw}`},body:{currentPassword:password,newPassword:'New_Strong_Password_2026!',confirmPassword:'New_Strong_Password_2026!'}});expect(passwordChange.status).toBe(201);
+    const passwordChange=await call('/auth/account/password',{method:'POST',token,headers:{Cookie:`paroisse_refresh=${currentRaw}; paroisse_csrf=test-csrf`,'x-csrf-token':'test-csrf'},body:{currentPassword:password,newPassword:'New_Strong_Password_2026!',confirmPassword:'New_Strong_Password_2026!'}});expect(passwordChange.status).toBe(201);
     expect((await prisma.refreshToken.findUniqueOrThrow({where:{id:current.id}})).revokedAt).toBeNull();
     expect((await call('/auth/login',{method:'POST',body:{email:member.email,password}})).status).toBe(401);
     expect((await call('/auth/login',{method:'POST',body:{email:member.email,password:'New_Strong_Password_2026!'}})).status).toBe(201);

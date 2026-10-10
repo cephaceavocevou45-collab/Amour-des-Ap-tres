@@ -27,7 +27,7 @@ describe('attendance helpers',()=>{
   it('returns totals but no names to an administrator unless a reasoned names-access action is used',async()=>{
     const sheet={id:'sheet-1',type:SheetType.GROUPE_SEMAINE,date:new Date('2026-10-05T00:00:00Z'),status:SheetStatus.ENREGISTREE,totalMen:1,totalWomen:0,totalAll:1,totalsByZone:{TEMPLE:{men:1,women:0,total:1}},entries:[{fullName:'Nom Privé',sex:'M',zone:'TEMPLE',arrivedAt:new Date(),clientUuid:'x'}]};
     const prisma={attendanceSheet:{findUnique:jest.fn().mockResolvedValue(sheet)},auditLog:{create:jest.fn().mockResolvedValue({})}} as unknown as PrismaService;
-    const controller=new AttendanceController(prisma),request={user:{sub:'admin-1',role:'ADMIN'},ip:'127.0.0.1'};
+    const controller=new AttendanceController(prisma,{requireRecentProof:jest.fn().mockResolvedValue(undefined)} as any),request={user:{sub:'admin-1',role:'ADMIN'},ip:'127.0.0.1'};
     const summary=await controller.summary('sheet-1',request);
     expect(summary.entries).toEqual([]);expect(summary.totals.total).toBe(1);
     const names=await controller.accessNames('sheet-1',{reason:'VERIFICATION_DEMANDE'} as any,request);

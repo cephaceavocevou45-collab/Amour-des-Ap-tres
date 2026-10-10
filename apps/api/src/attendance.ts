@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, HttpException, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpException, Optional, Param, Patch, Post, Put, Query, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, MaxLength, ArrayMaxSize, Length, Matches } from 'class-validator';
 import { PersonRoleName, SheetStatus, SheetType, Sex, Zone } from './generated/prisma';
 import { normalizeName, totals } from '../../../packages/shared/src';
 import { JwtAuthGuard } from './auth.guard';
 import { PrismaService } from './prisma.service';
+import { ReauthProof, ReauthService } from './reauth';
 
 class EntryDto {
   @IsString() @MaxLength(120) fullName!: string;
@@ -30,13 +31,19 @@ class CourseUpdateDto {
   @IsOptional() @IsString() @Matches(/^[a-z0-9_-]{1,40}$/i) themePresenterId?:string;
   @IsOptional() @IsArray() @ArrayMaxSize(30) @Matches(/^[a-z0-9_-]{1,40}$/i,{each:true}) monitorIds?:string[];
 }
+class CourseCorrectionRequestDto {
+  @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) date!:string;
+  @IsString() @Matches(/^[a-z0-9_-]{1,40}$/i) recipientId!:string;
+  @IsString() @Length(8,1000) message!:string;
+}
+class CourseCorrectionReadDto { @IsString() @Matches(/^[a-z0-9_-]{1,40}$/i) requestId!:string; }
 class CorrectionDto {
   @IsString() @MaxLength(120) fullName!:string;
   @IsEnum(Sex) sex!:Sex;
   @IsEnum(Zone) zone!:Zone;
   @IsIn(['DOUBLON','ERREUR_DE_SAISIE','JUSTIFICATIF_PAROISSIAL']) reason!:string;
 }
-class NamesAccessDto { @IsIn(['VERIFICATION_DEMANDE','SIGNAL_ADMIN','CORRECTION_ADMIN']) reason!:string; }
+class NamesAccessDto implements ReauthProof { @IsIn(['VERIFICATION_DEMANDE','SIGNAL_ADMIN','CORRECTION_ADMIN']) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string; }
 
 function localDateKey(date=new Date()) {
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
@@ -58,7 +65,7 @@ export function isWithinAttendanceWindow(type:SheetType,now=new Date()) {
 @UseGuards(JwtAuthGuard)
 @Controller('attendance')
 export class AttendanceController {
-  constructor(private readonly prisma:PrismaService) {}
+  constructor(private readonly prisma:PrismaService,@Optional() private readonly reauth?:ReauthService) {}
 
   @Get('today') async today(@Req() req:any) {
     const role=req.user.role;this.requireAttendanceRole(role);
@@ -83,6 +90,8 @@ export class AttendanceController {
 
   @Post('sheets/:id/names/access') async accessNames(@Param('id') id:string,@Body() body:NamesAccessDto,@Req() req:any){
     if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new HttpException('Consultation nominative réservée à l’administration principale.',403);
+    if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');
+    await this.reauth.requireRecentProof(req.user.sub,body);
     const sheet=await this.prisma.attendanceSheet.findUnique({where:{id},include:{entries:{orderBy:{arrivedAt:'asc'}}}});
     if(!sheet)throw new HttpException('Feuille introuvable',404);
     await this.prisma.auditLog.create({data:{userId:req.user.sub,action:'CONSULTATION_NOMINATIVE',entity:'AttendanceSheet',entityId:id,reason:body.reason.trim(),ip:req.ip}});
@@ -220,7 +229,34 @@ export class AttendanceController {
 
   @Get('course/:date') async course(@Param('date') date:string,@Req() req:any){this.requireCourseAccess(req.user);this.requireMondayDate(date);if(req.user.role==='SECRETAIRE_PRESENCE'&&date!==localDateKey())throw new HttpException('Le secrétaire consulte uniquement le cours biblique du lundi en cours.',403);return this.courseData(date);}
 
-  @Put('course/:date') async updateCourse(@Param('date') date:string,@Body() body:CourseUpdateDto,@Req() req:any){this.requireCourseAccess(req.user);this.requireMondayDate(date);if(req.user.role==='SECRETAIRE_PRESENCE'&&(date!==localDateKey()||!this.isWithinWindow(SheetType.COURS_BIBLIQUE)))throw new HttpException('Le programme du cours peut être modifié le lundi de 19 h 30 à 21 h 30.',403);const roles:[PersonRoleName,string[]][]=[[PersonRoleName.RESUME_PRECEDENT,[body.previousPresenterId].filter((id):id is string=>!!id)],[PersonRoleName.EXPLICATION_TEXTE,[body.textPresenterId].filter((id):id is string=>!!id)],[PersonRoleName.PRESENTATION_THEME,[body.themePresenterId].filter((id):id is string=>!!id)],[PersonRoleName.MONITEUR_TABLE,Array.isArray(body.monitorIds)?body.monitorIds:[]]];const selectedIds=[...new Set(roles.flatMap(([,ids])=>ids))];const people=selectedIds.length?await this.prisma.person.findMany({where:{id:{in:selectedIds},active:true},include:{roles:true}}):[];for(const [role,ids]of roles)for(const id of ids){const person=people.find(row=>row.id===id);if(!person||!person.roles.some(item=>item.role===role))throw new HttpException('Choisissez chaque intervenant dans la liste correspondant à son rôle.',400);}const dateObj=dateValue(date);await this.prisma.$transaction(async tx=>{const session=await tx.session.upsert({where:{date:dateObj},create:{date:dateObj,theme:body.theme?.trim()||'Thème à définir',bibleBook:body.bibleReference?.trim()||'À préciser',bibleChapter:1,previousSummary:body.previousSummary?.trim()||null,bibleReference:body.bibleReference?.trim()||null,bibleText:body.bibleText?.trim()||null},update:{theme:body.theme?.trim()||'Thème à définir',bibleBook:body.bibleReference?.trim()||'À préciser',previousSummary:body.previousSummary?.trim()||null,bibleReference:body.bibleReference?.trim()||null,bibleText:body.bibleText?.trim()||null}});await tx.sessionAssignment.deleteMany({where:{sessionId:session.id}});const assignmentRows=roles.flatMap(([role,ids])=>ids.map(personId=>({sessionId:session.id,personId,role})));if(assignmentRows.length)await tx.sessionAssignment.createMany({data:assignmentRows});});return this.courseData(date);}
+  @Put('course/:date') async updateCourse(@Param('date') date:string,@Body() body:CourseUpdateDto,@Req() req:any){if(req.user.role!=='SECRETAIRE_PRESENCE')throw new HttpException('Seul le secrétaire responsable du cours biblique peut modifier le programme.',403);this.requireMondayDate(date);if(date!==localDateKey()||!this.isWithinWindow(SheetType.COURS_BIBLIQUE))throw new HttpException('Le programme du cours peut être modifié le lundi de 19 h 30 à 21 h 30.',403);const roles:[PersonRoleName,string[]][]=[[PersonRoleName.RESUME_PRECEDENT,[body.previousPresenterId].filter((id):id is string=>!!id)],[PersonRoleName.EXPLICATION_TEXTE,[body.textPresenterId].filter((id):id is string=>!!id)],[PersonRoleName.PRESENTATION_THEME,[body.themePresenterId].filter((id):id is string=>!!id)],[PersonRoleName.MONITEUR_TABLE,Array.isArray(body.monitorIds)?body.monitorIds:[]]];const selectedIds=[...new Set(roles.flatMap(([,ids])=>ids))];const people=selectedIds.length?await this.prisma.person.findMany({where:{id:{in:selectedIds},active:true},include:{roles:true}}):[];for(const [role,ids]of roles)for(const id of ids){const person=people.find(row=>row.id===id);if(!person||!person.roles.some(item=>item.role===role))throw new HttpException('Choisissez chaque intervenant dans la liste correspondant à son rôle.',400);}const dateObj=dateValue(date);await this.prisma.$transaction(async tx=>{const session=await tx.session.upsert({where:{date:dateObj},create:{date:dateObj,theme:body.theme?.trim()||'Thème à définir',bibleBook:body.bibleReference?.trim()||'À préciser',bibleChapter:1,previousSummary:body.previousSummary?.trim()||null,bibleReference:body.bibleReference?.trim()||null,bibleText:body.bibleText?.trim()||null},update:{theme:body.theme?.trim()||'Thème à définir',bibleBook:body.bibleReference?.trim()||'À préciser',previousSummary:body.previousSummary?.trim()||null,bibleReference:body.bibleReference?.trim()||null,bibleText:body.bibleText?.trim()||null}});await tx.sessionAssignment.deleteMany({where:{sessionId:session.id}});const assignmentRows=roles.flatMap(([role,ids])=>ids.map(personId=>({sessionId:session.id,personId,role})));if(assignmentRows.length)await tx.sessionAssignment.createMany({data:assignmentRows});});return this.courseData(date);}
+
+  @Post('course-corrections') async requestCourseCorrection(@Body() body:CourseCorrectionRequestDto,@Req() req:any){
+    if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new HttpException('Action réservée à l’administration.',403);
+    this.requireMondayDate(body.date);
+    const recipient=await this.prisma.user.findUnique({where:{id:body.recipientId},select:{id:true,role:true,active:true}});
+    if(!recipient||recipient.role!=='SECRETAIRE_PRESENCE'||!recipient.active)throw new HttpException('Le secrétaire destinataire est introuvable ou inactif.',404);
+    return this.prisma.auditLog.create({data:{userId:req.user.sub,action:'CORRECTION_PROGRAMME_DEMANDEE',entity:'CourseProgramCorrection',entityId:recipient.id,reason:body.message.trim(),after:{date:body.date},ip:req.ip},select:{id:true,createdAt:true}});
+  }
+
+  @Get('course-corrections') async courseCorrections(@Req() req:any){
+    if(req.user.role!=='SECRETAIRE_PRESENCE')throw new HttpException('Ces messages sont réservés au secrétaire des cours bibliques.',403);
+    const [requests,reads]=await Promise.all([
+      this.prisma.auditLog.findMany({where:{entity:'CourseProgramCorrection',action:'CORRECTION_PROGRAMME_DEMANDEE',entityId:req.user.sub},orderBy:{createdAt:'desc'},take:30,select:{id:true,reason:true,after:true,createdAt:true}}),
+      this.prisma.auditLog.findMany({where:{entity:'CourseProgramCorrection',action:'CORRECTION_PROGRAMME_LUE',userId:req.user.sub},select:{after:true}})
+    ]);
+    const readIds=new Set(reads.map((row:any)=>row.after?.requestId).filter(Boolean));
+    return requests.filter((row:any)=>!readIds.has(row.id)).map((row:any)=>({id:row.id,message:row.reason,date:row.after?.date??null,createdAt:row.createdAt}));
+  }
+
+  @Post('course-corrections/read') async markCourseCorrectionRead(@Body() body:CourseCorrectionReadDto,@Req() req:any){
+    if(req.user.role!=='SECRETAIRE_PRESENCE')throw new HttpException('Ces messages sont réservés au secrétaire des cours bibliques.',403);
+    const request=await this.prisma.auditLog.findFirst({where:{id:body.requestId,entity:'CourseProgramCorrection',action:'CORRECTION_PROGRAMME_DEMANDEE',entityId:req.user.sub},select:{id:true}});
+    if(!request)throw new HttpException('Demande de correction introuvable.',404);
+    const alreadyRead=await this.prisma.auditLog.findFirst({where:{entity:'CourseProgramCorrection',action:'CORRECTION_PROGRAMME_LUE',userId:req.user.sub,after:{path:['requestId'],equals:request.id}},select:{id:true}});
+    if(!alreadyRead)await this.prisma.auditLog.create({data:{userId:req.user.sub,action:'CORRECTION_PROGRAMME_LUE',entity:'CourseProgramCorrection',entityId:req.user.sub,after:{requestId:request.id},ip:req.ip}});
+    return {read:true};
+  }
 
   private requireCourseAccess(user:{role:string;permissions?:string[]}){if(!['ADMIN','SUPER_ADMIN','EDITEUR','SECRETAIRE_PRESENCE'].includes(user.role))throw new HttpException('Accès au programme biblique non autorisé.',403);if(user.role==='EDITEUR'&&!user.permissions?.includes('PROGRAMME_BIBLIQUE'))throw new HttpException('Votre compte ne dispose pas de l’autorisation programme biblique.',403);}
   private requireMondayDate(date:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(`${date}T00:00:00Z`))||new Date(`${date}T00:00:00Z`).toISOString().slice(0,10)!==date||new Date(`${date}T00:00:00Z`).getUTCDay()!==1)throw new HttpException('La date du cours doit être un lundi valide.',400);}

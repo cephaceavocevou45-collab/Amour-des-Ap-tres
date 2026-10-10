@@ -14,7 +14,8 @@ export class RateLimitGuard implements CanActivate {
     const ip = typeof request.ip === 'string' ? request.ip : 'unknown';
     const now = Date.now();
     const windowMs = 10 * 60_000;
-    const limit = path.endsWith('/login') ? 10
+    const limit = path.endsWith('/register') ? 3
+      : path.endsWith('/login') ? 10
       : path.endsWith('/2fa/setup') || path.endsWith('/2fa/new-secret') || path.endsWith('/2fa/recovery-codes') ? 5
       : path.endsWith('/password/forgot') ? 4
       : path.endsWith('/password/reset') ? 10

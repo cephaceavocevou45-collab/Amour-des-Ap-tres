@@ -1,6 +1,6 @@
 # Paroisse Amour des Apôtres
 
-Application de présentation de la paroisse Sainte-Cécile à Cotonou et de gestion des présences. L'espace communautaire et l'inscription publique des fidèles sont retirés. Les rôles gérés sont les administrateurs, sous-administrateurs, secrétaires de présence et présidents du jour.
+Application de présentation de la paroisse Sainte-Cécile à Cotonou et de gestion des présences. L'espace communautaire et l'inscription publique des fidèles sont retirés. Les candidats secrétaires de présence ou présidents du jour peuvent demander un accès; un administrateur doit l'activer avant toute connexion.
 
 ## Développement local
 
@@ -36,3 +36,6 @@ Les présences nominatives sont des données sensibles. L'administrateur consult
 - [Audit de sécurité](docs/SECURITY_AUDIT.md), [blocages](docs/BLOCAGES.md), [décisions à valider](docs/DECISIONS_A_VALIDER.md)
 
 Les résultats de tests et de déploiement sont datés dans les documents de sécurité. Un succès antérieur ne prouve pas que le code courant ou une installation de production est validé.
+# Comptes PostgreSQL de production
+
+L'API doit utiliser le rôle non privilégié `paroisse_app`; les migrations doivent être exécutées séparément avec `paroisse_migrator`. Sur une base externe neuve et vide, suivre [le guide d'exploitation](docs/EXPLOITATION.md#provisionnement-postgresql-à-privilèges-minimaux) et utiliser `npm run db:least-privilege`. Ne lancez pas ce provisionnement sur une base existante : le script refuse tout schéma public non vide. La valeur `DATABASE_URL` de l'API ne doit jamais contenir le compte migrateur.

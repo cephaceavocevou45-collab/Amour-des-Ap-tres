@@ -2,9 +2,21 @@ import { AuthController, AuthService } from './auth';
 import { PrismaService } from './prisma.service';
 
 describe('security-sensitive authentication flows',()=>{
-  it('does not expose a public registration endpoint',()=>{
-    expect(AuthController.prototype).not.toHaveProperty('register');
+  it('exposes registration only for attendance responsibilities',()=>{
+    expect(AuthController.prototype).toHaveProperty('register');
     expect(AuthController.prototype).toHaveProperty('login');
+  });
+
+  it('stores an attendance responsibility request inactive and audits it without logging credentials',async()=>{
+    const created={id:'pending-member',fullName:'Responsable Exemple',email:'responsable@example.invalid',role:'SECRETAIRE_PRESENCE',assignedDayOfWeek:null};
+    const tx={user:{create:jest.fn().mockResolvedValue(created)},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
+    const password='Un_mot_de_passe_fort_2026!';
+    const result=await new AuthService(prisma).requestResponsibleAccount({fullName:created.fullName,email:created.email,phone:'+2290150000000',requestedRole:'SECRETAIRE_PRESENCE',password} as any);
+    expect(result.message).toContain('validation');
+    expect(tx.user.create).toHaveBeenCalledWith({data:expect.objectContaining({role:'SECRETAIRE_PRESENCE',active:false,assignedDayOfWeek:null})});
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({action:'DEMANDE_ACCES_PRESENCES',entityId:created.id,after:{role:'SECRETAIRE_PRESENCE',assignedDayOfWeek:null}})});
+    expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(password);
   });
 
   it('rejects a reused or expired email recovery code before changing the account',async()=>{
@@ -42,7 +54,8 @@ describe('security-sensitive authentication flows',()=>{
     const row={id:'member-1',fullName:'Responsable Test',email:'responsable@example.invalid',phone:null,role:'SECRETAIRE_PRESENCE',active:true,permissions:[],assignedDayOfWeek:null,mustChangePassword:true};
     const tx={user:{create:jest.fn().mockResolvedValue(row)},auditLog:{create:jest.fn().mockResolvedValue({})}};
     const prisma={$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
-    const result=await new AuthService(prisma).createManagedAccount({fullName:'Responsable Test',email:row.email,role:'SECRETAIRE_PRESENCE',reason:'Désignation confirmée par le chargé paroissial.'} as any,'admin-1');
+    const reauth={requireRecentProof:jest.fn().mockResolvedValue(undefined)} as any;
+    const result=await new AuthService(prisma,undefined,reauth).createManagedAccount({fullName:'Responsable Test',email:row.email,role:'SECRETAIRE_PRESENCE',reason:'Désignation confirmée par le chargé paroissial.'} as any,'admin-1');
     expect(result.member).toMatchObject({id:row.id,role:row.role,mustChangePassword:true});
     expect(result.temporaryPassword).toHaveLength(32);
     expect(tx.user.create).toHaveBeenCalledWith({data:expect.objectContaining({role:'SECRETAIRE_PRESENCE',mustChangePassword:true,active:true})});
@@ -62,5 +75,13 @@ describe('security-sensitive authentication flows',()=>{
     expect(tx.user.update).toHaveBeenCalledWith({where:{id:'member-1'},data:expect.objectContaining({mustChangePassword:false,sessionVersion:{increment:1}})});
     expect(tx.refreshToken.updateMany).toHaveBeenCalledWith({where:{userId:'member-1',revokedAt:null},data:{revokedAt:expect.any(Date)}});
     expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'member-1',action:'MOT_DE_PASSE_INITIAL_MODIFIE'})});
+  });
+});
+
+describe('production session cookies',()=>{
+  it('sets access and refresh cookies to HttpOnly, Secure and SameSite Strict',()=>{
+    const previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
+    try{const response={cookie:jest.fn()},controller=new AuthController({} as any);(controller as any).setSessionCookies(response,{accessToken:'access',refreshToken:'refresh'});const settings=response.cookie.mock.calls.map(([, ,options])=>options);expect(settings.slice(0,2)).toEqual([expect.objectContaining({httpOnly:true,secure:true,sameSite:'strict'}),expect.objectContaining({httpOnly:true,secure:true,sameSite:'strict'})]);expect(response.cookie.mock.calls.map(([name])=>name)).toEqual(['paroisse_access','paroisse_refresh','paroisse_csrf']);expect(settings[2]).toMatchObject({httpOnly:false,secure:true,sameSite:'strict'});}
+    finally{if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;}
   });
 });

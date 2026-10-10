@@ -11,7 +11,9 @@ mkdir -p "$dir"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
-pg_dump "$DATABASE_URL" --format=custom --no-owner --file="$tmp"
+pg_url=$(PG_URL_TO_NORMALIZE="$DATABASE_URL" node "$(dirname "$0")/postgres-url.cjs")
+pg_dump --format=custom --no-owner --file="$tmp" "$pg_url"
+unset pg_url
 node "$(dirname "$0")/backup-crypto.cjs" encrypt "$tmp" "$dir/paroisse-${stamp}.backup"
 find "$dir" -maxdepth 1 -type f -name 'paroisse-*.backup' -mtime "+$days" -delete
 echo "Sauvegarde chiffrée créée ; rétention appliquée : ${days} jours."

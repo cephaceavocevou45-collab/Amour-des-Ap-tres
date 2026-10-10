@@ -7,8 +7,8 @@ export class CsrfGuard implements CanActivate {
     const request=context.switchToHttp().getRequest();
     if(['GET','HEAD','OPTIONS'].includes(request.method))return true;
     const cookies=String(request.headers.cookie??'').split(';').map((part:string)=>part.trim());
-    const access=cookies.find((part:string)=>part.startsWith('paroisse_access='));
-    if(!access)return true;
+    const hasSessionCookie=cookies.some((part:string)=>part.startsWith('paroisse_access=')||part.startsWith('paroisse_refresh='));
+    if(!hasSessionCookie)return true;
     const cookie=cookies.find((part:string)=>part.startsWith('paroisse_csrf='))?.slice('paroisse_csrf='.length);
     const header=request.headers['x-csrf-token'];
     if(typeof cookie!=='string'||typeof header!=='string')throw new ForbiddenException('Jeton CSRF requis.');

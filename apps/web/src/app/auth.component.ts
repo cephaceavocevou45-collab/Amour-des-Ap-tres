@@ -4,23 +4,102 @@ import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { environment } from '../environments/environment';
 
-@Component({selector:'app-auth',standalone:true,imports:[FormsModule,RouterLink],template:`
-<main class="auth-page"><aside class="auth-brand-panel"><a routerLink="/" aria-label="Retour à l’accueil">← Retour à l’accueil</a><img src="ecc-logo.png" alt="Emblème de l’Église du Christianisme Céleste"><h2>Amour des Apôtres</h2><p>Sainte-Cécile · Cotonou</p></aside><section class="auth-form-panel"><form class="auth-form" (ngSubmit)="submit()"><span class="auth-kicker">{{admin?'ESPACE D’ADMINISTRATION':'ESPACE RESPONSABLES'}}</span>@if(admin){<span class="auth-admin-tag">{{subadmin?'ACCÈS SOUS-ADMINISTRATEUR':'ACCÈS ADMINISTRATEUR'}}</span>}<h1>{{firstLogin?'Sécuriser votre compte':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Mot de passe oublié'):subadmin?'Connexion sous-administrateur':admin?'Connexion administrateur':'Connexion responsables'}}</h1><p>{{firstLogin?'Votre administrateur vous a remis un mot de passe temporaire. Remplacez-le pour activer votre accès.':forgot?(recoveryRequested()?'Saisissez le code reçu par e-mail, puis choisissez un nouveau mot de passe.':'Saisissez l’adresse e-mail de votre compte. Si elle correspond à un compte, un code de récupération sera envoyé.'):subadmin?'Connectez-vous avec le compte et les autorisations attribués par l’administrateur.':admin?'Connectez-vous à votre espace d’administration sécurisé.':'Connectez-vous pour accéder au suivi des présences qui vous est attribué.'}}</p>
-@if(message()){<div class="auth-message" [attr.role]="messageIsError()?'alert':'status'">{{message()}}</div>}
-@if(!firstLogin){<label for="email">Adresse e-mail</label><input id="email" name="email" [(ngModel)]="email" type="email" autocomplete="username" required placeholder="vous@exemple.com" [readonly]="forgot&&recoveryRequested()">}
-@if(firstLogin){<label for="password">Mot de passe temporaire</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="current-password" required placeholder="Mot de passe remis par l’administration">}
-@if(!forgot&&!firstLogin){<label for="password">Mot de passe</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="current-password" required placeholder="Votre mot de passe">}
-@if(forgot&&recoveryRequested()){<label for="recoveryCode">Code reçu par e-mail</label><input id="recoveryCode" name="recoveryCode" [(ngModel)]="recoveryCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="Code à 6 chiffres"><label for="newPassword">Nouveau mot de passe</label><input id="newPassword" name="newPassword" [(ngModel)]="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="12 caractères minimum"><label for="confirmPassword">Confirmer le nouveau mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Saisissez-le une seconde fois"><label for="factor">Code 2FA (si activé)</label><input id="factor" name="factor" [(ngModel)]="factor" autocomplete="one-time-code" placeholder="Code TOTP ou code de secours" maxlength="23">}
-@if(firstLogin){<label for="newPassword">Nouveau mot de passe</label><input id="newPassword" name="newPassword" [(ngModel)]="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="12 caractères minimum"><label for="confirmPassword">Confirmer le nouveau mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Saisissez-le une seconde fois">}
-@if(!forgot&&!firstLogin){<label for="totp">Code de vérification (si activé pour votre compte)</label><input id="totp" name="totp" [(ngModel)]="totp" autocomplete="one-time-code" placeholder="Code à 6 chiffres ou code de secours" maxlength="23" pattern="([0-9]{6}|[A-F0-9]{5}(-[A-F0-9]{5}){3})"><small class="form-hint">Il est obligatoire pour l’administration et peut être exigé pour les responsables.</small>}
-<button class="auth-submit" [disabled]="busy()">{{busy()?'Veuillez patienter…':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Envoyer le code'):firstLogin?'Enregistrer le nouveau mot de passe':'Se connecter'}} <span>→</span></button>
-@if(forgot){<div class="auth-switch"><a routerLink="/connexion">Retour à la connexion</a>@if(recoveryRequested()){ · <button type="button" class="text-button" (click)="recoveryRequested.set(false)">Demander un autre code</button>}</div>}@else if(subadmin){<div class="auth-switch">Administrateur ? <a routerLink="/admin/connexion">Connexion administrateur</a></div>}@else if(admin){<div class="auth-switch"><a routerLink="/sous-admin/connexion">Connexion sous-administrateur</a></div>}@else{<div class="auth-switch">Les comptes sont créés par l’administration paroissiale.</div>}
-@if(!forgot&&!firstLogin){<div class="auth-switch"><a routerLink="/mot-de-passe-oublie">Mot de passe oublié ?</a></div>}
-<div class="auth-security">Les accès sont réservés aux responsables désignés et sont journalisés. N’utilisez pas un mot de passe déjà employé sur un autre service.</div></form></section></main>`})
+@Component({
+  selector: 'app-auth',
+  standalone: true,
+  imports: [FormsModule, RouterLink],
+  template: `
+    <main class="auth-page">
+      <aside class="auth-brand-panel">
+        <a routerLink="/" aria-label="Retour à l’accueil">← Retour à l’accueil</a>
+        <img src="ecc-logo.png" alt="Emblème de l’Église du Christianisme Céleste">
+        <h2>Amour des Apôtres</h2><p>Sainte-Cécile · Cotonou</p>
+      </aside>
+      <section class="auth-form-panel"><form class="auth-form" (ngSubmit)="submit()">
+        <span class="auth-kicker">{{admin?'ESPACE D’ADMINISTRATION':register?'DEMANDE D’ACCÈS AUX PRÉSENCES':'ESPACE RESPONSABLES'}}</span>
+        @if(admin){<span class="auth-admin-tag">{{subadmin?'ACCÈS SOUS-ADMINISTRATEUR':'ACCÈS ADMINISTRATEUR'}}</span>}
+        <h1>{{register?'Demander un accès':firstLogin?'Sécuriser votre compte':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Mot de passe oublié'):subadmin?'Connexion sous-administrateur':admin?'Connexion administrateur':'Connexion responsables'}}</h1>
+        <p>{{register?'Choisissez la responsabilité que vous souhaitez exercer. L’accès aux présences sera activé uniquement après validation administrative.':firstLogin?'Votre administrateur vous a remis un mot de passe temporaire. Remplacez-le pour activer votre accès.':forgot?(recoveryRequested()?'Saisissez le code reçu par e-mail, puis choisissez un nouveau mot de passe.':'Saisissez l’adresse e-mail de votre compte. Si elle correspond à un compte, un code de récupération sera envoyé.'):subadmin?'Connectez-vous avec le compte et les autorisations attribués par l’administrateur.':admin?'Connectez-vous à votre espace d’administration sécurisé.':'Connectez-vous pour accéder au suivi des présences qui vous est attribué.'}}</p>
+        @if(message()){<div class="auth-message" [class.success-message]="!messageIsError()" [attr.role]="messageIsError()?'alert':'status'">{{message()}}</div>}
+
+        @if(register){
+          @if(!registrationSent()){
+            <label for="fullName">Nom et prénoms</label><input id="fullName" name="fullName" [(ngModel)]="fullName" minlength="3" maxlength="120" autocomplete="name" required>
+            <label for="phone">Numéro WhatsApp</label><input id="phone" name="phone" [(ngModel)]="phone" type="tel" pattern="\+[1-9][0-9]{7,14}" placeholder="+229…" autocomplete="tel" required>
+            <label for="requestedRole">Responsabilité demandée</label><select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole"><option value="SECRETAIRE_PRESENCE">Secrétaire des présences — cours biblique</option><option value="RESPONSABLE_SEMAINE">Président d’un jour — présences de la semaine</option></select>
+            @if(requestedRole==='RESPONSABLE_SEMAINE'){
+              <label for="assignedDay">Jour à prendre en charge</label><select id="assignedDay" name="assignedDay" [(ngModel)]="assignedDay"><option [ngValue]="1">Lundi</option><option [ngValue]="2">Mardi</option><option [ngValue]="3">Mercredi</option><option [ngValue]="4">Jeudi</option><option [ngValue]="5">Vendredi</option><option [ngValue]="6">Samedi</option><option [ngValue]="7">Dimanche</option></select>
+            }
+            <label for="email">Adresse e-mail</label><input id="email" name="email" [(ngModel)]="email" type="email" maxlength="254" autocomplete="email" required placeholder="vous@exemple.com">
+            <label for="password">Mot de passe</label><input id="password" name="password" [(ngModel)]="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+            <label for="confirmPassword">Confirmer le mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+            <small class="form-hint">Votre numéro WhatsApp ne fait pas l’objet d’une vérification automatique. Les demandes sont examinées par l’administration, généralement sous 48 heures.</small>
+            <button class="auth-submit" [disabled]="busy()">{{busy()?'Envoi…':'Envoyer ma demande'}} <span>→</span></button>
+          }
+          <div class="auth-switch"><a routerLink="/connexion">J’ai déjà un compte · Se connecter</a></div>
+        } @else {
+          @if(!firstLogin){<label for="email">Adresse e-mail</label><input id="email" name="email" [(ngModel)]="email" type="email" autocomplete="username" required placeholder="vous@exemple.com" [readonly]="forgot&&recoveryRequested()">}
+          @if(firstLogin){<label for="password">Mot de passe temporaire</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="current-password" required placeholder="Mot de passe remis par l’administration">}
+          @if(!forgot&&!firstLogin){<label for="password">Mot de passe</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="current-password" required placeholder="Votre mot de passe">}
+          @if(forgot&&recoveryRequested()){
+            <label for="recoveryCode">Code reçu par e-mail</label><input id="recoveryCode" name="recoveryCode" [(ngModel)]="recoveryCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="Code à 6 chiffres">
+            <label for="newPassword">Nouveau mot de passe</label><input id="newPassword" name="newPassword" [(ngModel)]="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="12 caractères minimum">
+            <label for="confirmPassword">Confirmer le nouveau mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Saisissez-le une seconde fois">
+            <label for="factor">Code 2FA (si activé)</label><input id="factor" name="factor" [(ngModel)]="factor" autocomplete="one-time-code" placeholder="Code TOTP ou code de secours" maxlength="23">
+          }
+          @if(firstLogin){
+            <label for="newPassword">Nouveau mot de passe</label><input id="newPassword" name="newPassword" [(ngModel)]="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="12 caractères minimum">
+            <label for="confirmPassword">Confirmer le nouveau mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Saisissez-le une seconde fois">
+          }
+          @if(!forgot&&!firstLogin){<label for="totp">Code de vérification (si activé pour votre compte)</label><input id="totp" name="totp" [(ngModel)]="totp" autocomplete="one-time-code" placeholder="Code à 6 chiffres ou code de secours" maxlength="23" pattern="([0-9]{6}|[A-F0-9]{5}(-[A-F0-9]{5}){3})"><small class="form-hint">Il est obligatoire pour l’administration et peut être exigé pour les responsables.</small>}
+          <button class="auth-submit" [disabled]="busy()">{{busy()?'Veuillez patienter…':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Envoyer le code'):firstLogin?'Enregistrer le nouveau mot de passe':'Se connecter'}} <span>→</span></button>
+          @if(forgot){<div class="auth-switch"><a routerLink="/connexion">Retour à la connexion</a>@if(recoveryRequested()){ · <button type="button" class="text-button" (click)="recoveryRequested.set(false)">Demander un autre code</button>}</div>}
+          @else if(subadmin){<div class="auth-switch">Administrateur ? <a routerLink="/admin/connexion">Connexion administrateur</a></div>}
+          @else if(admin){<div class="auth-switch"><a routerLink="/sous-admin/connexion">Connexion sous-administrateur</a></div>}
+          @else{<div class="auth-switch">Vous êtes responsable des présences ? <a routerLink="/inscription-responsable">Demander un accès</a></div>}
+          @if(!forgot&&!firstLogin){<div class="auth-switch"><a routerLink="/mot-de-passe-oublie">Mot de passe oublié ?</a></div>}
+        }
+        <div class="auth-security">Les accès aux présences sont réservés aux responsables validés et sont journalisés. N’utilisez pas un mot de passe déjà employé sur un autre service.</div>
+      </form></section>
+    </main>`
+})
 export class AuthComponent {
   private route=inject(ActivatedRoute);private router=inject(Router);private http=inject(HttpClient);
-  readonly subadmin=this.route.snapshot.data['mode']==='subadmin';readonly admin=this.route.snapshot.data['mode']==='admin'||this.subadmin;readonly forgot=this.route.snapshot.data['mode']==='forgot';readonly firstLogin=this.route.snapshot.data['mode']==='first-password-change';
-  email='';password='';newPassword='';confirmPassword='';totp='';recoveryCode='';factor='';recoveryRequested=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);
+  readonly subadmin=this.route.snapshot.data['mode']==='subadmin';
+  readonly admin=this.route.snapshot.data['mode']==='admin'||this.subadmin;
+  readonly forgot=this.route.snapshot.data['mode']==='forgot';
+  readonly firstLogin=this.route.snapshot.data['mode']==='first-password-change';
+  readonly register=this.route.snapshot.data['mode']==='responsible-registration';
+  email='';password='';newPassword='';confirmPassword='';totp='';recoveryCode='';factor='';fullName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;
+  recoveryRequested=signal(false);registrationSent=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);
+
   constructor(){if(this.route.snapshot.queryParamMap.get('expired')){this.message.set('Votre session administrateur a expiré. Reconnectez-vous pour continuer.');this.messageIsError.set(true);}if(this.route.snapshot.queryParamMap.get('passwordChanged'))this.message.set('Votre mot de passe a été modifié. Connectez-vous avec le nouveau mot de passe.');}
-  async submit(){this.busy.set(true);this.message.set('');this.messageIsError.set(false);try{const email=this.email.trim().toLowerCase();if(this.forgot&&!this.recoveryRequested()){await this.http.post(environment.apiUrl+'/auth/password/forgot',{email}).toPromise();this.recoveryRequested.set(true);this.message.set('Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes.');return;}if(this.forgot){const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/password/reset',{email,code:this.recoveryCode,password:this.newPassword,confirmPassword:this.confirmPassword,...(this.factor.trim()?{factor:this.factor.trim()}:{})}).toPromise();this.message.set(result?.message??'Mot de passe modifié. Vous pouvez vous connecter.');this.messageIsError.set(false);this.recoveryRequested.set(false);this.password='';this.newPassword='';this.confirmPassword='';this.recoveryCode='';this.factor='';return;}if(this.firstLogin){await this.http.post(environment.apiUrl+'/auth/account/password/first-login',{currentPassword:this.password,newPassword:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();sessionStorage.clear();await this.router.navigate([this.subadmin?'/sous-admin/connexion':this.admin?'/admin/connexion':'/connexion'],{queryParams:{passwordChanged:'1'}});return;}const endpoint=this.subadmin?'/auth/subadmin/login':this.admin?'/auth/admin/login':'/auth/login';const response=await this.http.post<{user:{id:string;role:string;permissions?:string[];mustChangePassword?:boolean}}>(environment.apiUrl+endpoint,{email,password:this.password,totp:this.totp}).toPromise();if(!response?.user)throw new Error('Réponse de connexion invalide.');if(this.subadmin&&response.user.role!=='EDITEUR')throw new Error('Ce compte n’est pas un sous-administrateur.');sessionStorage.removeItem('paroisse_access_token');sessionStorage.setItem('paroisse_user_id',response.user.id);sessionStorage.setItem('paroisse_role',response.user.role);sessionStorage.setItem('paroisse_permissions',JSON.stringify(response.user.permissions??[]));if(response.user.mustChangePassword){await this.router.navigate(['/premiere-connexion']);return;}const destination=this.admin?'/admin':['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(response.user.role)?'/presence':'/connexion';await this.router.navigate([destination]);}catch(error:any){const backend=error?.error?.message;const detail=Array.isArray(backend)?backend.join(' '):typeof backend==='string'?backend:'';const proxyError=error?.status===500&&error?.headers?.get('content-type')?.includes('text/plain');const apiUnavailable=error?.status===0||error?.status===502||error?.status===504||proxyError;this.message.set(apiUnavailable?'Le serveur API est injoignable sur le port 3000. Vérifiez son démarrage et sa connexion à PostgreSQL.':error?.status===503?detail||'Le service demandé est temporairement indisponible.':error?.status===500?'L’API a rencontré une erreur interne. Consultez les journaux du serveur API et sa connexion PostgreSQL.':detail||'Connexion impossible. Vérifiez vos informations et réessayez.');this.messageIsError.set(true);}finally{this.busy.set(false);}}
+
+  async submit(){
+    this.busy.set(true);this.message.set('');this.messageIsError.set(false);
+    try{
+      const email=this.email.trim().toLowerCase();
+      if(this.register){
+        if(this.password!==this.confirmPassword){this.message.set('Les mots de passe ne correspondent pas.');this.messageIsError.set(true);return;}
+        await this.http.post(environment.apiUrl+'/auth/register',{fullName:this.fullName.trim(),email,phone:this.phone.trim(),requestedRole:this.requestedRole,...(this.requestedRole==='RESPONSABLE_SEMAINE'?{assignedDayOfWeek:this.assignedDay}:{}),password:this.password}).toPromise();
+        this.registrationSent.set(true);this.password='';this.confirmPassword='';
+        this.message.set('Votre demande a été transmise. L’accès aux présences sera ouvert après validation de l’administration paroissiale, généralement sous 48 heures.');return;
+      }
+      if(this.forgot&&!this.recoveryRequested()){await this.http.post(environment.apiUrl+'/auth/password/forgot',{email}).toPromise();this.recoveryRequested.set(true);this.message.set('Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes.');return;}
+      if(this.forgot){const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/password/reset',{email,code:this.recoveryCode,password:this.newPassword,confirmPassword:this.confirmPassword,...(this.factor.trim()?{factor:this.factor.trim()}:{})}).toPromise();this.message.set(result?.message??'Mot de passe modifié. Vous pouvez vous connecter.');this.messageIsError.set(false);this.recoveryRequested.set(false);this.password='';this.newPassword='';this.confirmPassword='';this.recoveryCode='';this.factor='';return;}
+      if(this.firstLogin){await this.http.post(environment.apiUrl+'/auth/account/password/first-login',{currentPassword:this.password,newPassword:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();sessionStorage.clear();await this.router.navigate([this.subadmin?'/sous-admin/connexion':this.admin?'/admin/connexion':'/connexion'],{queryParams:{passwordChanged:'1'}});return;}
+      const endpoint=this.subadmin?'/auth/subadmin/login':this.admin?'/auth/admin/login':'/auth/login';
+      const response=await this.http.post<{user:{id:string;role:string;permissions?:string[];mustChangePassword?:boolean}}>(environment.apiUrl+endpoint,{email,password:this.password,totp:this.totp}).toPromise();
+      if(!response?.user)throw new Error('Réponse de connexion invalide.');
+      if(this.subadmin&&response.user.role!=='EDITEUR')throw new Error('Ce compte n’est pas un sous-administrateur.');
+      sessionStorage.removeItem('paroisse_access_token');sessionStorage.setItem('paroisse_user_id',response.user.id);sessionStorage.setItem('paroisse_role',response.user.role);sessionStorage.setItem('paroisse_permissions',JSON.stringify(response.user.permissions??[]));
+      if(response.user.mustChangePassword){await this.router.navigate(['/premiere-connexion']);return;}
+      const destination=this.admin?'/admin':['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(response.user.role)?'/presence':'/connexion';await this.router.navigate([destination]);
+    }catch(error:any){
+      const backend=error?.error?.message,detail=Array.isArray(backend)?backend.join(' '):typeof backend==='string'?backend:'';
+      const proxyError=error?.status===500&&error?.headers?.get('content-type')?.includes('text/plain');
+      const apiUnavailable=error?.status===0||error?.status===502||error?.status===504||proxyError;
+      this.message.set(apiUnavailable?'Le serveur API est injoignable sur le port 3000. Vérifiez son démarrage et sa connexion à PostgreSQL.':error?.status===503?detail||'Le service demandé est temporairement indisponible.':error?.status===500?'L’API a rencontré une erreur interne. Consultez les journaux du serveur API et sa connexion PostgreSQL.':detail||'Connexion impossible. Vérifiez vos informations et réessayez.');this.messageIsError.set(true);
+    }finally{this.busy.set(false);}
+  }
 }
