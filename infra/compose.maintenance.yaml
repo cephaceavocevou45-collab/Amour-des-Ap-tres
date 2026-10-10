@@ -1,0 +1,90 @@
+services:
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+      target: build
+    profiles: [maintenance]
+    user: node
+    command: ["npm", "run", "prisma:deploy", "--workspace", "@paroisse/api"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://paroisse_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
+    depends_on:
+      postgres: {condition: service_healthy}
+    mem_limit: 1536m
+    cpus: 0.50
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=128m,mode=1777]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [data]
+
+  backup:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+      target: runtime
+    profiles: [maintenance]
+    user: node
+    command: ["node", "infra/backup-s3.cjs", "create"]
+    environment:
+      BACKUP_DATABASE_URL: postgresql://paroisse_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
+      BACKUP_KEY_HEX: ${BACKUP_KEY_HEX:?Set BACKUP_KEY_HEX}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-35}
+      S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT}
+      S3_REGION: ${S3_REGION:?Set S3_REGION}
+      S3_BUCKET: ${S3_BUCKET:?Set S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+    mem_limit: 1536m
+    cpus: 0.50
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=2048m,mode=1777]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [data, edge]
+
+  restore:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+      target: runtime
+    profiles: [maintenance]
+    user: node
+    command: ["node", "infra/backup-s3.cjs", "restore", "${S3_BACKUP_KEY:?Set S3_BACKUP_KEY to the encrypted object key}"]
+    environment:
+      BACKUP_DATABASE_URL: postgresql://paroisse_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
+      BACKUP_KEY_HEX: ${BACKUP_KEY_HEX:?Set BACKUP_KEY_HEX}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-35}
+      S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT}
+      S3_REGION: ${S3_REGION:?Set S3_REGION}
+      S3_BUCKET: ${S3_BUCKET:?Set S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+      RESTORE_DATABASE_URL: ${RESTORE_DATABASE_URL:?Set RESTORE_DATABASE_URL to a new empty database named with restore or archive}
+      RESTORE_CONFIRM: ${RESTORE_CONFIRM:?Set RESTORE_CONFIRM=RESTORE_TO_EMPTY_DATABASE after verifying the target}
+    mem_limit: 1536m
+    cpus: 0.50
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=2048m,mode=1777]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [data, edge]
+
+networks:
+  data:
+    external: true
+    name: amour-des-apotres_data
+  edge:
+    external: true
+    name: amour-des-apotres_edge

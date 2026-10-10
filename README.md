@@ -17,7 +17,7 @@ Copy-Item .env.example .env
 # Renseignez les secrets nécessaires dans .env
 ```
 
-Le site Docker est disponible sur `http://localhost:8080`, l’API sur `http://localhost:3000/api/v1` et Swagger sur `http://localhost:3000/api/docs`.
+Le déploiement Compose de production publie uniquement Nginx sur les ports 80 et 443. L’API et le site ne sont pas publiés directement, et PostgreSQL reste sur le réseau interne. Swagger est désactivé en production. Voir [la procédure portable à budget minimal](docs/DEPLOIEMENT_GRATUIT.md) ; cette configuration n’a pas encore été validée sur un vrai serveur Linux.
 
 Les migrations doivent d’abord être vérifiées sur une base PostgreSQL dédiée nommée, par exemple, `paroisse_test`, configurée dans `TEST_DATABASE_URL`. La suite e2e applique les migrations à cette base seulement. N’utilisez jamais `DATABASE_URL` de développement pour les tests. Toute migration distincte sur la base de développement doit être précédée d’une sauvegarde et d’une décision explicite du responsable de la base.
 
@@ -64,6 +64,7 @@ Les feuilles de présence, les affectations de rôles, les notifications et les 
 
 - [Guide administrateur](docs/GUIDE_ADMIN.md) : comptes, rôles, présences et modération.
 - [Déploiement](docs/DEPLOIEMENT.md) : HTTPS, Nginx, secrets et réseau.
+- [Déploiement à budget minimal](docs/DEPLOIEMENT_GRATUIT.md) : Docker portable, HTTPS, quotas d’e-mail et sauvegardes chiffrées.
 - [Configuration des photos](docs/MEDIA_CONFIGURATION.md) : les photos restent désactivées par défaut.
 - [Checklist de production](docs/CHECKLIST_PRODUCTION.md) : contrôles humains indispensables.
 - [Audit de sécurité](docs/SECURITY_AUDIT.md) et [blocages connus](docs/BLOCAGES.md).

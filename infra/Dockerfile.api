@@ -4,9 +4,11 @@ COPY . .
 RUN npm ci
 RUN npm run prisma:generate --workspace @paroisse/api && npm run build --workspace @paroisse/api
 FROM node:22-alpine
+RUN apk add --no-cache postgresql-client
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app /app
+RUN npm prune --omit=dev
 USER node
 EXPOSE 3000
 CMD ["node","apps/api/dist/apps/api/src/main.js"]

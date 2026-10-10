@@ -15,6 +15,11 @@ import { CourseProgramComponent } from './app/course-program.component';
 import { SocialRegisterComponent } from './app/social-register.component';
 import { CommunityMessagingComponent } from './app/community-messaging.component';
 import { CommunityModerationComponent } from './app/community-moderation.component';
+import { CommunityStoriesComponent } from './app/community-stories.component';
+import { CommunityLiveComponent } from './app/community-live.component';
+import { ParishContentComponent } from './app/parish-content.component';
+import { CommunityGroupsComponent } from './app/community-groups.component';
+import { CommunityAccountComponent } from './app/community-account.component';
 import { environment } from './environments/environment';
 
 const routes: Routes = [
@@ -24,8 +29,16 @@ const routes: Routes = [
   {path:'mot-de-passe-oublie',component:AuthComponent,data:{mode:'forgot'}},
   {path:'nouveau-mot-de-passe',component:AuthComponent,data:{mode:'reset-password'}},
   {path:'programme-biblique',component:CourseProgramComponent,canActivate:[authGuard],data:{program:true}},
-  {path:'actualites',component:CommunityMessagingComponent,canActivate:[authGuard],data:{social:true}},
-  {path:'messages',component:CommunityMessagingComponent,canActivate:[authGuard],data:{social:true}},
+  {path:'programme',component:ParishContentComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true,contentPage:'programme'}},
+  {path:'etudes-bibliques',component:ParishContentComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true,contentPage:'etudes'}},
+  {path:'histoire',component:ParishContentComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true,contentPage:'histoire'}},
+  {path:'actualites',component:CommunityMessagingComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true}},
+  {path:'messages',component:CommunityMessagingComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true}},
+  {path:'community/stories',component:CommunityStoriesComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true}},
+  {path:'community/live',component:CommunityLiveComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true}},
+  {path:'community/groups',component:CommunityGroupsComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true}},
+  {path:'profil',component:CommunityAccountComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true,accountPage:'profile'}},
+  {path:'parametres',component:CommunityAccountComponent,canActivate:[authGuard],data:{social:true,communityAdmin:true,accountPage:'settings'}},
   {path:'admin/connexion',component:AuthComponent,data:{mode:'admin'}},
   {path:'sous-admin/connexion',component:AuthComponent,data:{mode:'subadmin'}},
   {path:'admin',component:AdminComponent,canActivate:[authGuard],data:{admin:true}},

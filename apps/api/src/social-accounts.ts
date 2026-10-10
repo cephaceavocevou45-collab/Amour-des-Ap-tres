@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Injectable, Logger, Param, Patch, Post, Req, ServiceUnavailableException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Injectable, Optional, Param, Patch, Post, Req, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsDateString, IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from './prisma.service';
@@ -7,10 +7,11 @@ import { RateLimitGuard } from './rate-limit.guard';
 import { Cron } from '@nestjs/schedule';
 import * as argon2 from 'argon2';
 import { createHash } from 'node:crypto';
+import { EmailQuotaService } from './email-quota.service';
 
 class SocialRegisterDto {
   @IsString() @Length(3,120) fullName!:string;
-  @IsOptional() @IsString() @Matches(/^\+?[0-9 ()-]{8,20}$/) phone?:string;
+  @IsString() @Matches(/^\+[1-9]\d{7,14}$/) phone!:string;
   @IsEmail() email!:string;
   @IsString() @MinLength(12) @MaxLength(128) password!:string;
   @IsDateString() dateOfBirth!:string;
@@ -21,19 +22,21 @@ class SocialRegisterDto {
 class SuspendSocialAccountDto { @IsBoolean() suspended!:boolean; @IsOptional() @IsString() @Length(8,1000) reason?:string; @IsOptional() @IsDateString() suspendedUntil?:string; }
 class DeleteSocialAccountDto { @IsString() @Length(8,1000) reason!:string; }
 class ChangePasswordDto { @IsString() @MaxLength(128) currentPassword!:string; @IsString() @MinLength(12) @MaxLength(128) newPassword!:string; @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string; }
+class UpdateProfileDto { @IsOptional() @IsString() @MaxLength(500) socialBio?:string|null; }
 class CancelDeletionDto { @IsEmail() email!:string; @IsString() @MaxLength(128) password!:string; }
 
 const forbiddenPasswords=new Set(['password1234','123456789012','azerty123456','qwerty123456','motdepasse123']);
 
 @Injectable()
 export class SocialAccountsService {
-  private readonly logger=new Logger(SocialAccountsService.name);
-  constructor(private readonly prisma:PrismaService){}
+  constructor(private readonly prisma:PrismaService,@Optional() private readonly emailQuota?:EmailQuotaService){}
 
   async sessions(userId:string,currentToken?:string){const rows=await this.prisma.refreshToken.findMany({where:{userId},orderBy:{createdAt:'desc'},select:{id:true,createdAt:true,expiresAt:true,revokedAt:true,hashedToken:true,userAgent:true,ip:true}});const currentHash=currentToken?createHash('sha256').update(currentToken).digest('hex'):'';return rows.map(({hashedToken,...row})=>({...row,isCurrent:!!currentHash&&hashedToken===currentHash,device:row.userAgent?row.userAgent.slice(0,180):'Appareil non identifié'}));}
+  async profile(userId:string){const profile=await this.prisma.user.findFirst({where:{id:userId,active:true,suspendedAt:null,deletionScheduledAt:null},select:{id:true,fullName:true,email:true,phone:true,role:true,socialBio:true,socialNotificationsEnabled:true,socialProfileDiscoverable:true}});if(!profile)throw new ForbiddenException('Votre compte n’est pas disponible.');return profile;}
+  async updateProfile(userId:string,dto:UpdateProfileDto){const socialBio=dto.socialBio?.trim()||null;const profile=await this.prisma.user.update({where:{id:userId},data:{socialBio},select:{id:true,fullName:true,email:true,phone:true,role:true,socialBio:true,socialNotificationsEnabled:true,socialProfileDiscoverable:true}});await this.prisma.auditLog.create({data:{userId,action:'PROFIL_COMMUNAUTE_MODIFIE',entity:'UserProfile',entityId:userId,after:{bioPresent:!!socialBio}}});return profile;}
   async revokeSession(userId:string,id:string){const result=await this.prisma.refreshToken.updateMany({where:{id,userId,revokedAt:null},data:{revokedAt:new Date()}});if(!result.count)throw new ForbiddenException('Cette session ne vous appartient pas ou est déjà fermée.');await this.prisma.auditLog.create({data:{userId,action:'SESSION_REVOQUEE',entity:'RefreshToken',entityId:id}});return {id,revoked:true};}
   async changePassword(userId:string,dto:ChangePasswordDto,currentToken?:string){if(dto.newPassword!==dto.confirmPassword)throw new BadRequestException('La confirmation du nouveau mot de passe ne correspond pas.');if(forbiddenPasswords.has(dto.newPassword.toLowerCase()))throw new BadRequestException('Choisissez un mot de passe moins courant.');const user=await this.prisma.user.findUnique({where:{id:userId},select:{passwordHash:true}});if(!user||!await argon2.verify(user.passwordHash,dto.currentPassword).catch(()=>false))throw new ForbiddenException('Le mot de passe actuel est incorrect.');const passwordHash=await argon2.hash(dto.newPassword,{type:argon2.argon2id}),currentHash=currentToken?createHash('sha256').update(currentToken).digest('hex'):'';await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{passwordHash}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null,...(currentHash?{hashedToken:{not:currentHash}}:{})},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId,action:'MOT_DE_PASSE_MODIFIE',entity:'UserSecurity',entityId:userId}});});return {updated:true,sessionsRevoked:true};}
-  async exportData(userId:string){const [user,conversations,sentMessages,blocks]=await Promise.all([this.prisma.user.findUnique({where:{id:userId},select:{id:true,fullName:true,phone:true,email:true,role:true,dateOfBirth:true,socialBio:true,socialNotificationsEnabled:true,socialProfileDiscoverable:true}}),this.prisma.communityConversationMember.findMany({where:{userId},select:{joinedAt:true,leftAt:true,conversation:{select:{id:true,type:true,title:true,createdAt:true}}}}),this.prisma.communityMessage.findMany({where:{senderId:userId},select:{id:true,conversationId:true,body:true,createdAt:true,editedAt:true,deletedAt:true,replyToId:true}}),this.prisma.socialBlock.findMany({where:{blockerId:userId},select:{blockedId:true,createdAt:true}})]);if(!user)throw new ForbiddenException('Compte introuvable.');await this.prisma.auditLog.create({data:{userId,action:'EXPORT_DONNEES_PERSONNELLES',entity:'UserSecurity',entityId:userId}});return {exportedAt:new Date().toISOString(),account:user,conversations,sentMessages,blockedAccounts:blocks};}
+  async exportData(userId:string){const [user,conversations,sentMessages,blocks]=await Promise.all([this.prisma.user.findUnique({where:{id:userId},select:{id:true,fullName:true,phone:true,email:true,role:true,dateOfBirth:true,socialBio:true,socialNotificationsEnabled:true,socialProfileDiscoverable:true}}),this.prisma.communityConversationMember.findMany({where:{userId},select:{joinedAt:true,leftAt:true,conversation:{select:{id:true,type:true,title:true,createdAt:true}}}}),this.prisma.communityMessage.findMany({where:{senderId:userId},select:{id:true,conversationId:true,body:true,createdAt:true,editedAt:true,deletedAt:true,replyToId:true}}),this.prisma.socialBlock.findMany({where:{blockerId:userId},select:{blockedId:true,createdAt:true}})]);if(!user)throw new ForbiddenException('Compte introuvable.');const conversationIds=conversations.map(row=>row.conversation.id);const conversationMessages=conversationIds.length?await this.prisma.communityMessage.findMany({where:{conversationId:{in:conversationIds},deletedAt:null,OR:[{moderationHidden:false},{moderationHiddenUntil:{lte:new Date()}}]},orderBy:{createdAt:'asc'},select:{id:true,conversationId:true,senderId:true,body:true,createdAt:true,editedAt:true,replyToId:true}}):[];await this.prisma.auditLog.create({data:{userId,action:'EXPORT_DONNEES_PERSONNELLES',entity:'UserSecurity',entityId:userId,after:{conversationMessageCount:conversationMessages.length}}});return {exportedAt:new Date().toISOString(),account:user,conversations,conversationMessages,sentMessages,blockedAccounts:blocks};}
   async requestDeletion(userId:string,reason:string){const scheduledAt=new Date(Date.now()+14*86400_000);await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{active:false,deletionScheduledAt:scheduledAt,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId,action:'SUPPRESSION_COMPTE_DEMANDEE',entity:'UserSecurity',entityId:userId,after:{scheduledAt:scheduledAt.toISOString()},reason:reason.trim()}});});return {scheduledAt,graceDays:14};}
   async cancelDeletion(dto:CancelDeletionDto){const email=dto.email.trim().toLowerCase(),user=await this.prisma.user.findUnique({where:{email}}),generic='Si le compte est en période de fermeture et que le mot de passe concorde, la demande sera annulée.';if(!user?.deletionScheduledAt||user.deletionScheduledAt<=new Date()||!await argon2.verify(user.passwordHash,dto.password).catch(()=>false))return {message:generic};await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:user.id},data:{active:true,deletionScheduledAt:null,sessionVersion:{increment:1}}});await tx.auditLog.create({data:{userId:user.id,action:'SUPPRESSION_COMPTE_ANNULEE',entity:'UserSecurity',entityId:user.id}});});return {message:generic};}
 
@@ -64,7 +67,7 @@ export class SocialAccountsService {
     await this.verifyCaptcha(dto.captchaToken);
     const passwordHash=await argon2.hash(dto.password,{type:argon2.argon2id});
     let user;
-    try{user=await this.prisma.user.create({data:{fullName:dto.fullName.trim(),phone:dto.phone?.trim()||null,email,passwordHash,role:UserRole.FIDELE,active:true,dateOfBirth:birthDate,emailVerifiedAt:null,charterVersion:config.charterVersion,charterAcceptedAt:new Date()}});}
+    try{user=await this.prisma.user.create({data:{fullName:dto.fullName.trim(),phone:dto.phone.trim(),email,passwordHash,role:UserRole.FIDELE,active:true,dateOfBirth:birthDate,emailVerifiedAt:null,charterVersion:config.charterVersion,charterAcceptedAt:new Date()}});}
     catch(error:any){if(error?.code==='P2002')return {message:'Si cette adresse peut être enregistrée, vous pourrez vous connecter.'};throw error;}
     await this.prisma.userNotification.create({data:{userId:user.id,message:'Bienvenue à la paroisse Amour des Apôtres. « Ta parole est une lampe à mes pieds, et une lumière sur mon sentier. » — Psaume 119:105'}}).catch(()=>undefined);
     return {message:'Votre compte fidèle est créé. Vous pouvez vous connecter sans confirmation par e-mail. Votre adresse e-mail servira à récupérer votre mot de passe en cas d’oubli.'};
@@ -84,8 +87,7 @@ export class SocialAccountsService {
 
   @Cron('0 0 9 * * *',{timeZone:'Africa/Porto-Novo'})
   async remindInactiveFaithful(){
-    const apiKey=process.env.RESEND_API_KEY,from=process.env.MAIL_FROM;
-    if(!apiKey||!from||!process.env.APP_PUBLIC_URL)return;
+    if(!process.env.RESEND_API_KEY||!process.env.MAIL_FROM)return;
     const rawDays=Number(process.env.SOCIAL_INACTIVITY_DAYS??30),days=Number.isInteger(rawDays)&&rawDays>=7&&rawDays<=365?rawDays:30;
     const now=new Date(),cutoff=new Date(now.getTime()-days*86400_000);
     const users=await this.prisma.user.findMany({where:{role:UserRole.FIDELE,active:true,suspendedAt:null,socialNotificationsEnabled:true},select:{id:true,email:true,fullName:true}});
@@ -96,11 +98,7 @@ export class SocialAccountsService {
       if(lastActivity>cutoff)continue;
       const recentReminder=await this.prisma.auditLog.findFirst({where:{userId:user.id,action:'RAPPEL_INACTIVITE_ENVOYE',createdAt:{gt:cutoff}},select:{id:true}});
       if(recentReminder)continue;
-      try{
-        const name=this.escapeHtml(user.fullName||'fidèle');
-        const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({from,to:[user.email],subject:'Vous nous manquez · Amour des Apôtres',html:`<p>Bonjour ${name},</p><p>La communauté de la paroisse Amour des Apôtres serait heureuse de vous retrouver dans votre espace fidèle.</p><p>Connectez-vous pour découvrir les actualités et rester en lien avec la paroisse.</p><p>« N’abandonnons pas notre assemblée, comme c’est la coutume de quelques-uns. » — Hébreux 10:25</p><p><a href="${this.escapeHtml(process.env.APP_PUBLIC_URL!.replace(/\/$/,''))}/connexion">Ouvrir mon espace</a></p>`})});
-        if(response.ok)await this.prisma.auditLog.create({data:{userId:user.id,action:'RAPPEL_INACTIVITE_ENVOYE',entity:'UserSecurity',entityId:user.id}});
-      }catch{this.logger.warn('Un rappel d’inactivité n’a pas pu être envoyé.');}
+      if(this.emailQuota&&await this.emailQuota.enqueue(user.id,'INACTIVITY_REMINDER'))await this.prisma.auditLog.create({data:{userId:user.id,action:'RAPPEL_INACTIVITE_ENFILE',entity:'UserSecurity',entityId:user.id}});
     }
   }
 
@@ -120,8 +118,7 @@ export class SocialAccountsService {
   private async verifyCaptcha(token?:string){if(process.env.CAPTCHA_ENABLED!=='true')return;const secret=process.env.CAPTCHA_SECRET_KEY?.trim();if(!secret||!process.env.CAPTCHA_SITE_KEY?.trim())throw new ServiceUnavailableException('L’inscription est momentanément indisponible : la configuration de la vérification anti-robot est incomplète.');if(!token)throw new BadRequestException('Veuillez terminer la vérification anti-robot.');const body=new URLSearchParams({secret,response:token});const response=await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});if(!response.ok)throw new ServiceUnavailableException('La vérification de sécurité est momentanément indisponible.');const result=await response.json() as {success?:boolean};if(!result.success)throw new BadRequestException('La vérification de sécurité a échoué. Réessayez.');}
   private isDisposableEmail(email:string){const domain=email.split('@').pop()?.toLowerCase()??'';const configured=(process.env.DISPOSABLE_EMAIL_DOMAINS??'mailinator.com,10minutemail.com,guerrillamail.com,tempmail.com,yopmail.com,throwawaymail.com').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean);return configured.includes(domain);}
   private parseBirthDate(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value))throw new BadRequestException('La date de naissance doit être au format AAAA-MM-JJ.');const date=new Date(`${value}T00:00:00.000Z`);if(Number.isNaN(date.getTime())||date.toISOString().slice(0,10)!==value)throw new BadRequestException('La date de naissance est invalide.');return date;}
-  private ageOn(birth:Date,today:Date){let age=today.getUTCFullYear()-birth.getUTCFullYear();if(today.getUTCMonth()<birth.getUTCMonth()||(today.getUTCMonth()===birth.getUTCMonth()&&today.getUTCDate()<birth.getUTCDate()))age--;return age;}
-  private escapeHtml(value:string){return value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));}
+  private ageOn(birth:Date,today:Date){const local=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(today).map(part=>[part.type,part.value]));let age=Number(local.year)-birth.getUTCFullYear();if(Number(local.month)<birth.getUTCMonth()+1||(Number(local.month)===birth.getUTCMonth()+1&&Number(local.day)<birth.getUTCDate()))age--;return age;}
 }
 
 @UseGuards(RateLimitGuard)
@@ -134,6 +131,8 @@ export class SocialAccountsController {
   @UseGuards(JwtAuthGuard) @Patch('admin/members/:id/suspension') suspend(@Param('id') id:string,@Body() dto:SuspendSocialAccountDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Action réservée à l’administration paroissiale.');return this.social.setSuspension(id,dto.suspended,dto.reason,dto.suspendedUntil,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Delete('admin/members/:id') delete(@Param('id') id:string,@Body() dto:DeleteSocialAccountDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Action réservée à l’administration paroissiale.');return this.social.deleteFaithful(id,dto.reason,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Get('account/sessions') sessions(@Req() req:any){return this.social.sessions(req.user.sub,this.cookieValue(req,'paroisse_refresh'));}
+  @UseGuards(JwtAuthGuard) @Get('account/profile') profile(@Req() req:any){return this.social.profile(req.user.sub);}
+  @UseGuards(JwtAuthGuard) @Patch('account/profile') updateProfile(@Req() req:any,@Body() dto:UpdateProfileDto){return this.social.updateProfile(req.user.sub,dto);}
   @UseGuards(JwtAuthGuard) @Delete('account/sessions/:id') revokeSession(@Req() req:any,@Param('id') id:string){return this.social.revokeSession(req.user.sub,id);}
   @UseGuards(JwtAuthGuard) @Post('account/password') changePassword(@Req() req:any,@Body() dto:ChangePasswordDto){return this.social.changePassword(req.user.sub,dto,this.cookieValue(req,'paroisse_refresh'));}
   @UseGuards(JwtAuthGuard) @Get('account/export') exportData(@Req() req:any){return this.social.exportData(req.user.sub);}

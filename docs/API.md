@@ -46,3 +46,15 @@ Tous les chemins ci-dessous sont préfixés par `/api/v1`. Les routes notées FI
 Les routes sociales nécessitent une session active FIDELE, SECRETAIRE_PRESENCE ou RESPONSABLE_SEMAINE, sauf l’épinglage admin. Les rôles secrétaire et président ne confèrent aucun accès supplémentaire aux feuilles de présence via le réseau social. Les médias, téléversements, profils éditables, signalements, console de modération, exports sociaux et contrôles de charge ne sont pas implémentés. Aucun endpoint public provisoire ne simule ces fonctions.
 
 Le fil, commentaires, réactions, profils et signalements n’ont pas encore de routes dans cette phase. Aucun endpoint provisoire ne simule ces fonctions.
+
+## Corrections communautaires — permissions disponibles côté serveur
+
+`PATCH /api/v1/auth/admin/members/:id/permissions` (ADMIN/SUPER_ADMIN uniquement) reçoit une liste blanche de permissions et un motif obligatoire. L’action est auditée et révoque les sessions existantes. Le guard relit les droits depuis PostgreSQL à chaque requête. `POST /api/v1/community/conversations/group` exige `CREER_GROUPE` et refuse les mineurs. `POST /api/v1/community/lives` exige `LANCER_LIVE` et un compte adulte. Ces protections sont couvertes par e2e ; les nouveaux modules de programme, doctrine, histoire, adhésion/rôles de groupe, invitations de direct et signalisation temps réel ne sont pas encore disponibles.
+
+## Contenus paroissiaux et groupes (10 octobre 2026)
+
+- `GET /community/content/programmes`, `GET /community/content/events` : lecture des contenus publiés par les comptes connectés. `POST` sur ces routes exige `PUBLIER_PROGRAMME`; les opérations `PATCH/DELETE /community/content/items/:id` sont limitées à l’auteur ou à l’administration disposant du droit.
+- `GET /community/content/studies` renvoie les catégories et les thèmes hebdomadaires. `POST /community/content/studies/themes` exige `GERER_ETUDES`. Les catégories doctrinales ne sont pas remplies tant que le PDF source n’a pas été reçu et vérifié.
+- `GET/POST /community/content/history`, `PATCH/DELETE /community/content/history/:id` sont protégées par `PUBLIER_HISTOIRE` pour les écritures; la lecture publique de ces contenus requiert une session.
+- `GET /community/groups` liste les groupes ouverts et ceux auxquels l’utilisateur appartient. Les routes `/community/groups/:id/requests` et leur décision contrôlent l’auteur de demande et les responsables actifs en base. Les rôles de groupe, paramètres, retrait, transfert et codes sont vérifiés côté serveur. Création requiert `CREER_GROUPE`.
+- À la création d’un direct, l’API ajoute une notification interne aux comptes paroissiaux actifs éligibles. `GET /community/lives/notifications` relit les annonces des dernières 24 heures même si `GET /auth/notifications` a déjà marqué la notification générique comme lue. Ce flux HTTP n’est pas un push temps réel garanti.

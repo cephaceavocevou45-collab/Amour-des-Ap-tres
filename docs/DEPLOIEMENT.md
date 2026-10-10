@@ -25,3 +25,5 @@ Avant tout démarrage :
 - Maintenir les photos coupées jusqu’à la validation manuelle de S3 privé, des permissions de compartiment, du scan ClamAV, des lectures authentifiées et de l’absence d’accès public direct.
 
 Les chemins d’exploitation, la rétention et la restauration sont aussi décrits dans [MEDIA_CONFIGURATION.md](MEDIA_CONFIGURATION.md), [MIGRATION_PROCEDURE.md](MIGRATION_PROCEDURE.md) et [CHECKLIST_PRODUCTION.md](CHECKLIST_PRODUCTION.md). Les preuves d’exécution des validations locales ne sont pas une preuve de configuration du domaine, de Nginx ou des services de production.
+
+La communauté V1 n’est pas prête à être exposée pour les nouveaux parcours demandés : permissions de lancement de direct/création de groupe sont côté serveur, mais les annuaires, demandes et rôles de groupes, l’histoire, les contenus versionnés et les notifications générales restent à construire. Les tests de signalisation WebRTC ne remplacent pas un essai sur appareils avec HTTPS/TURN.

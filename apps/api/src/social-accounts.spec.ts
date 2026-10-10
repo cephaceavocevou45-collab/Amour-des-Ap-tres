@@ -19,6 +19,17 @@ describe('phase 1 social accounts',()=>{
     expect(service.registrationConfig().mailConfigured).toBe(false);
   });
 
+  it('returns and updates only the signed-in member profile and audits without storing the biography in the audit log',async()=>{
+    const profile={id:'fid-1',fullName:'Membre test',email:'member@example.org',phone:'+2290100000000',role:'FIDELE',socialBio:'Présentation'};
+    const findFirst=jest.fn().mockResolvedValue(profile),update=jest.fn().mockResolvedValue({...profile,socialBio:'Nouvelle présentation'}),auditCreate=jest.fn();
+    const prisma={user:{findFirst,update},auditLog:{create:auditCreate}} as unknown as PrismaService;const service=new SocialAccountsService(prisma);
+    await expect(service.profile('fid-1')).resolves.toEqual(profile);
+    await expect(service.updateProfile('fid-1',{socialBio:'  Nouvelle présentation  '})).resolves.toEqual({...profile,socialBio:'Nouvelle présentation'});
+    expect(update).toHaveBeenCalledWith({where:{id:'fid-1'},data:{socialBio:'Nouvelle présentation'},select:expect.objectContaining({id:true,fullName:true,email:true,phone:true,role:true})});
+    expect(auditCreate.mock.calls[0][0].data.after).toEqual({bioPresent:true});
+    expect(JSON.stringify(auditCreate.mock.calls[0][0])).not.toContain('Nouvelle présentation');
+  });
+
   it('rejects an account below the configured minimum age before creating it',async()=>{
     configure();const prisma={user:{findUnique:jest.fn().mockResolvedValue(null),create:jest.fn()}} as unknown as PrismaService;
     await expect(new SocialAccountsService(prisma).register({fullName:'Young Applicant',phone:'+2290100000000',email:'young@example.org',password:'StrongPasswordForTest2026!',dateOfBirth:'2015-01-01',acceptCharter:true,charterVersion:'test-v1'} as any)).rejects.toMatchObject({status:400});

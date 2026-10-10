@@ -8,5 +8,35 @@ const target = path.join(apiRoot, 'dist', 'apps', 'api', 'src', 'generated', 'pr
 if (!fs.existsSync(path.join(source, 'index.js'))) {
   throw new Error('Prisma Client généré absent du dossier de compilation Nest.');
 }
-fs.mkdirSync(path.dirname(target), { recursive: true });
-fs.cpSync(source, target, { recursive: true, force: true });
+
+function copyChangedFiles(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(targetDir, entry.name);
+
+    if (entry.isDirectory()) {
+      copyChangedFiles(sourcePath, targetPath);
+      continue;
+    }
+
+    if (!entry.isFile()) continue;
+
+    let alreadyCurrent = false;
+    try {
+      const sourceStat = fs.statSync(sourcePath);
+      const targetStat = fs.statSync(targetPath);
+      if (targetStat.isFile() && sourceStat.size === targetStat.size) {
+        alreadyCurrent = fs.readFileSync(sourcePath).equals(fs.readFileSync(targetPath));
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+
+    // Avoid replacing loaded Prisma native binaries on Windows during a rebuild.
+    if (!alreadyCurrent) fs.copyFileSync(sourcePath, targetPath);
+  }
+}
+
+copyChangedFiles(source, target);

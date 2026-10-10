@@ -7,6 +7,7 @@ async function prepare(page:Page,role?:string){
     const path=new URL(route.request().url()).pathname;let body:any={};
     if(path.endsWith('/auth/session'))body={user:{id:'mobile-preview',role:role??'FIDELE',permissions:[]}};
     else if(path.endsWith('/community/conversations')||path.endsWith('/community/members'))body=[];
+    else if(path.endsWith('/community/stories')||path.endsWith('/community/lives'))body=[];
     else if(path.endsWith('/attendance/today')||path.endsWith('/auth/notifications')||path.endsWith('/auth/admin/members')||path.endsWith('/auth/social/admin/members')||path.endsWith('/public/team'))body=[];
     else if(path.includes('/attendance/week'))body={days:[]};
     else if(path.endsWith('/auth/social/registration-config'))body={enabled:true,minimumAge:13,charterVersion:'preview',charterText:'Charte de prévisualisation.',captchaSiteKey:null};
@@ -28,6 +29,8 @@ const screens=[
   {name:'connexion administrateur',path:'/admin/connexion',role:undefined},
   {name:'connexion sous-administrateur',path:'/sous-admin/connexion',role:undefined},
   {name:'actualités',path:'/actualites',role:'FIDELE'},
+  {name:'stories',path:'/community/stories',role:'FIDELE'},
+  {name:'directs',path:'/community/live',role:'FIDELE'},
   {name:'présences',path:'/presence',role:'SECRETAIRE_PRESENCE'},
   {name:'administration',path:'/admin',role:'ADMIN'},
   {name:'modération',path:'/admin/moderation',role:'MODERATEUR'},
@@ -90,4 +93,23 @@ test('le panneau de détails de conversation est accessible sur téléphone',asy
   await page.getByRole('button',{name:'Détails de la conversation'}).click();
   await expect(page.locator('aside.details')).toBeVisible();
   await expect(page.locator('aside.details')).toContainText('Votre communauté');
+});
+
+test('le texte hostile d’une story reste du texte et ne s’exécute pas',async({page})=>{
+  await prepare(page,'FIDELE');
+  await page.addInitScript(()=>{(window as any).__storyXss=false});
+  await page.route('**/api/v1/community/stories',async route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([{id:'story-xss',body:'<script>window.__storyXss=true</script><img src=x onerror="window.__storyXss=true">',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),author:{id:'author',displayName:'Membre paroissial'}}])}));
+  await page.goto('/community/stories');
+  await expect(page.getByText('<script>window.__storyXss=true</script><img src=x onerror="window.__storyXss=true">')).toBeVisible();
+  await expect(page.locator('.story-card script, .story-card img')).toHaveCount(0);
+  expect(await page.evaluate(()=> (window as any).__storyXss)).toBe(false);
+});
+
+test('la supervision admin des directs reste en lecture seule',async({page})=>{
+  await prepare(page,'ADMIN');
+  await page.route('**/api/v1/community/lives',async route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([{id:'active-live',title:'Culte en direct',createdAt:new Date().toISOString(),host:{id:'host',displayName:'Responsable'},viewerCount:2,isHost:false}])}));
+  await page.goto('/community/live');
+  await expect(page.getByText('Culte en direct')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Lancer mon direct'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Rejoindre le direct'})).toHaveCount(0);
 });

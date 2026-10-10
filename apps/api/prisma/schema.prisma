@@ -156,6 +156,7 @@ model User {
   recoveryCodes RecoveryCode[]
   refreshTokens RefreshToken[]
   notifications UserNotification[]
+  queuedEmails EmailOutbox[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   socialBlocksFrom SocialBlock[] @relation("SocialBlocker")
@@ -165,6 +166,68 @@ model User {
   messageReactions CommunityMessageReaction[]
   messageReports CommunityMessageReport[]
   messageReportDecisions CommunityMessageReport[] @relation("MessageReportDecision")
+  communityStories CommunityStory[]
+  storyReports CommunityStoryReport[] @relation("CommunityStoryReporter")
+  storyReportDecisions CommunityStoryReport[] @relation("CommunityStoryDecision")
+  hostedCommunityLives CommunityLive[] @relation("CommunityLiveHost")
+  communityLiveParticipations CommunityLiveParticipant[]
+  sentCommunityLiveSignals CommunityLiveSignal[] @relation("CommunityLiveSignalSender")
+  receivedCommunityLiveSignals CommunityLiveSignal[] @relation("CommunityLiveSignalReceiver")
+  parishContentCreated ParishContent[] @relation("ParishContentAuthor")
+  parishContentUpdated ParishContent[] @relation("ParishContentEditor")
+  bibleStudyThemes BibleStudyTheme[]
+  parishHistoryEntries ParishHistoryEntry[]
+  groupJoinRequests GroupJoinRequest[]
+}
+
+enum ParishContentKind {
+  PROGRAMME
+  EVENEMENT
+}
+
+model ParishContent {
+  id String @id @default(cuid())
+  kind ParishContentKind
+  title String @db.VarChar(160)
+  body String @db.VarChar(5000)
+  location String? @db.VarChar(240)
+  startsAt DateTime?
+  endsAt DateTime?
+  publishedAt DateTime?
+  authorId String
+  editorId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  author User @relation("ParishContentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  editor User? @relation("ParishContentEditor", fields: [editorId], references: [id], onDelete: SetNull)
+  @@index([kind, publishedAt, startsAt])
+  @@index([authorId, updatedAt])
+}
+
+model BibleStudyTheme {
+  id String @id @default(cuid())
+  studyDate DateTime @unique @db.Date
+  title String @db.VarChar(240)
+  bibleReference String? @db.VarChar(240)
+  summary String? @db.VarChar(5000)
+  publishedAt DateTime?
+  editorId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  editor User @relation(fields: [editorId], references: [id], onDelete: Restrict)
+  @@index([publishedAt, studyDate])
+}
+
+model ParishHistoryEntry {
+  id String @id @default(cuid())
+  title String @db.VarChar(160)
+  body String @db.VarChar(10000)
+  publishedAt DateTime?
+  authorId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  @@index([publishedAt, createdAt])
 }
 
 enum CommunityConversationType {
@@ -172,17 +235,40 @@ enum CommunityConversationType {
   GROUP
 }
 
+enum GroupVisibility {
+  OPEN_REQUEST
+  PRIVATE_CODE
+}
+
+enum GroupMemberRole {
+  CREATOR
+  ADMIN_GROUPE
+  MEMBER
+}
+
+enum GroupJoinStatus {
+  PENDING
+  ACCEPTED
+  REFUSED
+  CANCELLED
+}
+
 model CommunityConversation {
   id String @id @default(cuid())
   type CommunityConversationType
   title String? @db.VarChar(100)
+  joinCodeHash String? @unique
   directKey String? @unique
   createdById String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   closedAt DateTime?
+  visibility GroupVisibility @default(PRIVATE_CODE)
+  description String? @db.VarChar(1000)
+  rules String? @db.VarChar(2000)
   members CommunityConversationMember[]
   messages CommunityMessage[]
+  joinRequests GroupJoinRequest[]
   @@index([updatedAt, id])
 }
 
@@ -193,10 +279,27 @@ model CommunityConversationMember {
   leftAt DateTime?
   lastReadAt DateTime?
   mutedUntil DateTime?
+  groupRole GroupMemberRole @default(MEMBER)
   conversation CommunityConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([conversationId, userId])
   @@index([userId, leftAt, lastReadAt])
+}
+
+model GroupJoinRequest {
+  id String @id @default(cuid())
+  conversationId String
+  requesterId String
+  note String? @db.VarChar(500)
+  status GroupJoinStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  decidedAt DateTime?
+  conversation CommunityConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  requester User @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  @@unique([conversationId, requesterId])
+  @@index([conversationId, status, createdAt])
+  @@index([requesterId, status, updatedAt])
 }
 
 model CommunityMessage {
@@ -251,6 +354,77 @@ model CommunityMessageReport {
   @@index([createdAt])
 }
 
+model CommunityStory {
+  id String @id @default(cuid())
+  authorId String
+  body String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  moderationHidden Boolean @default(false)
+  moderationHiddenUntil DateTime?
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reports CommunityStoryReport[]
+  @@index([expiresAt, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model CommunityStoryReport {
+  id String @id @default(cuid())
+  storyId String
+  reporterId String
+  reason String @db.VarChar(32)
+  detail String? @db.VarChar(1000)
+  status String @default("OPEN") @db.VarChar(20)
+  decisionReason String? @db.VarChar(1000)
+  decidedById String?
+  decidedAt DateTime?
+  createdAt DateTime @default(now())
+  story CommunityStory @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  reporter User @relation("CommunityStoryReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  decidedBy User? @relation("CommunityStoryDecision", fields: [decidedById], references: [id], onDelete: SetNull)
+  @@unique([storyId, reporterId])
+  @@index([status, createdAt])
+}
+
+model CommunityLive {
+  id String @id @default(cuid())
+  hostId String
+  title String @db.VarChar(100)
+  createdAt DateTime @default(now())
+  endedAt DateTime?
+  host User @relation("CommunityLiveHost", fields: [hostId], references: [id], onDelete: Cascade)
+  participants CommunityLiveParticipant[]
+  signals CommunityLiveSignal[]
+  @@index([endedAt, createdAt])
+  @@index([hostId, endedAt])
+}
+
+model CommunityLiveParticipant {
+  liveId String
+  userId String
+  role String @db.VarChar(8)
+  joinedAt DateTime @default(now())
+  leftAt DateTime?
+  live CommunityLive @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([liveId, userId])
+  @@index([userId, leftAt])
+}
+
+model CommunityLiveSignal {
+  id String @id @default(cuid())
+  liveId String
+  senderId String
+  targetId String
+  kind String @db.VarChar(12)
+  payload String @db.VarChar(20000)
+  createdAt DateTime @default(now())
+  live CommunityLive @relation(fields: [liveId], references: [id], onDelete: Cascade)
+  sender User @relation("CommunityLiveSignalSender", fields: [senderId], references: [id], onDelete: Cascade)
+  target User @relation("CommunityLiveSignalReceiver", fields: [targetId], references: [id], onDelete: Cascade)
+  @@index([liveId, targetId, createdAt])
+}
+
 model SocialBlock {
   id String @id @default(cuid())
   blockerId String
@@ -290,6 +464,26 @@ model UserNotification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, readAt, createdAt])
 }
+
+model EmailDailyUsage {
+  day DateTime @id @db.Date
+  sentCount Int @default(0)
+  alertSent Boolean @default(false)
+  updatedAt DateTime @updatedAt
+}
+
+model EmailOutbox {
+  id String @id @default(cuid())
+  userId String
+  template String @db.VarChar(40)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([sentAt, nextAttemptAt, createdAt])
+}
+
 model RefreshToken {
   id String @id @default(cuid())
   userId String

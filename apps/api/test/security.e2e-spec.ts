@@ -48,13 +48,34 @@ beforeAll(async()=>{
 });
 afterAll(async()=>{
   try{
-    if(prisma){await prisma.communityConversation.deleteMany({where:{OR:[{createdById:{in:userIds}},{members:{some:{userId:{in:userIds}}}}]}});await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
+    if(prisma){await prisma.communityConversation.deleteMany({where:{OR:[{createdById:{in:userIds}},{members:{some:{userId:{in:userIds}}}}]}});await (prisma as any).parishContent.deleteMany({where:{OR:[{authorId:{in:userIds}},{editorId:{in:userIds}}]}});await (prisma as any).bibleStudyTheme.deleteMany({where:{editorId:{in:userIds}}});await (prisma as any).parishHistoryEntry.deleteMany({where:{authorId:{in:userIds}}});await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
   }finally{
     try{if(app)await app.close();}finally{if(prisma)await prisma.$disconnect();observedLogs.length=0;sensitiveCanaries.clear();jest.restoreAllMocks();}
   }
 });
 
 describe('security HTTP e2e on isolated PostgreSQL',()=>{
+  it('protects programme, studies and parish history with server-side permissions and keeps unavailable doctrine empty',async()=>{
+    const admin=await addUser(UserRole.ADMIN),publisher=await addUser(UserRole.FIDELE),reader=await addUser(UserRole.FIDELE),adminToken=jwt(admin),readerToken=jwt(reader);
+    const noPermission=await call('/community/content/programmes',{method:'POST',token:readerToken,body:{kind:'PROGRAMME',title:'Programme paroissial',body:'Contenu de test',published:true}});expect(noPermission.status).toBe(403);
+    const studies=await call('/community/content/studies',{token:readerToken});expect(studies.status).toBe(200);expect(studies.body.sourceDocumentAvailable).toBe(false);expect(studies.body.sections.map((section:any)=>section.expectedItems)).toEqual([12,11,10,4]);expect(studies.body.themes).toEqual([]);
+    const programGrant=await call(`/auth/admin/members/${publisher.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['PUBLIER_PROGRAMME'],reason:'Autoriser la publication du programme paroissial.'}});expect(programGrant.status).toBe(200);
+    const publisherForProgram=jwt(await prisma.user.findUniqueOrThrow({where:{id:publisher.id}}));
+    const create=await call('/community/content/programmes',{method:'POST',token:publisherForProgram,body:{kind:'PROGRAMME',title:'Programme dominical',body:'Rencontre communautaire.',startsAt:'2026-11-01T09:00:00.000Z',endsAt:'2026-11-01T10:00:00.000Z',published:true}});expect(create.status).toBe(201);
+    const draft=await call('/community/content/programmes',{method:'POST',token:publisherForProgram,body:{kind:'PROGRAMME',title:'Brouillon privé',body:'Non publié.',published:false}});expect(draft.status).toBe(201);
+    expect((await call('/community/content/events',{method:'POST',token:publisherForProgram,body:{kind:'EVENEMENT',title:'Dates inversées',body:'Test',startsAt:'2026-11-02T10:00:00.000Z',endsAt:'2026-11-02T09:00:00.000Z'}})).status).toBe(400);
+    expect((await call(`/community/content/items/${create.body.id}`,{method:'PATCH',token:readerToken,body:{kind:'PROGRAMME',title:'Modification non autorisée',body:'Test',published:true}})).status).toBe(403);
+    const historyDenied=await call('/community/content/history',{method:'POST',token:publisherForProgram,body:{title:'Histoire test',body:'Récit vérifié',published:true}});expect(historyDenied.status).toBe(403);
+    const themeDenied=await call('/community/content/studies/themes',{method:'POST',token:publisherForProgram,body:{studyDate:'2026-11-02',title:'Étude test'}});expect(themeDenied.status).toBe(403);
+    const historyGrant=await call(`/auth/admin/members/${publisher.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['PUBLIER_HISTOIRE','GERER_ETUDES'],reason:'Autoriser les contenus éditoriaux approuvés.'}});expect(historyGrant.status).toBe(200);
+    const freshPublisher=jwt(await prisma.user.findUniqueOrThrow({where:{id:publisher.id}}));
+    expect((await call('/community/content/history',{method:'POST',token:freshPublisher,body:{title:'Chronologie paroissiale',body:'Fait fourni et vérifié par la paroisse.',published:true}})).status).toBe(201);
+    expect((await call('/community/content/studies/themes',{method:'POST',token:freshPublisher,body:{studyDate:'2026-11-02',title:'Thème vérifié',bibleReference:'Jean 1',summary:'Résumé fourni par le responsable.',published:true}})).status).toBe(201);
+    expect((await call('/community/content/history',{token:readerToken})).body).toHaveLength(1);
+    expect((await call('/community/content/programmes',{token:readerToken})).body).toHaveLength(1);
+    expect((await call('/community/content/programmes',{token:freshPublisher})).body).toHaveLength(2);
+    const audit=await prisma.auditLog.findMany({where:{userId:{in:[admin.id,publisher.id]},action:{in:['CONTENU_PAROISSIAL_CREE','HISTOIRE_PAROISSE_CREEE','ETUDE_BIBLIQUE_MODIFIEE']}}});expect(audit).toHaveLength(4);
+  });
   it('refuses role escalation at registration and creates a pending, sessionless account',async()=>{
     const attempted=await call('/auth/register',{method:'POST',body:{fullName:'E2E Applicant',phone:'+2290100000000',email:testEmail(),password,requestedRole:'RESPONSABLE_SEMAINE',requestedDayOfWeek:weekday(localDate()),role:'ADMIN'}});
     expect(attempted.status).toBe(400);
@@ -70,6 +91,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     try{
       const email=testEmail(),body={fullName:'New Social Member',phone:'+2290100000000',email,password,dateOfBirth:'1990-03-15',acceptCharter:true,charterVersion:'phase1-e2e-v1'};
       expect((await call('/auth/social/register',{method:'POST',body:{...body,role:'ADMIN'}})).status).toBe(400);
+      expect((await call('/auth/social/register',{method:'POST',body:{...body,phone:'555-123-4567'}})).status).toBe(400);
       expect((await call('/auth/social/register',{method:'POST',body:{...body,email:testEmail(),dateOfBirth:'2016-01-01'}})).status).toBe(400);
       const registered=await call('/auth/social/register',{method:'POST',body});expect(registered.status).toBe(201);expect(registered.body).not.toHaveProperty('accessToken');expect(sent).toHaveLength(0);
       const member=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(member.id);expect(member.role).toBe(UserRole.FIDELE);expect(member.active).toBe(true);expect(member.emailVerifiedAt).toBeNull();expect(member.charterVersion).toBe('phase1-e2e-v1');
@@ -106,7 +128,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
       const optional=await call('/auth/social/registration-config');expect(optional.body.enabled).toBe(true);expect(optional.body.captchaEnabled).toBe(false);expect(optional.body.captchaSiteKey).toBeNull();expect(optional.body.captchaMessage).toContain('désactivée par défaut');
       process.env.CAPTCHA_ENABLED='true';
       const required=await call('/auth/social/registration-config');expect(required.body.enabled).toBe(false);expect(required.body.captchaMessage).toContain('configuration de la vérification anti-robot est incomplète');
-      const refused=await call('/auth/social/register',{method:'POST',headers:{'X-Forwarded-For':'198.51.100.77'},body:{fullName:'CAPTCHA Test',email:testEmail(),password,dateOfBirth:'1990-01-01',acceptCharter:true,charterVersion:'phase1-e2e-v1'}});expect(refused.status).toBe(503);
+      const refused=await call('/auth/social/register',{method:'POST',headers:{'X-Forwarded-For':'198.51.100.77'},body:{fullName:'CAPTCHA Test',phone:'+2290100000000',email:testEmail(),password,dateOfBirth:'1990-01-01',acceptCharter:true,charterVersion:'phase1-e2e-v1'}});expect(refused.status).toBe(503);
       process.env.CAPTCHA_SECRET_KEY='test-turnstile-secret';process.env.CAPTCHA_SITE_KEY='test-turnstile-site';
       verification=jest.spyOn(globalThis,'fetch').mockImplementation(async(input:any,init:any)=>{
         if(String(input).includes('challenges.cloudflare.com/turnstile/v0/siteverify')){
@@ -248,7 +270,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call(`/auth/admin/members/${pending.id}`,{token})).status).toBe(404);
     expect((await call(`/auth/admin/members/${editor.id}/decision`,{method:'PATCH',token,body:{action:'VALIDER'}})).status).toBe(403);
     expect((await call(`/auth/admin/members/${pending.id}/subadmin`,{method:'PATCH',token,body:{enabled:true}})).status).toBe(403);
-    expect((await call(`/auth/admin/members/${pending.id}/permissions`,{method:'PATCH',token,body:{permissions:['GESTION_COMPTES']}})).status).toBe(403);
+    expect((await call(`/auth/admin/members/${pending.id}/permissions`,{method:'PATCH',token,body:{permissions:['GESTION_COMPTES'],reason:'Motif de test refusé'}})).status).toBe(403);
     expect((await call(`/auth/social/admin/members/${pending.id}/suspension`,{method:'PATCH',token,body:{suspended:true,reason:'Test refus accès'}})).status).toBe(403);
   });
 
@@ -258,15 +280,33 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const subLogin=await call('/auth/subadmin/login',{method:'POST',body:{email:editor.email,password,totp:totp(secret)}});expect(subLogin.status).toBe(201);expect(subLogin.body).not.toHaveProperty('accessToken');
     expect((await call('/auth/admin/members',{token:editorToken})).status).toBe(403);
     expect((await call('/attendance/course/2026-10-05',{token:editorToken})).status).toBe(403);
-    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:editorToken,body:{permissions:['GESTION_COMPTES']}})).status).toBe(403);
-    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['PROGRAMME_BIBLIQUE']}})).status).toBe(200);
+    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:editorToken,body:{permissions:['GESTION_COMPTES'],reason:'Motif non autorisé'}})).status).toBe(403);
+    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['PROGRAMME_BIBLIQUE'],reason:'Autoriser la préparation des cours bibliques.'}})).status).toBe(200);
     let editorFresh=await prisma.user.findUniqueOrThrow({where:{id:editor.id}});let freshToken=jwt(editorFresh);
     expect((await call('/attendance/course/2026-10-05',{token:freshToken})).status).toBe(200);
     expect((await call('/auth/admin/members',{token:freshToken})).status).toBe(403);
-    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['GESTION_COMPTES']}})).status).toBe(200);
+    const staleProgrammeToken=freshToken;
+    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['GESTION_COMPTES'],reason:'Autoriser la gestion des demandes de compte.'}})).status).toBe(200);
+    expect((await call('/attendance/course/2026-10-05',{token:staleProgrammeToken})).status).toBe(401);
     editorFresh=await prisma.user.findUniqueOrThrow({where:{id:editor.id}});freshToken=jwt(editorFresh);
     const memberRows=await call('/auth/admin/members',{token:freshToken});expect(memberRows.status).toBe(403);
-    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:freshToken,body:{permissions:['PROGRAMME_BIBLIQUE']}})).status).toBe(403);
+    expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:freshToken,body:{permissions:['PROGRAMME_BIBLIQUE'],reason:'Tentative non autorisée'}})).status).toBe(403);
+    const permissionAudit=await prisma.auditLog.findMany({where:{action:'PERMISSIONS_COMMUNAUTE_MODIFIEES',entityId:editor.id}});expect(permissionAudit).toHaveLength(2);expect(permissionAudit.every(row=>!!row.reason&&row.reason.length>=8)).toBe(true);
+  });
+
+  it('attribue CREER_GROUPE par motif, révoque les anciennes sessions et retire le droit immédiatement',async()=>{
+    const admin=await addUser(UserRole.ADMIN),owner=await addUser(UserRole.FIDELE),one=await addUser(UserRole.FIDELE),two=await addUser(UserRole.FIDELE),adminToken=jwt(admin),oldOwnerToken=jwt(owner);
+    const path=`/auth/admin/members/${owner.id}/permissions`;
+    expect((await call(path,{method:'PATCH',token:adminToken,body:{permissions:['CREER_GROUPE']}})).status).toBe(400);
+    expect((await call(path,{method:'PATCH',token:adminToken,body:{permissions:['CREER_GROUPE'],reason:'Autoriser la création des groupes paroissiaux.'}})).status).toBe(200);
+    expect((await call('/community/conversations/group',{method:'POST',token:oldOwnerToken,body:{title:'Groupe après attribution',memberIds:[one.id,two.id]}})).status).toBe(401);
+    let current=await prisma.user.findUniqueOrThrow({where:{id:owner.id}}),currentToken=jwt(current);
+    const created=await call('/community/conversations/group',{method:'POST',token:currentToken,body:{title:'Groupe après attribution',memberIds:[one.id,two.id]}});expect(created.status).toBe(201);
+    expect((await call(path,{method:'PATCH',token:adminToken,body:{permissions:[],reason:'Retirer ce droit après la période de création.'}})).status).toBe(200);
+    expect((await call('/community/conversations/group',{method:'POST',token:currentToken,body:{title:'Groupe après retrait',memberIds:[one.id,two.id]}})).status).toBe(401);
+    current=await prisma.user.findUniqueOrThrow({where:{id:owner.id}});currentToken=jwt(current);
+    expect((await call('/community/conversations/group',{method:'POST',token:currentToken,body:{title:'Groupe après retrait',memberIds:[one.id,two.id]}})).status).toBe(403);
+    const audit=await prisma.auditLog.findMany({where:{action:'PERMISSIONS_COMMUNAUTE_MODIFIEES',entityId:owner.id}});expect(audit).toHaveLength(2);expect(audit.every(row=>!!row.reason)).toBe(true);
   });
 
   it('invalidates a still-signed access token as soon as the account is disabled',async()=>{

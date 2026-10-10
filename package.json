@@ -15,7 +15,7 @@
     "build": "npm run build --workspace @paroisse/api && npm run build --workspace @paroisse/web",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test:tools && npm run test --workspaces --if-present",
-    "test:tools": "node --test scripts/*.test.cjs",
+    "test:tools": "node --test scripts/*.test.cjs infra/*.test.cjs",
     "security:scan": "node scripts/secret-scan.cjs",
     "test:e2e": "npm run test:e2e --workspace @paroisse/api",
     "test:playwright": "playwright test",
