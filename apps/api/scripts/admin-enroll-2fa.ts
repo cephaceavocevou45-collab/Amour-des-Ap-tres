@@ -1,5 +1,5 @@
 import { config as loadEnv } from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../src/generated/prisma';
 import { createInterface } from 'node:readline';
 import { completeAdminTwoFactorEnrollment, prepareAdminTwoFactorEnrollment, resetAdminTwoFactor } from './admin-2fa-operations';
 

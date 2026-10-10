@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpException, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, MaxLength, ArrayMaxSize, Length, Matches } from 'class-validator';
-import { PersonRoleName, SheetStatus, SheetType, Sex, Zone } from '@prisma/client';
+import { PersonRoleName, SheetStatus, SheetType, Sex, Zone } from './generated/prisma';
 import { normalizeName, totals } from '../../../packages/shared/src';
 import { JwtAuthGuard } from './auth.guard';
 import { PrismaService } from './prisma.service';

@@ -1,8 +1,10 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, UserRole } from '../src/generated/prisma';
 import * as argon2 from 'argon2';
 import { createTotpSecret, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, totpUri, verifyTotp } from '../src/totp';
 
 const adminRoles=new Set<string>([UserRole.ADMIN,UserRole.SUPER_ADMIN,UserRole.EDITEUR]);
+const responsibleRoles=new Set<string>([UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE]);
+function canEnroll(user:{role:UserRole;totpSecret:string|null}){return adminRoles.has(user.role)||!!user.totpSecret||(process.env['2FA_REQUIS_RESPONSABLES']==='true'&&responsibleRoles.has(user.role));}
 
 async function consumeRecoveryCode(prisma:PrismaClient,userId:string,code:string){
   if(!/^[A-F0-9]{5}(?:-[A-F0-9]{5}){3}$/.test(code))return false;
@@ -18,7 +20,7 @@ async function confirmFactor(prisma:PrismaClient,userId:string,encryptedSecret:s
 
 export async function prepareAdminTwoFactorEnrollment(prisma:PrismaClient,emailInput:string,password:string,currentFactor?:string){
   const email=emailInput.trim().toLowerCase(),user=await prisma.user.findUnique({where:{email}});
-  if(!user||!user.active||!adminRoles.has(user.role))throw new Error('Le compte cible est introuvable, inactif ou non administrateur.');
+  if(!user||!user.active||!canEnroll(user))throw new Error('Le compte cible est introuvable, inactif ou non autorisé pour la double vérification.');
   if(!await argon2.verify(user.passwordHash,password).catch(()=>false))throw new Error('Authentification refusée.');
   if(user.totpSecret&&(!currentFactor||!await confirmFactor(prisma,user.id,user.totpSecret,currentFactor)))throw new Error('Confirmation 2FA refusée.');
   const secret=createTotpSecret();
@@ -28,7 +30,7 @@ export async function prepareAdminTwoFactorEnrollment(prisma:PrismaClient,emailI
 export async function completeAdminTwoFactorEnrollment(prisma:PrismaClient,userId:string,secret:string,newCode:string){
   if(!verifyTotp(secret,newCode))throw new Error('Code TOTP invalide ; aucune clé n’a été enregistrée.');
   const user=await prisma.user.findUnique({where:{id:userId}});
-  if(!user||!user.active||!adminRoles.has(user.role))throw new Error('Le compte cible n’est plus actif.');
+  if(!user||!user.active||!canEnroll(user))throw new Error('Le compte cible n’est plus actif ou autorisé pour la double vérification.');
   const codes=generateRecoveryCodes();
   await prisma.$transaction(async tx=>{
     const db=tx as any;
@@ -47,7 +49,7 @@ export async function resetAdminTwoFactor(prisma:PrismaClient,input:{targetEmail
     prisma.user.findUnique({where:{email:input.targetEmail.trim().toLowerCase()}}),
     prisma.user.findUnique({where:{email:input.actorEmail.trim().toLowerCase()}})
   ]);
-  if(!target||!target.active||!adminRoles.has(target.role))throw new Error('Le compte cible est introuvable ou inactif.');
+  if(!target||!target.active||!canEnroll(target))throw new Error('Le compte cible est introuvable ou inactif.');
   if(!actor||!actor.active||actor.role!==UserRole.SUPER_ADMIN||actor.id===target.id||!actor.totpSecret)throw new Error('La récupération exige un autre SUPER_ADMIN actif déjà protégé par la 2FA.');
   if(!await argon2.verify(actor.passwordHash,input.password).catch(()=>false))throw new Error('Authentification refusée.');
   if(!await confirmFactor(prisma,actor.id,actor.totpSecret,input.factor))throw new Error('Authentification refusée.');

@@ -1,29 +1,35 @@
-# Déploiement — procédure à valider
+# Déploiement léger des présences
 
-L’infrastructure Compose se trouve dans `infra/compose.yaml`. Elle démarre PostgreSQL sur un réseau interne, une API NestJS non-root et Nginx non-root en TLS. PostgreSQL ne publie pas son port sur l’hôte. Nginx ne journalise pas les paramètres de requête.
+## Services
 
-Avant tout démarrage :
+`infra/compose.yaml` contient PostgreSQL, l'API NestJS, le site Angular servi par Nginx et Nginx TLS en frontal. Le port PostgreSQL n'est pas publié; les conteneurs sont non-root, en lecture seule autant que possible, avec limites de ressources et journaux à rotation bornée. Compose exige les secrets et variables nécessaires.
 
-1. Installer Docker Desktop ou Docker Engine sur l’hôte prévu.
-2. Générer des secrets indépendants pour PostgreSQL, JWT, TOTP et les sauvegardes ; les stocker dans un gestionnaire de secrets. Aucun secret par défaut n’est accepté par Compose.
-3. Fournir un domaine, certificat complet et clé privée valides dans un dossier TLS non versionné, accessible en lecture seule au conteneur.
-4. Vérifier `docker compose -f infra/compose.yaml config` sans publier sa sortie si elle contient des valeurs interpolées.
-5. Construire, démarrer et vérifier les services sur un environnement fictif. Tester restauration et renouvellement du certificat avant exposition Internet.
-6. Configurer un reverse proxy réseau explicite. L’API ne fait confiance qu’à l’adresse IP privée fixe du conteneur web déclarée dans le compose.
+Cette configuration est un modèle portable, pas une preuve de fonctionnement en production. Elle n'a pas été testée sur une machine Linux réelle.
 
-**État : non vérifié en conditions réelles.** Docker, certificats TLS, domaine, envoi e-mail et restauration doivent être validés par un humain. Ne pas ouvrir l’inscription ou utiliser des données réelles avant le feu vert de sécurité.
+## Mise en place
 
-## Contrôles avant exposition
+1. Préparer un serveur Linux maintenu, un domaine contrôlé par la paroisse et des comptes d'administration nominatifs avec MFA.
+2. Installer Docker Engine/Compose depuis les sources officielles du système. Configurer pare-feu pour n'exposer que SSH restreint, HTTP et HTTPS; limiter SSH par clé et IP si possible.
+3. Générer des secrets indépendants avec un gestionnaire de secrets. Créer `.env` sur le serveur, jamais dans Git. Renseigner `FRONTEND_ORIGIN`, les mots de passe de base, JWT, chiffrement TOTP, Resend et certificat TLS. Aucun secret d'exemple ne doit être réutilisé.
+4. Obtenir le certificat Let's Encrypt avec un client ACME approprié. Monter le dossier TLS en lecture seule et tester renouvellement automatique. Ne servir les cookies que derrière HTTPS; HSTS seulement après validation HTTPS sur tout le domaine.
+5. Exécuter `docker compose -f infra/compose.yaml config --quiet`, puis construire/démarrer dans un environnement de préproduction fictif. Lancer les contrôles `/health` et `/ready`, les e2e sur base séparée, et un essai de restauration.
+6. Surveiller disponibilité, espace disque, CPU/mémoire, connexion PostgreSQL, échecs de sauvegarde et quota d'e-mail. Alerter avant les plafonds gratuits; tarifs et limites à vérifier chez le fournisseur.
 
-- Terminer TLS sur Nginx ou un proxy documenté. Le transfert vers l’API doit rester sur le réseau privé ; l’API ne doit jamais être publiée directement sur Internet. Utiliser HTTPS sur toutes les pages et rediriger HTTP vers HTTPS.
-- Vérifier les en-têtes de sécurité (CSP, HSTS uniquement lorsque tout le domaine est HTTPS) et que `FRONTEND_ORIGIN` correspond exactement à l’origine publique du site. Les cookies de session doivent être `Secure`, `HttpOnly` et `SameSite=Strict` derrière TLS.
-- N’autoriser le transfert d’IP qu’au proxy fixe déjà déclaré comme approuvé. Les valeurs `X-Forwarded-*` ne doivent être acceptées d’aucune autre source réseau.
-- Garder PostgreSQL non exposé publiquement et limiter le rôle applicatif aux seules opérations nécessaires. Le rôle de migration ne doit pas servir à l’application en production.
-- Fournir les variables secrètes depuis un gestionnaire de secrets ; ne jamais commiter `.env`, publier sa sortie ou insérer des valeurs réelles dans les exemples.
-- Vérifier les journaux après un exercice complet : aucun nom de présence, mot de passe, jeton, secret e-mail, secret TOTP ou secret de stockage ne doit y apparaître.
-- Configurer une sauvegarde chiffrée, puis prouver la restauration sur une base vide et comparer des comptages de lignes. Une tâche de sauvegarde réussie seule ne certifie pas la restaurabilité.
-- Maintenir les photos coupées jusqu’à la validation manuelle de S3 privé, des permissions de compartiment, du scan ClamAV, des lectures authentifiées et de l’absence d’accès public direct.
+La base PostgreSQL doit rester inaccessible depuis Internet. Séparer compte applicatif et compte de migration. Les paramètres proxy doivent approuver uniquement le proxy configuré. Les logs ne doivent contenir ni noms de présence ni secrets.
 
-Les chemins d’exploitation, la rétention et la restauration sont aussi décrits dans [MEDIA_CONFIGURATION.md](MEDIA_CONFIGURATION.md), [MIGRATION_PROCEDURE.md](MIGRATION_PROCEDURE.md) et [CHECKLIST_PRODUCTION.md](CHECKLIST_PRODUCTION.md). Les preuves d’exécution des validations locales ne sont pas une preuve de configuration du domaine, de Nginx ou des services de production.
+## Changer de serveur
 
-La communauté V1 n’est pas prête à être exposée pour les nouveaux parcours demandés : permissions de lancement de direct/création de groupe sont côté serveur, mais les annuaires, demandes et rôles de groupes, l’histoire, les contenus versionnés et les notifications générales restent à construire. Les tests de signalisation WebRTC ne remplacent pas un essai sur appareils avec HTTPS/TURN.
+1. Geler temporairement les écritures ou utiliser une sauvegarde cohérente documentée.
+2. Copier le dépôt versionné et `.env` par un canal sécurisé; ne pas copier les caches, dumps non chiffrés ni journaux contenant des données.
+3. Restaurer la dernière sauvegarde chiffrée dans une nouvelle base sur le serveur cible. Comparer les tables, lignes et totaux avec la source; garder l'ancienne machine intacte.
+4. Exécuter `prisma migrate status` sur la cible explicitement confirmée. Les migrations destructives de communauté doivent être validées au préalable selon [MIGRATION_PROCEDURE.md](MIGRATION_PROCEDURE.md).
+5. Rejouer uniquement les migrations approuvées après restauration/validation, déployer les conteneurs, vérifier `/health`, `/ready`, connexion, saisie de test fictive, e-mail de récupération et sauvegarde hors site.
+6. Changer DNS après vérifications HTTPS. Conserver l'ancien serveur jusqu'à l'approbation opérationnelle.
+
+## Actions humaines obligatoires
+
+- Réserver le domaine, valider les comptes du fournisseur au nom de la paroisse et désigner au moins deux administrateurs.
+- Choisir le lieu/région d'hébergement en fonction de la loi locale et des personnes concernées.
+- Effectuer la rotation des secrets de test et vérifier les clés de récupération hors ligne.
+- Tester une restauration complète, les renouvellements TLS, les quotas e-mail et le plan d'incident.
+- Faire une revue de sécurité indépendante avant d'ajouter des données personnelles réelles.

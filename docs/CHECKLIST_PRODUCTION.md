@@ -1,17 +1,17 @@
-# Checklist avant production
+# Checklist avant utilisation avec des données réelles
 
-- [ ] Relancer `npm audit --omit=dev` et `npm audit` depuis un réseau qui joint le registre npm ; corriger les vulnérabilités critiques/hautes sans mise à niveau forcée aveugle et valider les changements.
-- [ ] Sauvegarder puis restaurer dans une base vide ; comparer les comptes de lignes.
-- [ ] Valider migrations sur base vide et copie de données historiques.
-- [ ] Configurer TLS, HSTS, domaine, `FRONTEND_ORIGIN`, cookies Secure et sauvegardes chiffrées.
-- [ ] Générer et stocker hors dépôt les secrets PostgreSQL, JWT, TOTP, Resend et de sauvegarde ; révoquer les valeurs de test.
-- [ ] Faire valider l’âge, la charte, la confidentialité, les mentions légales, les durées de rétention et les droits de modération.
-- [ ] Désigner administrateurs, modérateurs et responsables ; tester les autorisations avec des comptes fictifs.
-- [ ] Exécuter plusieurs semaines avec des données fictives, puis un seul jour et un seul responsable.
-- [ ] Vérifier audit npm, scan de secrets, restauration et procédures d’incident.
-- [ ] Confirmer l’e-mail de récupération (Resend), l’âge minimum, la charte et les textes de confidentialité avec la paroisse.
-- [ ] Garder les médias coupés tant que S3 privé, ClamAV et les essais de dépôt/lecture ne sont pas validés. Ne pas activer par le seul flag.
-- [ ] Vérifier les parcours de modération, la procédure d’appel et les notifications réellement livrées avant de traiter des signalements réels.
-- [ ] Parcourir à la main chaque écran avec clavier et lecteur d’écran, confirmer les libellés, contrastes, états vides/erreur/chargement et vérifier la traduction attendue.
-- [ ] Confirmer que le français est la seule langue actuellement supportée ; planifier un catalogue multilingue avant de promettre d’autres langues.
-- [ ] Faire une répétition générale sur données fictives et obtenir l’accord du chargé paroissial avant l’ouverture publique.
+- [ ] Revue des décisions ouvertes dans `DECISIONS_A_VALIDER.md`, en particulier suppression des anciennes données communautaires et traitement des comptes de rôles retirés.
+- [ ] Faire une sauvegarde chiffrée de chaque base ayant de la valeur et réussir une restauration dans une base neuve isolée; vérifier schéma, relations et nombres de lignes.
+- [ ] Valider la migration de simplification sur une base de test vide et une copie historique; vérifier que comptes actifs nécessaires, présences, programme, sessions, 2FA et audit sont conservés.
+- [ ] Relancer lint, typecheck, tests unitaires, builds, e2e sur PostgreSQL isolé et Playwright sur le code exact destiné au déploiement.
+- [ ] Traiter les avis npm critiques/hauts ou documenter l'acceptation par le responsable sécurité. Audit actuel indisponible en ligne? Voir `BLOCAGES.md` pour les nombres réellement observés.
+- [ ] Scanner le dépôt de secrets et confirmer que `.env`, dumps et sauvegardes ne sont pas suivis par Git.
+- [ ] Configurer le domaine, HTTPS, certificat et renouvellement, HSTS après HTTPS complet, origine CORS, pare-feu et proxy fiable.
+- [ ] Garder PostgreSQL sur réseau privé, séparer utilisateur applicatif et migrations, vérifier privilèges minimaux et chiffrement du stockage.
+- [ ] Générer et faire tourner tous les secrets; enrôler deux administrateurs avec 2FA et vérifier procédure de secours CLI.
+- [ ] Régler le quota Resend et vérifier la réponse en cas de plafond. Tester les e-mails de récupération sans exposer les codes.
+- [ ] Tester la saisie et la synchronisation hors ligne, limites horaires, cloisonnement des jours, consultation nominative motivée et audit, uniquement avec données fictives.
+- [ ] Vérifier la politique de rétention/anonymisation et les alertes de sauvegarde.
+- [ ] Obtenir la validation du chargé paroissial, la désignation des responsables et la revue juridique/confidentialité adaptée au Bénin.
+
+**Ne pas ouvrir l'application aux vraies données si une case relative à la restauration, aux migrations ou à la sécurité reste non vérifiée.**

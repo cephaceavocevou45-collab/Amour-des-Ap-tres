@@ -1,5 +1,5 @@
 import { normalizeName, totals } from '../../../packages/shared/src';
-import { SheetType, SheetStatus } from '@prisma/client';
+import { SheetType, SheetStatus } from './generated/prisma';
 import { isWithinAttendanceWindow, AttendanceController } from './attendance';
 import { PrismaService } from './prisma.service';
 describe('attendance helpers',()=>{

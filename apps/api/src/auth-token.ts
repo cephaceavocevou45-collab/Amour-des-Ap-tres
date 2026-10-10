@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { UserRole } from '@prisma/client';
+import { UserRole } from './generated/prisma';
 
 export function verifiedToken(token:string):{sub:string;role:UserRole;exp:number;ver:number}|null {
   try {

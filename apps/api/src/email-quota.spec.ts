@@ -17,19 +17,14 @@ describe('EmailQuotaService',()=>{
     expect(query).toHaveBeenCalledTimes(1);
   });
 
-  it('notifies administrators once at the configured warning threshold',async()=>{
-    const updateMany=jest.fn().mockResolvedValue({count:1}),createMany=jest.fn().mockResolvedValue({count:1});
-    const prisma={$queryRaw:jest.fn().mockResolvedValue([{sentCount:80,alertSent:false}]),user:{findMany:jest.fn().mockResolvedValue([{id:'admin-1'}])},emailDailyUsage:{updateMany},userNotification:{createMany}};
-    jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{}',{status:200}));
+  it('raises a privacy-safe warning once at the configured daily threshold',async()=>{
+    const updateMany=jest.fn().mockResolvedValue({count:1});
+    const prisma={$queryRaw:jest.fn().mockResolvedValue([{sentCount:80,alertSent:false}]),emailDailyUsage:{updateMany}};
     const service=new EmailQuotaService(prisma as any);
+    const warning=jest.spyOn((service as any).logger,'warn').mockImplementation();
+    jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{}',{status:200}));
     await expect(service.sendImmediate('member@example.invalid','Test','body')).resolves.toBe(true);
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({where:{day:expect.any(Date),alertSent:false}}));
-    expect(createMany).toHaveBeenCalledWith({data:[expect.objectContaining({userId:'admin-1',message:expect.stringContaining('plafond')})]});
-  });
-
-  it('queues only a fixed template identifier and user id, never a mail body',async()=>{
-    const create=jest.fn().mockResolvedValue({id:'queued'}),service=new EmailQuotaService({emailOutbox:{create,findFirst:jest.fn().mockResolvedValue(null)}} as any);
-    await expect(service.enqueue('user-1','RESPONSIBILITY_UPDATE')).resolves.toBe(true);
-    expect(create).toHaveBeenCalledWith({data:{userId:'user-1',template:'RESPONSIBILITY_UPDATE'}});
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining('plafond quotidien'));
   });
 });

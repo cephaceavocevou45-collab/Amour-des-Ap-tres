@@ -1,4 +1,4 @@
-import { PrismaClient, PersonRoleName, UserRole } from '@prisma/client';
+import { PrismaClient, PersonRoleName, UserRole } from '../src/generated/prisma';
 import * as argon2 from 'argon2';
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'node:path';

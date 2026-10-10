@@ -4,7 +4,7 @@ Cette procédure prépare un déploiement transférable sur un serveur Linux sta
 
 ## Cible matérielle
 
-La configuration limite les services à environ 2 cœurs et 7,4 Gio de mémoire : PostgreSQL 2,5 Gio / 0,60 cœur, API 2 Gio / 0,75, site 128 Mio / 0,10, Nginx 256 Mio / 0,25. ClamAV optionnel est plafonné à 2,5 Gio / 0,30 cœur et porte le total à 2 cœurs et environ 10 Gio. Cela laisse environ 2 Gio à l’OS et au moteur de conteneurs. Pendant une restauration, le service de maintenance peut demander 1,5 Gio supplémentaires : ne pas lancer en parallèle les services ordinaires sur une machine à mémoire contrainte. Ces limites sont des plafonds Docker, pas une garantie de performance.
+La configuration limite les services applicatifs à environ 2 cœurs et 5 Gio de mémoire : PostgreSQL 2,5 Gio / 0,60 cœur, API 2 Gio / 0,75, site 128 Mio / 0,10 et Nginx 256 Mio / 0,25. Cela laisse une marge au système et aux tâches de maintenance sur une machine 12 Gio. Pendant une restauration, ne pas lancer plusieurs services de maintenance en parallèle. Ces limites Docker ne garantissent pas les performances.
 
 ## Choix de services et budget
 
@@ -15,7 +15,7 @@ La configuration limite les services à environ 2 cœurs et 7,4 Gio de mémoire 
 | HTTPS | Certificats Let's Encrypt, renouvelés automatiquement | Aucun certificat payant requis au départ ; surveiller les renouvellements et limites d’émission |
 | Courriels | Resend gratuit, plafond applicatif conservateur de 100/jour | Volume, domaine expéditeur et délivrabilité ; passer au payant quand le quota bloque les messages légitimes |
 | Sauvegardes | Stockage compatible S3 avec petit quota gratuit, distinct du serveur | Capacité, requêtes, trafic de restauration et durée de rétention ; conserver 35 jours au minimum |
-| Antivirus médias | ClamAV auto-hébergé, désactivé tant que les médias ne sont pas validés | RAM/CPU et mises à jour de signatures ; ne pas activer les médias si le scan n’est pas disponible |
+| Application | Présentation, comptes responsables et présences; aucun média communautaire | Augmenter les ressources si sauvegardes, rapports ou périodes de saisie saturent CPU, RAM ou disque |
 
 **Tarifs et limites à vérifier chez le fournisseur.** Les offres gratuites changent, peuvent exiger une carte bancaire ou supprimer les ressources inactives. Ne jamais traiter un palier gratuit comme une sauvegarde ou une garantie de disponibilité.
 
@@ -23,11 +23,11 @@ La configuration limite les services à environ 2 cœurs et 7,4 Gio de mémoire 
 
 1. Choisir une région proche des fidèles et vérifier les règles locales de protection des données.
 2. Installer Docker Engine et le plugin Compose depuis les dépôts officiels de la distribution, avec les mises à jour de sécurité activées. Aucun service distant n’est installé ou activé par cette documentation.
-3. Configurer le DNS du domaine vers l’adresse du serveur. Au pare-feu, n’autoriser en entrée que SSH depuis des adresses d’administration connues, TCP 80 et TCP 443. Ne pas ouvrir PostgreSQL (5432), l’API (3000), le site (8080) ou ClamAV (3310).
+3. Configurer le DNS du domaine vers l’adresse du serveur. Au pare-feu, n’autoriser en entrée que SSH depuis des adresses d’administration connues, TCP 80 et TCP 443. Ne pas ouvrir PostgreSQL (5432), l’API (3000) ni le site (8080).
 4. Copier le dépôt dans un répertoire de déploiement non public, puis créer un fichier de variables dédié à la production à partir de `.env.example`. Compléter les valeurs localement dans un gestionnaire de secrets ou un éditeur sécurisé. Ne pas envoyer ni coller le fichier `.env` dans un rapport. Utiliser des secrets aléatoires distincts pour PostgreSQL, JWT, TOTP et les sauvegardes. `POSTGRES_APP_PASSWORD` entre dans une URL PostgreSQL : le générer avec un alphabet compatible URL (par exemple base64url) pour éviter les erreurs d’encodage. Le compte DB applicatif n’est pas superutilisateur ; les migrations sont lancées séparément.
 5. Le fichier Compose ne démarre pas les migrations automatiquement. Examiner le statut et les SQL de migration, sauvegarder la base, puis exécuter explicitement la commande de migration documentée dans `MIGRATION_PROCEDURE.md`. Ne jamais appliquer directement les migrations historiques en attente sans revue et restauration vérifiée.
 
-Variables obligatoires du Compose : `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_APP_DATABASE`, `FRONTEND_ORIGIN`, `APP_PUBLIC_URL`, `JWT_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY`, `RESEND_API_KEY`, `MAIL_FROM` et `TLS_CERT_DIR`. Les opérations S3/maintenance exigent aussi `BACKUP_KEY_HEX`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY` et `S3_SECRET_KEY`. Compose échoue volontairement si une variable obligatoire manque. Ne pas inclure les véritables valeurs dans un terminal partagé ou une capture d’écran.
+Variables obligatoires du Compose : `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_APP_DATABASE`, `FRONTEND_ORIGIN`, `JWT_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY`, `RESEND_API_KEY`, `MAIL_FROM` et `TLS_CERT_DIR`. Les opérations S3/maintenance exigent aussi `BACKUP_KEY_HEX`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY` et `S3_SECRET_KEY`. Compose échoue volontairement si une variable obligatoire manque. Ne pas inclure les véritables valeurs dans un terminal partagé ou une capture d’écran.
 
 ## TLS Let's Encrypt
 
@@ -51,7 +51,7 @@ docker compose --env-file .env.production -p amour-des-apotres -f infra/compose.
 docker compose --env-file .env.production -p amour-des-apotres -f infra/compose.yaml up -d api web nginx
 ```
 
-N’exécuter ces commandes que sur une machine préparée et après revue des migrations. Vérifier localement les routes `/health` et `/ready`, les journaux sans les publier, le renouvellement TLS, l’inscription/récupération e-mail et la restauration sur une base isolée. **Ces commandes n’ont pas été exécutées sur une vraie machine : déploiement non testé.**
+N’exécuter ces commandes que sur une machine préparée et après revue des migrations. Vérifier localement les routes `/health` et `/ready`, les journaux sans les publier, le renouvellement TLS, les e-mails de récupération et la restauration sur une base isolée. **Ces commandes n’ont pas été exécutées sur une vraie machine : déploiement non testé.**
 
 ## Sauvegardes chiffrées
 
@@ -99,7 +99,7 @@ Les journaux Docker sont limités à 10 Mio × 5 fichiers pour les services perm
 - Générer, enregistrer hors machine et faire tourner tous les secrets (DB, JWT, TOTP, Resend, S3, sauvegarde); ne jamais réutiliser un secret de test.
 - Tester la restauration chiffrée sur une base vierge, comparer les données sans afficher les noms, puis consigner le résultat et l’opérateur.
 - Vérifier l’identité du domaine expéditeur, les messages de récupération et les limites effectives du compte Resend.
-- Tester sur de vrais téléphones : navigation 360 px, connexion, cookies HTTPS, appels WebRTC derrière des réseaux différents; configurer un service TURN si nécessaire.
+- Tester sur de vrais téléphones : navigation 360 px, connexion sous les rôles prévus, cookies HTTPS et saisie/synchronisation des présences.
 - Faire examiner les migrations de développement encore en attente, l’audit npm et les procédures 2FA avant tout transfert de données réelles.
 
 ## État vérifiable

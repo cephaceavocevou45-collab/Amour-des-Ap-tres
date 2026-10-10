@@ -6,6 +6,7 @@ dist/
 !.env.example
 coverage/
 /test-results/
+/.playwright-browsers/
 **/.jest-cache/
 apps/api/src/generated/
 *.log

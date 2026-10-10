@@ -18,5 +18,4 @@ export class PublicController {
   @Get('team') getTeam() { return team; }
   @Get('sessions/next') next() { const d=new Date(); const until=((8-d.getUTCDay())%7)||7; d.setUTCDate(d.getUTCDate()+until); return {date:d.toISOString().slice(0,10),startTime:'19:30',endTime:'21:30',theme:'Thème à venir'}; }
   @Get('sessions') sessions() { return []; }
-  @Get('announcements') announcements() { return []; }
 }

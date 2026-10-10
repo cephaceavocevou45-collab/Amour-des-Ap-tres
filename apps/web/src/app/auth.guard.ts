@@ -1,3 +1,16 @@
 import { CanActivateFn, Router } from '@angular/router';
 import { inject } from '@angular/core';
-export const authGuard:CanActivateFn=(route)=>{const router=inject(Router);const role=sessionStorage.getItem('paroisse_role');if(!role)return router.createUrlTree([route.data['admin']?'/admin/connexion':'/connexion']);let permissions:string[]=[];try{permissions=JSON.parse(sessionStorage.getItem('paroisse_permissions')??'[]')}catch{}if(route.data['moderation']&&!['MODERATEUR','ADMIN','SUPER_ADMIN'].includes(role))return router.createUrlTree(['/connexion']);if(route.data['social']&&!['FIDELE','SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE',...(route.data['communityAdmin']?['ADMIN','SUPER_ADMIN']:[])].includes(role))return router.createUrlTree(['/connexion']);if(route.data['program']&&!['ADMIN','SUPER_ADMIN','EDITEUR','SECRETAIRE_PRESENCE'].includes(role))return router.createUrlTree(['/acces-en-attente']);if(route.data['program']&&role==='EDITEUR'&&!permissions.includes('PROGRAMME_BIBLIQUE'))return router.createUrlTree(['/admin']);if(route.data['admin']&&!['ADMIN','SUPER_ADMIN','EDITEUR'].includes(role))return router.createUrlTree(['/connexion']);if(!route.data['admin']&&!route.data['moderation']&&!route.data['program']&&!route.data['social']&&!['ADMIN','SUPER_ADMIN','SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(role))return router.createUrlTree(['/acces-en-attente']);if(route.routeConfig?.path==='presence'&&role==='EDITEUR')return router.createUrlTree(['/admin']);return true;};
+
+export const authGuard: CanActivateFn = (route) => {
+  const router = inject(Router);
+  const role = sessionStorage.getItem('paroisse_role');
+  if (!role) return router.createUrlTree([route.data['admin'] ? '/admin/connexion' : '/connexion']);
+  let permissions: string[] = [];
+  try { permissions = JSON.parse(sessionStorage.getItem('paroisse_permissions') ?? '[]'); } catch { /* Session locale invalide. */ }
+  if (route.data['program'] && !['ADMIN', 'SUPER_ADMIN', 'EDITEUR', 'SECRETAIRE_PRESENCE'].includes(role)) return router.createUrlTree(['/connexion']);
+  if (route.data['program'] && role === 'EDITEUR' && !permissions.includes('PROGRAMME_BIBLIQUE')) return router.createUrlTree(['/admin']);
+  if (route.data['admin'] && !['ADMIN', 'SUPER_ADMIN', 'EDITEUR'].includes(role)) return router.createUrlTree(['/connexion']);
+  if (!route.data['admin'] && !route.data['program'] && !['ADMIN', 'SUPER_ADMIN', 'SECRETAIRE_PRESENCE', 'RESPONSABLE_SEMAINE'].includes(role)) return router.createUrlTree(['/connexion']);
+  if (route.routeConfig?.path === 'presence' && role === 'EDITEUR') return router.createUrlTree(['/admin']);
+  return true;
+};

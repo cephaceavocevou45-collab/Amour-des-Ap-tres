@@ -19,9 +19,9 @@ describe('security guards',()=>{
 
   it('uses the current database role instead of a stale role embedded in a token',async()=>{
     const request:any={headers:{authorization:`Bearer ${token('ADMIN')}`}};
-    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'user-1',role:'PENDING',active:true,sessionVersion:0})}} as unknown as PrismaService;
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'user-1',role:'SECRETAIRE_PRESENCE',active:true,sessionVersion:0})}} as unknown as PrismaService;
     await expect(new JwtAuthGuard(prisma).canActivate(context(request))).resolves.toBe(true);
-    expect((request as any).user.role).toBe('PENDING');
+    expect((request as any).user.role).toBe('SECRETAIRE_PRESENCE');
   });
 
   it('invalidates sessions immediately when the account is inactive',async()=>{

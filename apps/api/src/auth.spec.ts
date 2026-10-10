@@ -1,52 +1,34 @@
-import { UserRole } from '@prisma/client';
 import { AuthController, AuthService } from './auth';
 import { PrismaService } from './prisma.service';
 
 describe('security-sensitive authentication flows',()=>{
-  it('creates a privilege-free inactive account and no session before approval',async()=>{
-    const create=jest.fn().mockResolvedValue({id:'new-user'});
-    const prisma={user:{findUnique:jest.fn().mockResolvedValue(null),create}} as unknown as PrismaService;
-    const result=await new AuthService(prisma).register({fullName:'Test Fidele',phone:'+2290100000000',email:'test@example.com',password:'unMotDePasseTresFort!2026',requestedRole:UserRole.RESPONSABLE_SEMAINE,requestedDayOfWeek:2,role:UserRole.ADMIN} as any);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({role:UserRole.PENDING,active:false,requestedRole:UserRole.RESPONSABLE_SEMAINE})}));
-    expect(result).not.toHaveProperty('accessToken');
+  it('does not expose a public registration endpoint',()=>{
+    expect(AuthController.prototype).not.toHaveProperty('register');
+    expect(AuthController.prototype).toHaveProperty('login');
   });
 
-  it('returns the same registration response for an already-used address without creating another account',async()=>{
-    const create=jest.fn();
-    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'existing'}),create}} as unknown as PrismaService;
-    const result=await new AuthService(prisma).register({fullName:'Test Fidele',phone:'+2290100000000',email:'test@example.com',password:'unMotDePasseTresFort!2026',requestedRole:UserRole.SECRETAIRE_PRESENCE} as any);
-    expect(result).toEqual({message:'Si votre demande peut être enregistrée, elle sera transmise à l’administration paroissiale.'});
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it('rejects reuse of a reset token when the atomic claim loses a race',async()=>{
-    const reset={id:'reset-id',userId:'u1',usedAt:null,expiresAt:new Date(Date.now()+60_000)};
-    const tx={passwordResetToken:{updateMany:jest.fn().mockResolvedValue({count:0})},user:{update:jest.fn()},refreshToken:{updateMany:jest.fn()}};
-    const prisma={passwordResetToken:{findUnique:jest.fn().mockResolvedValue(reset)},$transaction:jest.fn((fn:any)=>fn(tx))} as unknown as PrismaService;
-    await expect(new AuthService(prisma).resetPassword({token:'token-value',password:'motDePasseNouveauTresFort2026!',confirmPassword:'motDePasseNouveauTresFort2026!'})).rejects.toMatchObject({status:400});
-    expect(tx.user.update).not.toHaveBeenCalled();
-  });
-
-  it('rejects expired reset tokens before changing the account',async()=>{
-    const prisma={passwordResetToken:{findUnique:jest.fn().mockResolvedValue({id:'r1',userId:'u1',usedAt:null,expiresAt:new Date(Date.now()-1000)})},$transaction:jest.fn()} as unknown as PrismaService;
-    await expect(new AuthService(prisma).resetPassword({token:'expired',password:'motDePasseNouveauTresFort2026!',confirmPassword:'motDePasseNouveauTresFort2026!'})).rejects.toMatchObject({status:400});
+  it('rejects a reused or expired email recovery code before changing the account',async()=>{
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',role:'SECRETAIRE_PRESENCE',totpSecret:null,active:true})},passwordResetToken:{findMany:jest.fn().mockResolvedValue([])},$transaction:jest.fn()} as unknown as PrismaService;
+    await expect(new AuthService(prisma).resetPassword({email:'member@example.invalid',code:'123456',password:'motDePasseNouveauTresFort2026!',confirmPassword:'motDePasseNouveauTresFort2026!'})).rejects.toMatchObject({status:400});
+    expect(prisma.passwordResetToken.findMany).toHaveBeenCalledWith({where:expect.objectContaining({userId:'u1',usedAt:null,expiresAt:{gt:expect.any(Date)},failedAttempts:{lt:5}}),select:{id:true,tokenHash:true,failedAttempts:true}});
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('returns the same reset response when the account is absent or mail delivery fails',async()=>{
-    const keys=['RESEND_API_KEY','MAIL_FROM','APP_PUBLIC_URL'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+    const keys=['RESEND_API_KEY','MAIL_FROM'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
     Object.assign(process.env,{RESEND_API_KEY:'test-only',MAIL_FROM:'Test <test@example.invalid>',APP_PUBLIC_URL:'http://localhost'});
     const emailQuota={sendImmediate:jest.fn().mockResolvedValue(false)};
     try{
-      const existingPrisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',email:'known@example.invalid',fullName:'Test'})},passwordResetToken:{findFirst:jest.fn().mockResolvedValue(null),updateMany:jest.fn().mockResolvedValue({count:0}),create:jest.fn().mockResolvedValue({id:'r1'})}} as unknown as PrismaService;
+      const existingPrisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',email:'known@example.invalid',fullName:'Test',role:'SECRETAIRE_PRESENCE',active:true})},passwordResetToken:{findFirst:jest.fn().mockResolvedValue(null),updateMany:jest.fn().mockResolvedValue({count:0}),create:jest.fn().mockResolvedValue({id:'r1'})}} as unknown as PrismaService;
       const unknownPrisma={user:{findUnique:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
       const started=Date.now();
       const existing=await new AuthService(existingPrisma,emailQuota as any).requestPasswordReset('known@example.invalid');
       const unknown=await new AuthService(unknownPrisma).requestPasswordReset('unknown@example.invalid');
       expect(existing).toEqual(unknown);
       expect(existing.message).toContain('plafond quotidien');
+      expect(existingPrisma.passwordResetToken.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'u1',expiresAt:expect.any(Date),failedAttempts:0,tokenHash:expect.any(String)})});
       expect(existingPrisma.passwordResetToken.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({where:{id:'r1',usedAt:null},data:{usedAt:expect.any(Date)}}));
-      expect(Date.now()-started).toBeGreaterThanOrEqual(490);
+      expect(Date.now()-started).toBeGreaterThanOrEqual(990);
     }finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
   });
 
@@ -56,8 +38,29 @@ describe('security-sensitive authentication flows',()=>{
     expect(AuthController.prototype).toHaveProperty('recoveryCodes');
   });
 
-  it('prevents a sub-admin from validating their own role request',async()=>{
-    const auth=new AuthService({} as PrismaService);
-    await expect(auth.decideAccess('actor-id','VALIDER','actor-id')).rejects.toMatchObject({status:403});
+  it('creates responsible accounts with a one-time temporary password and an audit record',async()=>{
+    const row={id:'member-1',fullName:'Responsable Test',email:'responsable@example.invalid',phone:null,role:'SECRETAIRE_PRESENCE',active:true,permissions:[],assignedDayOfWeek:null,mustChangePassword:true};
+    const tx={user:{create:jest.fn().mockResolvedValue(row)},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
+    const result=await new AuthService(prisma).createManagedAccount({fullName:'Responsable Test',email:row.email,role:'SECRETAIRE_PRESENCE',reason:'Désignation confirmée par le chargé paroissial.'} as any,'admin-1');
+    expect(result.member).toMatchObject({id:row.id,role:row.role,mustChangePassword:true});
+    expect(result.temporaryPassword).toHaveLength(32);
+    expect(tx.user.create).toHaveBeenCalledWith({data:expect.objectContaining({role:'SECRETAIRE_PRESENCE',mustChangePassword:true,active:true})});
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'admin-1',action:'COMPTE_RESPONSABLE_CREE',reason:'Désignation confirmée par le chargé paroissial.'})});
+    expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(result.temporaryPassword);
+  });
+
+  it('requires the temporary password before allowing the first password change and revokes sessions',async()=>{
+    const argon2=require('argon2');
+    const passwordHash=await argon2.hash('temporary-password-that-is-long-enough');
+    const tx={user:{update:jest.fn().mockResolvedValue({})},refreshToken:{updateMany:jest.fn().mockResolvedValue({count:1})},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({passwordHash,mustChangePassword:true})},$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
+    const service=new AuthService(prisma);
+    await expect(service.changeFirstLoginPassword('member-1',{currentPassword:'wrong',newPassword:'A_new_safe_password_2026!',confirmPassword:'A_new_safe_password_2026!'})).rejects.toMatchObject({status:403});
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    await expect(service.changeFirstLoginPassword('member-1',{currentPassword:'temporary-password-that-is-long-enough',newPassword:'A_new_safe_password_2026!',confirmPassword:'A_new_safe_password_2026!'})).resolves.toHaveProperty('message');
+    expect(tx.user.update).toHaveBeenCalledWith({where:{id:'member-1'},data:expect.objectContaining({mustChangePassword:false,sessionVersion:{increment:1}})});
+    expect(tx.refreshToken.updateMany).toHaveBeenCalledWith({where:{userId:'member-1',revokedAt:null},data:{revokedAt:expect.any(Date)}});
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'member-1',action:'MOT_DE_PASSE_INITIAL_MODIFIE'})});
   });
 });

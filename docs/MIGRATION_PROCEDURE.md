@@ -1,27 +1,28 @@
-# Procédure de migration PostgreSQL
+# Sauvegarde et migrations : procédure protégée
 
-## Préparation — environnement isolé
+## Avant toute opération
 
-1. Vérifier les URL avec `npm run test-db:diagnose` sans copier les valeurs dans un ticket ou une conversation.
-2. Sur Windows, utiliser `pg_dump.exe` et `pg_restore.exe` depuis l’installation PostgreSQL. Créer une sauvegarde avant toute migration et contrôler le code de sortie :
+- Confirmer explicitement la cible par son nom et son rôle. `DATABASE_URL` est la base de développement; ne l'utilisez pas depuis les tests.
+- Pour les essais, `TEST_DATABASE_URL` doit pointer vers une base PostgreSQL isolée et remplaçable, avec `test` dans le nom. `npm.cmd run test-db:diagnose` vérifie la séparation sans afficher les identifiants.
+- La migration `20261026000000_presence_only_simplification` est destructive pour les contenus communautaires et certains champs de compte. Elle désactive les anciens rôles FIDELE/MODERATEUR/PENDING, révoque les sessions, puis retire les tables/types communautaires. Elle ne convertit pas ces contenus en messages privés.
+- Les migrations déjà enregistrées ne sont jamais réécrites. Toute évolution passe par une nouvelle migration.
 
-```powershell
-pg_dump.exe --format=custom --no-owner --file="sauvegarde-avant.dump" "$env:DATABASE_URL"
-if ($LASTEXITCODE -ne 0) { throw "La sauvegarde a échoué" }
-pg_restore.exe --list "sauvegarde-avant.dump" | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "La sauvegarde n'est pas lisible" }
-```
+## Sauvegarde et restauration d'essai
 
-Ne pas employer `>` pour un dump binaire sous PowerShell. Stocker la sauvegarde dans un emplacement protégé, chiffré et exclu de Git.
+1. Arrêter les écritures applicatives sur la base à sauvegarder. Utiliser `npm.cmd run backup:create` après avoir vérifié localement que `DATABASE_URL`, `BACKUP_KEY_HEX` et la destination sont celles attendues. Le script crée une archive PostgreSQL intermédiaire temporaire avant le chiffrement : exécutez-le sur un disque local protégé, sans sauvegarde système non chiffrée ni synchronisation cloud du dossier temporaire. Ne partagez ni archive ni clé.
+2. Vérifier l'intégrité cryptographique avec `npm.cmd run backup:restore-test` uniquement après lecture de sa configuration et confirmation de la cible. Le script doit utiliser une base neuve et isolée, jamais `paroisse` ou `paroisse_test`. Une sauvegarde n'est pas validée sans restauration réelle.
+3. Créer une nouvelle base d'archive vide, par exemple `paroisse_archive_test_20261010`, avec un compte aux droits limités. Vérifier le nom, l'hôte et la base cible séparément. Ne jamais utiliser une restauration avec `--clean`, `--if-exists` ou une cible déjà utilisée.
+4. Restaurer dans cette nouvelle base avec le script prévu après avoir vérifié qu'il refuse toute base existante. L'archive déchiffrée temporaire doit rester sur un disque protégé et être supprimée de façon sécurisée selon la politique de l'organisation. Ne passez jamais une URL avec identifiants en argument visible ou dans un rapport.
+5. Comparer schémas, listes de tables, nombres de lignes et relations clés. Pour une ancienne archive communautaire, confirmer séparément publication/commentaires/réactions attendus et comptes/sessions/présences/audit préservés. Ne pas inclure de noms ou contenu dans le rapport.
+6. Tester une restauration de la sauvegarde chiffrée sans écraser ni nettoyer une base existante. Garder la base source intacte jusqu'à validation signée.
 
-3. Restaurer le dump dans une base distincte nommée explicitement `paroisse_test_restore`, puis lancer `npm run prisma:deploy --workspace @paroisse/api` avec `DATABASE_URL` temporairement défini dans le processus vers cette cible isolée. Vérifier une base vide et une copie historique contenant rôles fidèles, sessions et feuilles.
-4. Exécuter les tests e2e contre `TEST_DATABASE_URL`. Le lanceur vérifie que le nom contient `test` et que la cible ne correspond pas à `DATABASE_URL`.
-5. Comparer la structure, les comptes de lignes, les sessions, les totaux figés et l’historique d’audit avant/après. Vérifier spécifiquement l’anonymisation éventuelle des noms.
+## Ordre de validation d'une migration
+
+1. Exécuter `prisma migrate status` avec `DATABASE_URL` du processus explicitement remplacée par `TEST_DATABASE_URL`; vérifier que la sortie nomme `paroisse_test`. Toute erreur de moteur/connexion bloque la suite.
+2. Sur une base de test neuve, déployer les migrations puis vérifier tous les modèles attendus.
+3. Sur une autre base de test, restaurer des données historiques synthétiques avec les anciens rôles, sessions, feuilles, entrées et journaux; déployer ensuite et comparer les objets conservés et les objets supprimés. Cette opération n'a pas encore été vérifiée pour la migration de simplification.
+4. Seulement après approbation et sauvegarde restaurée, le propriétaire de la base décide d'appliquer la migration à une base ayant de la valeur. Ne pas lancer automatiquement le runner e2e s'il y a des données inconnues dans la base de test : le runner applique les migrations.
 
 ## Retour arrière
 
-Les migrations Prisma sont vers l’avant. Le retour arrière opérationnel consiste à restaurer la sauvegarde validée dans une nouvelle base isolée, comparer les données et faire basculer l’application selon la procédure d’exploitation. Ne jamais supprimer des tables ni lancer de SQL correctif directement sur une base réelle sans revue et sauvegarde vérifiée.
-
-## Mise en production
-
-L'application des migrations sur la base de développement ou de production est une action humaine distincte. Elle exige une sauvegarde restaurée avec succès, une fenêtre de maintenance, une validation de l'audit et un contrôle des données historiques. Cette documentation n'autorise pas Codex à migrer ces bases.
+Une migration Prisma ne doit pas être annulée par suppression manuelle de lignes ou de tables. La procédure de retour consiste à restaurer une sauvegarde vérifiée vers une nouvelle base, faire contrôler les comptes et relations, puis basculer explicitement l'application après accord de l'administrateur système. Garder l'ancienne base intacte jusqu'à validation fonctionnelle. Les données communautaires supprimées ne sont récupérables que depuis une archive restaurée; elles ne peuvent pas être reconstituées depuis le schéma simplifié.
