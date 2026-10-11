@@ -33,4 +33,4 @@ Les contrôles sont appliqués côté serveur à chaque route et relus depuis le
 
 Les dates, zones, doublons et fenêtres horaires sont contrôlés côté serveur. Les totaux ne viennent pas du client. Les noms anciens sont anonymisés après la durée de rétention configurée; les totaux figés sont conservés.
 
-La spécification OpenAPI est disponible uniquement lorsque l'environnement n'est pas en production. Les détails exacts des DTO et routes doivent rester synchronisés avec les contrôleurs et les tests.
+La documentation de référence est ce fichier `docs/API.md`. L'API ne publie pas de route Swagger/OpenAPI dans aucun environnement. Les tests de sécurité vérifient que les anciennes routes de documentation renvoient 404.

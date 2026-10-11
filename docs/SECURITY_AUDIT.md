@@ -24,7 +24,7 @@ Dernière vérification locale : 10 octobre 2026. Les statuts décrivent le code
 | Rétention | Présente | Noms anonymisés à 12 mois par défaut, totaux conservés; audit au moins 36 mois. Cron/base pas testés en prod. |
 | Journaux | Mesures en place | À contrôler avec scan automatisé des logs pendant e2e courants. |
 | Santé | Présente | `/health` liveness et `/ready` teste DB sans renvoyer d'identifiants. |
-| Swagger | Désactivé en production | Test unitaire dédié inclus; unité passée. |
+| Documentation d'API | Module Swagger retiré de toutes les configurations; docs/API.md fait référence | E2E qui attend 404 sur les routes Swagger/OpenAPI courantes. |
 | Sauvegarde | AES-256-GCM/S3 | Une archive chiffrée de `paroisse` a été restaurée dans une base neuve : 27 tables, sommes de lignes et schéma identiques, 35 clés étrangères. Cela valide cette restauration locale; stockage S3 distant et reprise après sinistre ne sont pas vérifiés. |
 | Médias et inscription fidèle | Retirés de l'app active | Anciennes migrations/sources historiques restent dans l'historique versionné; elles ne sont pas des routes runtime. L'inscription des responsables est conservée sous forme de demande inactive. |
 
@@ -34,7 +34,7 @@ Dernière vérification locale : 10 octobre 2026. Les statuts décrivent le code
 
 ## Dépendances
 
-- `npm audit --omit=dev` exécuté avec le registre : **5 avis, dont 3 hauts et 2 modérés**. Avis identifiés : `deepmerge-ts` transitif via `@prisma/config`/Prisma (haut), `js-yaml` transitif via `@nestjs/swagger` (modéré; certaines résolutions de développement peuvent présenter la version vulnérable).
+- Historique au 11 octobre : les anciens chiffres de cette première vérification sont remplacés par la section « Mise à jour » ci-dessous; Swagger et sa dépendance ont été retirés depuis.
 - `npm audit` complet : **38 avis, dont 32 hauts et 6 modérés**. Chaînes principales rapportées : `braces` via `micromatch`/Jest (haut), `deepmerge-ts` via Prisma (haut), `js-yaml` (modéré), `sprintf-js` via `argparse`/Istanbul (modéré). L'audit complet signale des correctifs forcés vers Jest 30, version majeure; aucune mise à jour ni override n'a été appliqué.
 - La sortie tronquée de l'audit complet ne permet pas d'attribuer avec certitude chaque avis à chaque chemin; récupérer `npm audit --json` sur une machine autorisée au réseau, sans publier la sortie brute si elle contient des métadonnées privées, avant décision de mise à jour.
 
@@ -62,7 +62,7 @@ Cette section remplace les anciens nombres de tests et statuts navigateur ci-des
 | Contrôle | Statut actuel | Preuve et limite |
 |---|---|---|
 | Cookies, CORS et configuration production | Vérifié par tests unitaires/configuration | Les options imposent HttpOnly, Secure en production et SameSite Strict; CORS prend l'origine APP_PUBLIC_URL. Aucun essai derrière le vrai Nginx/TLS n'a eu lieu. |
-| Swagger, erreurs et en-têtes | Vérifié localement | L'E2E reçoit 404 pour la documentation en mode production; filtres et en-têtes ont des tests unitaires. Le CSP côté Nginx garde `style-src 'unsafe-inline'` pour les styles Angular; `script-src` ne l'autorise pas. |
+| Documentation API, erreurs et en-têtes | Vérifié localement | Swagger est retiré; l'E2E reçoit 404 pour les routes de documentation courantes. CSP Nginx garde `style-src 'unsafe-inline'`, jamais dans `script-src`. |
 | Sessions et réauthentification | Vérifié sur base de test | 30 minutes d'inactivité et durée absolue, révocation de toutes les sessions et preuve récente sur les actions sensibles sont couvertes par l'E2E. Une infrastructure de production n'a pas été testée. |
 | Hors-ligne et IndexedDB | Vérifié au navigateur | 17/17 Playwright : pointage effacé après synchronisation, attente de plus de 7 jours purgée avec avertissement, déconnexion effaçant la base locale, et absence d'accès à la file si la session est refusée. |
 | Anonymisation et audit | Vérifié unitairement | Le test de rétention confirme l'anonymisation des noms, la conservation des totaux et le seuil de 36 mois pour l'audit; aucun chron n'a été exécuté en production. |
@@ -81,14 +81,32 @@ Cette section remplace les anciens nombres de tests et statuts navigateur ci-des
 
 ### Audit npm courant
 
-Les deux commandes d'audit ont atteint le registre npm. `npm audit --omit=dev` rapporte **5 avis : 3 hauts, 2 modérés**; les chaînes affichées incluent `deepmerge-ts` via `@prisma/config`/Prisma et `js-yaml` via Swagger. `npm audit` complet rapporte **38 avis : 32 hauts, 6 modérés**; les principaux chemins sont `braces` via `micromatch`/Jest, `deepmerge-ts` via Prisma, `js-yaml` via Swagger/Istanbul et `sprintf-js` via `argparse`/Istanbul. L'audit propose une mise à niveau forcée vers Jest 30.5.2, majeure par rapport à Jest 29 utilisé ici. Aucune mise à niveau aveugle n'a été faite. Le code de sortie des deux audits reste 1 : ce résultat empêche de considérer la chaîne de dépendances comme assainie.
+**Mise à jour du 11 octobre 2026 — remplace les chiffres et statuts npm ci-dessus après retrait de Swagger.** `npm audit --omit=dev` : **3 avis hauts, 0 modéré, 0 critique** (code de sortie 1). Les trois lignes du rapport correspondent au même avis `GHSA-ggr8-5vv4-36mx` dans le chemin `deepmerge-ts` → `@prisma/config` → `prisma`; `prisma` est déclaré en `devDependencies`, mais npm le compte encore via son peer optionnel dans l'arbre de l'audit production. Les avis modérés associés à Swagger ne sont plus dans l'arbre de production après retrait de cette dépendance. Le contrôle CI `npm run audit:production` réussit uniquement avec l'exception précise ci-dessous; il échouera aux avis critique/haut inconnus, expirés ou sans justification. Réexamen et expiration : **2026-11-10**.
+
+| Paquet | Gravité / avis | Chemin et exploitabilité réelle | Décision / réexamen |
+|---|---|---|---|
+| `deepmerge-ts` (<8.0.0), `@prisma/config` (6.13.0-dev.1–8.1.0-dev.4), `prisma` (6.13.0-dev.1–8.1.0-dev.4) | Haut — `GHSA-ggr8-5vv4-36mx` (stack exhaustion sur graphes récursifs) | `node_modules/deepmerge-ts` ← `@prisma/config` ← CLI `prisma`. Le CLI n'est pas une dépendance déclarée de production et le runtime API est construit avec `npm ci --omit=dev`; l'avis pourrait être exploité si un opérateur lance le CLI sur une configuration/schema contrôlé par un attaquant. L'audit npm le compte néanmoins dans l'arbre production via le peer optionnel. Le test de build Docker contient une garde qui échoue si la CLI fuit dans l'image runtime. | Accepté temporairement par exception CI bornée, justification et liste exacte des trois paquets dans `.github/audit-production-exceptions.json`. Expire et doit être réexaminé le **2026-11-10**; rechercher alors une mise à niveau compatible du CLI. |
+
+`npm audit --json` complet : **37 avis : 32 hauts, 5 modérés, 0 critique** (code de sortie 1, rapport conservé comme artefact CI informatif). Ils sont dans les outils de développement : dépendances Jest 29 via `micromatch`/`braces` (hauts), configuration de couverture Istanbul via `js-yaml` et `sprintf-js`/`argparse` (modérés), ainsi que la chaîne Prisma CLI ci-dessus. La correction suggérée par npm remplace Jest par 30.5.2, une mise à niveau majeure; Jest n'a pas été modifié dans cette passe. Le rapport complet CI reste informatif et n'autorise aucune exception implicite.
 
 ### Risques résiduels
 
 - Pas de preuve de déploiement HTTPS, HSTS, CORS/Nginx, rotation de secrets, e-mail, TURN/WebRTC ou restauration à partir d'un stockage S3 réel.
-- CSP conserve une exception `unsafe-inline` pour les styles dans Nginx; réduire cette exception demande de déplacer/adapter les styles inline et de retester les pages Angular.
-- Les avis npm hauts restent à corriger dans une branche dédiée, avec mises à niveau compatibles et tests complets; le paquet Jest ne doit pas être forcé en version majeure sans validation.
+- CSP : `script-src 'self'` ne contient ni `unsafe-inline` ni `unsafe-eval`, dans Helmet et Nginx. Nginx conserve `style-src 'unsafe-inline'` pour Angular; risque résiduel de styles HTML injectés, sans exécution de script. Plan : inventorier et éliminer les styles inline, puis adopter des nonces ou des hash après test CSP en navigateur.
+- L'audit de production garde une exception élevée temporaire et expirante pour le CLI Prisma; le runtime final doit être construit avec la garde de dépendances dev. L'audit complet des outils de développement reste informatif; Jest 29 n'a pas été mis à niveau.
 - Le script de rôles PostgreSQL n'est pas validé sur une base dédiée vide; le démarrage Docker avec volume existant ne rejoue pas l'initialisation.
 - Des personnes doivent encore créer les comptes opérateurs, approuver les contacts d'incident, choisir le domaine/hébergeur et tester une restauration réelle de production.
 
 **Décision : non prêt pour une mise en production avec des données réelles tant que les avis hauts, l'environnement TLS et la procédure opératoire PostgreSQL/sauvegarde n'ont pas été traités et vérifiés.**
+
+### Vérifications de la passe du 11 octobre 2026
+
+- `npm run lint` : réussi (API et web).
+- `npm run build` : réussi (API/Prisma et Angular).
+- `npm test` : outils **15/15**, API **9 suites, 38/38**; **53 réussis, 0 échoué** au total.
+- `npm run test:e2e` : **1 suite, 24/24** sur `paroisse_test`; aucune migration en attente. Le wrapper a vérifié la séparation d'avec `DATABASE_URL`.
+- `npm run audit:production` : réussi avec l'exception ci-dessus; audit sous-jacent **3 hauts**, 0 critique.
+- `npm audit --omit=dev` brut : **3 avis hauts**, code 1.
+- `npm audit --json` complet : **37 avis** (32 hauts, 5 modérés), code 1, développement surtout; pas de dépendances mises à niveau.
+- Playwright : **non exécuté dans cette passe**. Docker/Compose : **non testé**, la commande `docker` n'est pas disponible dans cet environnement.
+- E2E de non-publication Swagger/OpenAPI : inclus dans les **24/24** E2E réussis.

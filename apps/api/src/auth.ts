@@ -1,6 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Injectable, NotFoundException, Optional, Param, Patch, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, Length, Matches, Min, Max, MinLength, MaxLength } from 'class-validator';
-import { ApiTags } from '@nestjs/swagger';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from './prisma.service';
 import { JwtAuthGuard } from './auth.guard';
@@ -181,7 +180,6 @@ export class AuthService {
   private async session(user:{id:string;role:UserRole;fullName:string|null;email:string;sessionVersion:number;mustChangePassword:boolean}){const refreshToken=randomBytes(32).toString('base64url'),family=randomUUID(),now=new Date();await this.prisma.refreshToken.create({data:{userId:user.id,hashedToken:createHash('sha256').update(refreshToken).digest('hex'),expiresAt:new Date(now.getTime()+7*24*60*60_000),family,lastSeenAt:now}});return {accessToken:signToken(user,family),refreshToken,expiresIn:600,user:{id:user.id,role:user.role,name:user.fullName,email:user.email,permissions:(user as any).permissions??[],mustChangePassword:user.mustChangePassword}};}
 }
 
-@ApiTags('Authentification')
 @UseGuards(RateLimitGuard)
 @Controller('auth')
 export class AuthController {

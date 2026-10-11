@@ -33,6 +33,7 @@ describe('production configuration', () => {
     expect(csp).toMatch(/frame-ancestors 'none'/);
     expect(csp).toMatch(/script-src 'self'/);
     expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-eval/);
     expect(values.get('strict-transport-security')).toContain('max-age=31536000');
     expect(values.get('x-content-type-options')).toBe('nosniff');
     expect(values.get('referrer-policy')).toBe('strict-origin-when-cross-origin');

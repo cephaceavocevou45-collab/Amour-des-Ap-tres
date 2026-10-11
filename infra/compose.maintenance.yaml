@@ -3,13 +3,14 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.api
-      target: build
+      target: migrate
     profiles: [maintenance]
     user: node
     command: ["npm", "run", "prisma:deploy", "--workspace", "@paroisse/api"]
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://paroisse_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
+      npm_config_cache: /tmp/npm-cache
+      DATABASE_URL: postgresql://paroisse_migrator:${POSTGRES_MIGRATION_PASSWORD:?Set POSTGRES_MIGRATION_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
     depends_on:
       postgres: {condition: service_healthy}
     mem_limit: 1536m

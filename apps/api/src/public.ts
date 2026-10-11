@@ -1,5 +1,4 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 
 const team = [
   {name:'DOSSEH Justin', grade:'Suprême Évangéliste', roles:['MONITEUR_TABLE']},
@@ -11,7 +10,6 @@ const team = [
   {name:'DEHOTO TABO Christian', grade:null, roles:['PRESENTATION_THEME']},
   {name:'DAYE Brice', grade:'Senior Leader', roles:['PRESENTATION_THEME']}
 ];
-@ApiTags('Public')
 @Controller('public')
 export class PublicController {
   @Get('leader') leader() { return { name:'SEWADE KOUESSI Lucien', title:'Vénérable Suprême Évangéliste', photoUrl:null, welcome:'Bienvenue à la paroisse Amour des Apôtres, Sainte-Cécile. Que la paix du Seigneur soit avec vous.' }; }

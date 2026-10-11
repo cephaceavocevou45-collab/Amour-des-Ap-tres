@@ -1,5 +1,4 @@
 import { Body, Controller, Delete, Get, HttpException, Optional, Param, Patch, Post, Put, Query, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, MaxLength, ArrayMaxSize, Length, Matches } from 'class-validator';
 import { PersonRoleName, SheetStatus, SheetType, Sex, Zone } from './generated/prisma';
 import { normalizeName, totals } from '../../../packages/shared/src';
@@ -61,7 +60,6 @@ export function isWithinAttendanceWindow(type:SheetType,now=new Date()) {
   return (type!==SheetType.COURS_BIBLIQUE||weekday==='Mon')&&minutes>=start&&minutes<end+grace;
 }
 
-@ApiTags('Présences')
 @UseGuards(JwtAuthGuard)
 @Controller('attendance')
 export class AttendanceController {

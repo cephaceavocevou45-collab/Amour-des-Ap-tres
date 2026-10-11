@@ -33,3 +33,23 @@ La base PostgreSQL doit rester inaccessible depuis Internet. Séparer compte app
 - Effectuer la rotation des secrets de test et vérifier les clés de récupération hors ligne.
 - Tester une restauration complète, les renouvellements TLS, les quotas e-mail et le plan d'incident.
 - Faire une revue de sécurité indépendante avant d'ajouter des données personnelles réelles.
+# Migration Prisma en production
+
+L'image `runtime` de l'API est construite avec `npm ci --omit=dev` : elle conserve `@prisma/client` et n'embarque pas la CLI Prisma. Les migrations se lancent à la demande dans le service `migrate`, construit depuis l'étape distincte du Dockerfile où la CLI et les dépendances de développement sont disponibles. Le conteneur s'exécute sous l'utilisateur Linux `node` et se connecte à PostgreSQL avec le rôle de migration `paroisse_migrator`, distinct du rôle applicatif `paroisse_app`.
+
+Après une sauvegarde vérifiée et avant de démarrer une version applicative qui nécessite le nouveau schéma, depuis la racine du dépôt et avec le fichier d'environnement de production configuré :
+
+```sh
+docker compose --env-file .env -f infra/compose.yaml -f infra/compose.maintenance.yaml --profile maintenance run --rm migrate
+```
+
+Cette commande démarre les dépendances déclarées, exécute `prisma migrate deploy`, puis retire le conteneur ponctuel. Elle ne lance pas `migrate dev` et ne crée pas de migration. Vérifier le code de sortie et l'état des migrations avant de redémarrer l'API. Ne pas démarrer `migrate` automatiquement à chaque lancement du service API. Le service de migration utilise uniquement `POSTGRES_MIGRATION_PASSWORD`; l'API continue d'utiliser `POSTGRES_APP_PASSWORD`.
+
+**Docker : non testé dans l'environnement de développement courant.** Commande de validation à exécuter sur une machine avec Docker Compose :
+
+```sh
+docker compose --env-file .env -f infra/compose.yaml -f infra/compose.maintenance.yaml --profile maintenance config
+docker compose --env-file .env -f infra/compose.yaml -f infra/compose.maintenance.yaml --profile maintenance build api migrate
+```
+
+Vérifier l'image finale avec `docker run --rm <image-api> npm ls prisma @nestjs/cli --depth=0` : la CLI ne doit pas y être installée. Vérifier que l'image de migration possède la CLI et qu'elle atteint la base avec le rôle migrateur avant la procédure réelle.

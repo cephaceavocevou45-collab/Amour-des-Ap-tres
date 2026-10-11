@@ -11,7 +11,6 @@ import { CsrfGuard } from '../src/csrf.guard';
 import { decryptTotpSecret, encryptTotpSecret } from '../src/totp';
 import * as attendanceModule from '../src/attendance';
 import { completeAdminTwoFactorEnrollment, prepareAdminTwoFactorEnrollment, resetAdminTwoFactor } from '../scripts/admin-2fa-operations';
-import { configureSwagger } from '../src/swagger-config';
 
 jest.setTimeout(120_000);
 let app:any,prisma:PrismaService,baseUrl:string;
@@ -45,7 +44,6 @@ beforeAll(async()=>{
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));
   app.useGlobalGuards(new CsrfGuard());
-  await configureSwagger(app,'production');
   await app.listen(0,'127.0.0.1');
   baseUrl=`http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
   prisma=app.get(PrismaService);
@@ -69,8 +67,8 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     for(const [method,path] of removed)expect((await call(path,{method})).status).toBe(404);
     expect(Object.values(UserRole)).not.toContain('FIDELE');expect(Object.values(UserRole)).not.toContain('MODERATEUR');expect(Object.values(UserRole)).not.toContain('PENDING');
   });
-  it('ne publie aucune route Swagger ni documentation OpenAPI en configuration production',async()=>{
-    for(const path of ['/api/docs','/api/docs-json','/api/docs-yaml','/api-json','/docs','/api/v1/api/docs'])expect((await call(path)).status).toBe(404);
+  it('ne publie aucune route de documentation API ni de schéma OpenAPI',async()=>{
+    for(const path of ['/api/docs','/api/docs-json','/api/docs-yaml','/api-json','/docs','/api/v1/api/docs','/openapi.json','/openapi.yaml','/swagger.json'])expect((await call(path)).status).toBe(404);
   });
   it('stores public registration requests for attendance roles as inactive until admin approval',async()=>{
     const admin=await addUser(UserRole.ADMIN),adminToken=jwt(admin),email=testEmail(),signupPassword='Responsible_signup_password_2026!';

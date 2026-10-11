@@ -17,6 +17,7 @@
     "test": "npm run test:tools && npm run test --workspaces --if-present",
     "test:tools": "node --test scripts/*.test.cjs infra/*.test.cjs",
     "security:scan": "node scripts/secret-scan.cjs",
+    "audit:production": "node scripts/audit-production.cjs",
     "test:e2e": "npm run test:e2e --workspace @paroisse/api",
     "test:playwright": "playwright test",
     "test-db:diagnose": "node scripts/test-db-diagnose.cjs",

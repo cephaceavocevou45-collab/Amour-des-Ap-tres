@@ -1,14 +1,40 @@
-FROM node:22-alpine AS build
+FROM node:22-alpine AS build-dependencies
 WORKDIR /app
-COPY . .
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
 RUN npm ci
-RUN npm run prisma:generate --workspace @paroisse/api && npm run build --workspace @paroisse/api
-FROM node:22-alpine
-RUN apk add --no-cache postgresql-client
+
+FROM build-dependencies AS build
+COPY . .
+RUN npm run prisma:generate --workspace @paroisse/api \
+ && npm run build --workspace @paroisse/api
+
+# On-demand migration image: the Prisma CLI remains available only in this target.
+FROM build AS migrate
+USER node
+CMD ["npm", "run", "prisma:deploy", "--workspace", "@paroisse/api"]
+
+FROM node:22-alpine AS production-dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/api/prisma/schema.prisma apps/api/prisma/schema.prisma
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/shared/src packages/shared/src
+RUN npm ci --omit=dev \
+ && node -e "for (const name of ['prisma', '@nestjs/cli', 'jest']) { try { require.resolve(name + '/package.json'); console.error('Development package leaked into API runtime: ' + name); process.exitCode = 1; } catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error; } }"
+
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=build --chown=node:node /app /app
-RUN npm prune --omit=dev
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/packages/shared ./packages/shared
 USER node
 EXPOSE 3000
-CMD ["node","apps/api/dist/apps/api/src/main.js"]
+CMD ["node", "apps/api/dist/apps/api/src/main.js"]
