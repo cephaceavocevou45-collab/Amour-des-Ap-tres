@@ -6,8 +6,8 @@ Date : 12 octobre 2026. Périmètre : application présence Angular/NestJS/Prism
 
 | Statut | Nombre |
 |---|---:|
-| Conforme | 14 |
-| Partiel | 13 |
+| Conforme | 15 |
+| Partiel | 12 |
 | Non conforme | 0 |
 | Non vérifié | 4 |
 | **Total** | **31** |
@@ -29,7 +29,7 @@ Date : 12 octobre 2026. Périmètre : application présence Angular/NestJS/Prism
 | 11 | Injection de formule dans export. | Aucune route CSV/Excel/PDF ni téléchargement d’export dans l’API active; recherche des contrôleurs/routes. | Conforme pour le périmètre actuel | Si un export est ajouté, protéger cellules `= + - @` et tester les en-têtes avant publication. | 2026-10-12 |
 | 12 | Mots de passe hachés Argon2id avec sel unique. | `auth.ts`; `argon2` 0.41.x utilise mémoire 65536 KiB, 3 itérations, parallélisme 4, résultat 32 octets et sel aléatoire 16 octets (`node_modules/argon2/argon2.cjs`, defaults vérifiés). | Conforme | Rendre ces paramètres explicites lors d’une évolution contrôlée; benchmark sur le matériel de production. | 2026-10-12 |
 | 13 | Comptes ordinaires créés par ADMIN/SUPER_ADMIN, mot de passe temporaire unique et premier changement forcé. | `auth.ts` admin creation; E2E `creates responsible accounts only through administration...`; `POST /auth/register` répond maintenant 404 sans insertion; Playwright vérifie l’absence d’auto-inscription. | Conforme | Valider la règle organisationnelle dans `DECISIONS_A_VALIDER.md`. | 2026-10-12 |
-| 14 | Création initiale et réexécution du seed SUPER_ADMIN sûres. | `apps/api/prisma/seed.ts` crée seulement si aucun SUPER_ADMIN n’existe, ne met pas à jour un compte existant, refuse les variables partielles et la collision d’adresse; E2E `never resets or reactivates an existing SUPER_ADMIN when the seed is rerun` passe. | Partiel | Tester aussi le chemin de création sur une base neuve jetable avant la première utilisation de production. | 2026-10-12 |
+| 14 | Création initiale et réexécution du seed SUPER_ADMIN sûres. | `npm run test:bootstrap` crée un schéma aléatoire dans `TEST_DATABASE_URL`, applique les migrations, exécute le seed, teste la connexion sans et avec 2FA, réexécute le seed avec un autre mot de passe, vérifie hash/rôle/état/2FA/session inchangés et confirme la suppression du schéma. | Conforme dans le schéma de test isolé | Répéter le contrôle après toute modification du seed; ne jamais lancer sur une base autre que `TEST_DATABASE_URL`. | 2026-10-12 |
 | 15 | Anti-énumération, hachage factice et frein progressif login. | E2E identifiants existants/inconnus, message identique, plancher 500 ms, délai croissant par IP/empreinte de compte sans verrouillage permanent. | Partiel | Exécuter une mesure statistique sur le serveur de préproduction et confirmer un seuil de latence adapté. | 2026-10-12 |
 | 16 | Jetons et cookies de session. | 600 s access; refresh aléatoire dont le hash seul est persisté, rotation et détection de rejeu; cookies HttpOnly/Secure production/SameSite Strict; E2E aucun token en stockage navigateur. | Conforme | Contrôle TLS réel requis avant production. | 2026-10-12 |
 | 17 | Inactivité, limite absolue et révocation. | 30 min / 30 jours par défaut dans `auth.guard.ts`; E2E inactivité, âge absolu, désactivation immédiate, changement de rôle, révocation de famille et tous appareils. | Conforme | Contrôler les valeurs d’environnement retenues par la paroisse. | 2026-10-12 |
@@ -43,7 +43,7 @@ Date : 12 octobre 2026. Périmètre : application présence Angular/NestJS/Prism
 | 25 | Dépendances npm. | `npm audit --omit=dev --omit=optional`: 0 avis; `npm run audit:production`: 0 critique/haut; `npm audit`: 37 au total (32 hauts, 5 modérés), chaîne de tests/Jest et CLI Prisma dev. Correctif Jest proposé est une mise à niveau majeure 30.5.2; non appliquée. | Partiel | Réexaminer les dépendances dev; conserver le job de prod bloquant avec exceptions datées uniquement. | 2026-10-12 |
 | 26 | Image Docker API réellement minimale et démarrage Compose. | Tests statiques vérifient image runtime `npm ci --omit=dev` et service migrate séparé. Docker absent; aucun démarrage de conteneur réalisé. | Non vérifié | Humain : `docker compose config`, puis build/start sur machine Linux non exposée et vérification des utilisateurs/ports. | 2026-10-12 |
 | 27 | Rôles PostgreSQL réellement à privilèges minimaux. | Script `scripts/db-least-privilege.cjs` et tests de refus/configuration; aucun test de création/GRANT sur une base neuve dédiée dans cette passe. | Non vérifié | Humain DBA : créer sur instance jetable, prouver `paroisse_app` sans superuser/CREATEDB/CREATEROLE et vérifier que migrate utilise un rôle séparé. | 2026-10-12 |
-| 28 | Sauvegarde chiffrée et restauration vérifiée. | Scripts AES-256-GCM/S3 et tests outils 19/19 incluent altération et absence de plaintext; archive de développement restaurée/comparée lors d’une passe antérieure, mais pas de restauration déclenchée dans cette passe. | Partiel | Répéter le test de restauration sur stockage et infrastructure préproduction; garder les clés séparément. | 2026-10-12 |
+| 28 | Sauvegarde chiffrée et restauration vérifiée. | Scripts AES-256-GCM/S3 et tests outils 23/23 incluent altération et absence de plaintext; archive de développement restaurée/comparée lors d’une passe antérieure, mais pas de restauration déclenchée dans cette passe. | Partiel | Répéter le test de restauration sur stockage et infrastructure préproduction; garder les clés séparément. | 2026-10-12 |
 | 29 | Défenses Nginx contre débit et clients lents. | `infra/nginx-main.conf` et `nginx-edge.conf` : `limit_req`, `limit_conn`, délai en-têtes/corps/keep-alive et taille 64 Kio; tests statiques. Binaire Nginx absent. | Partiel | `nginx -t` non exécuté; Docker non installé. Vérifier les IP réelles et la configuration de proxy au déploiement. | 2026-10-12 |
 | 30 | Test dynamique indépendant OWASP ZAP. | Aucun rapport ZAP ni serveur de préproduction ciblé. | Non vérifié | Humain : lancer ZAP sur environnement isolé, corriger et archiver le rapport sans données réelles. | 2026-10-12 |
 | 31 | TLS public, DNS, pare-feu, restauration hors site et vrais appareils. | Aucune infrastructure de production fournie ou testée; aucun certificat ni téléphone sur réseau mobile testé. | Non vérifié | Humain : checklist de mise en production et tests réels dans `docs/DEPLOIEMENT.md` et `docs/EXPLOITATION.md`. | 2026-10-12 |
@@ -53,10 +53,11 @@ Date : 12 octobre 2026. Périmètre : application présence Angular/NestJS/Prism
 | Commande | Résultat observé |
 |---|---|
 | `npm.cmd run lint` | Réussi : génération Prisma, vérification TypeScript API et web. |
-| `npm.cmd test` | Réussi : outils 19/19, API 44/44 (11 suites), total 63 réussis / 0 échoué. |
+| `npm.cmd test` | Réussi : outils 23/23, API 44/44 (11 suites), total 67 réussis / 0 échoué. |
 | `npm.cmd run build` | Réussi : build NestJS avec copie client Prisma et build Angular; bundle initial 375,98 kB brut / 100,18 kB estimés transférés. |
 | `$env:NODE_OPTIONS='--max-old-space-size=4096'; npm.cmd run test:e2e` | Base ciblée : `paroisse_test`; aucune migration en attente; 25/25 E2E réussis, y compris auto-inscription 404 et non-réinitialisation du SUPER_ADMIN existant. |
 | `npm.cmd run test:playwright` | 36/36 réussis après le retrait du parcours d’auto-inscription. |
+| `npm.cmd run test:bootstrap` | Réussi : migrations et seed dans un schéma aléatoire de `TEST_DATABASE_URL`, connexion/2FA vérifiées, seed idempotent, journaux contrôlés, schéma supprimé. |
 | `npm.cmd run audit:production` | Réussi : zéro avis critique/haut (commande interne `npm audit --omit=dev --omit=optional --json`). |
 | `npm.cmd audit` | 37 vulnérabilités : 0 critique, 32 hautes, 5 modérées; avis restant dans outils développement/test, aucun correctif forcé appliqué. |
 | `npm.cmd run security:scan` | Réussi : aucun secret détecté dans code/bundle/historique Git local. |
@@ -64,6 +65,12 @@ Date : 12 octobre 2026. Périmètre : application présence Angular/NestJS/Prism
 
 ## Risques résiduels et recommandation
 
-La production est **pas prête pour de vraies données** : le chemin de création du premier SUPER_ADMIN sur base neuve n’a pas été exercé ici; les paramètres de requête et identifiants de route ne sont pas tous typés/validés strictement; les limites de débit sont en mémoire; Nginx/Docker/TLS, rôle PostgreSQL réel, scan ZAP, rotation effective et restauration hors site restent à prouver.
+La production n’est **pas prête pour de vraies données** : le parcours bootstrap est prouvé sur un schéma jetable de `TEST_DATABASE_URL`, mais doit être opéré humainement en production; les paramètres de requête et identifiants de route ne sont pas tous typés/validés strictement; les limites de débit sont en mémoire; Nginx/Docker/TLS, rôle PostgreSQL réel, scan ZAP, rotation effective et restauration hors site restent à prouver.
 
 Avant production : corriger et tester l’amorçage initial sur `TEST_DATABASE_URL`, valider le contrat et les décisions d’accès, terminer le contrôle de paramètres, exécuter tests Docker/Nginx/TLS sur serveur jetable, scanner avec gitleaks et ZAP, changer les secrets, puis restaurer une sauvegarde chiffrée sur une base vide isolée.
+
+### Mise à jour complémentaire — 12 octobre 2026
+
+- Écriture intersite : `CsrfGuard` compare l'origine de chaque requête d'écriture à `APP_PUBLIC_URL` en production, y compris connexion, récupération, et routes sans cookie; tests unitaires refusent origine absente et origine étrangère, puis acceptent l'origine autorisée.
+- Vérification après correction : tests outils 23/23, API 45/45, E2E PostgreSQL `paroisse_test` 25/25, lint et builds réussis. `npm audit --omit=dev --omit=optional` : 0; audit complet 37 (32 hauts, 5 modérés, 0 critique), outils de dev/test et CLI, mise à niveau Jest majeure non appliquée.
+- La production n'est pas certifiée : Nginx/TLS/Compose, navigateur après cette correction, pentest indépendant et limites distribuées non vérifiés.

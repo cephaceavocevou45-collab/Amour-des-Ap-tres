@@ -3,7 +3,7 @@
 ## Gestion des comptes — audit du 12 octobre 2026
 
 - **Création réservée à l’administration — À VALIDER.** Le parcours d’auto-inscription a été retiré pour respecter le modèle demandé : seul ADMIN/SUPER_ADMIN crée un compte responsable, avec mot de passe temporaire à usage unique et changement obligatoire à la première connexion. L’API historique `/auth/register` répond 404. Un responsable de la paroisse doit confirmer que cette règle est toujours celle souhaitée.
-- **Amorçage initial SUPER_ADMIN — À VALIDER.** Le seed s’appuie sur `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD`; il ne réinitialise plus un SUPER_ADMIN existant. Un E2E valide la réexécution sûre sur `paroisse_test`; le chemin de création initiale doit encore être testé sur une base neuve jetable avant production.
+- **Amorçage initial SUPER_ADMIN — vérifié en test isolé.** `npm run test:bootstrap` a créé le premier compte dans un schéma temporaire de `TEST_DATABASE_URL`, vérifié la connexion et l’obligation de 2FA, prouvé l’idempotence du seed, puis supprimé le schéma. L’exploitation réelle du premier compte et le retrait des variables d’amorçage restent à la charge de l’humain.
 
 ## Images de l’accueil — 12 octobre 2026
 

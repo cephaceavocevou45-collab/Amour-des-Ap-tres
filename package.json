@@ -19,6 +19,7 @@
     "security:scan": "node scripts/secret-scan.cjs",
     "audit:production": "node scripts/audit-production.cjs",
     "test:e2e": "npm run test:e2e --workspace @paroisse/api",
+    "test:bootstrap": "node scripts/test-bootstrap.cjs",
     "test:playwright": "playwright test",
     "test-db:diagnose": "node scripts/test-db-diagnose.cjs",
     "test-db:setup": "node scripts/test-db-setup.cjs",

@@ -14,7 +14,7 @@ La création de comptes est réservée à ADMIN/SUPER_ADMIN. Le mot de passe tem
 
 ### Premier compte SUPER_ADMIN
 
-Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma/seed.ts` peut créer le premier `SUPER_ADMIN` si `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` sont fournies dans l’environnement serveur. Le script ne met plus à jour un SUPER_ADMIN existant et refuse une configuration partielle ou une collision d’adresse sans administrateur. Un E2E sur `TEST_DATABASE_URL` vérifie qu’une réexécution n’altère ni le mot de passe ni l’état du compte existant. Avant le premier usage de production, tester aussi le chemin de création sur une base neuve isolée, avec un secret injecté hors ligne et retiré après amorçage.
+Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma/seed.ts` peut créer le premier `SUPER_ADMIN` si `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` sont fournies dans l’environnement serveur. Le script ne met plus à jour un SUPER_ADMIN existant et refuse une configuration partielle ou une collision d’adresse sans administrateur. `npm run test:bootstrap` vérifie le parcours dans un schéma temporaire supprimé à la fin, à l’intérieur de `TEST_DATABASE_URL` : migrations, seed, refus sans 2FA, connexion TOTP, réexécution sans altérer le compte et absence du mot de passe dans les sorties. Avant le premier usage de production, injecter les secrets hors ligne, amorcer le compte puis retirer les variables de l’environnement.
 
 ## Présences
 

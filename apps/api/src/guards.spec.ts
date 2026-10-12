@@ -51,6 +51,20 @@ describe('security guards',()=>{
     expect(()=>guard.canActivate(context({method:'DELETE',headers:{cookie:'paroisse_refresh=jwt; paroisse_csrf=abc'}}))).toThrow();
     expect(guard.canActivate(context({method:'POST',headers:{cookie:'paroisse_refresh=jwt; paroisse_csrf=abc','x-csrf-token':'abc'}}))).toBe(true);
   });
+  it('rejects cross-site or origin-less browser writes in production, including login',()=>{
+    const previousNodeEnv=process.env.NODE_ENV,previousOrigin=process.env.APP_PUBLIC_URL;
+    process.env.NODE_ENV='production';process.env.APP_PUBLIC_URL='https://paroisse.example';
+    try{
+      const guard=new CsrfGuard();
+      expect(()=>guard.canActivate(context({method:'POST',path:'/api/v1/auth/login',headers:{origin:'https://evil.example'}}))).toThrow();
+      expect(()=>guard.canActivate(context({method:'POST',path:'/api/v1/auth/login',headers:{}}))).toThrow();
+      expect(guard.canActivate(context({method:'POST',path:'/api/v1/auth/login',headers:{origin:'https://paroisse.example'}}))).toBe(true);
+      expect(()=>guard.canActivate(context({method:'POST',headers:{origin:'https://evil.example',cookie:'paroisse_access=jwt; paroisse_csrf=abc','x-csrf-token':'abc'}}))).toThrow();
+    }finally{
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousOrigin===undefined)delete process.env.APP_PUBLIC_URL;else process.env.APP_PUBLIC_URL=previousOrigin;
+    }
+  });
   it('applies CSRF validation to every unsafe HTTP method and permits safe reads',()=>{
     const guard=new CsrfGuard();
     for(const method of ['POST','PUT','PATCH','DELETE']){

@@ -117,9 +117,35 @@ Les résultats de cette section remplacent les compteurs historiques précédent
 
 - L’auto-inscription publique a été retirée : `/auth/register` répond 404 et n’insère aucune ligne; les comptes sont créés par ADMIN/SUPER_ADMIN avec mot de passe temporaire et changement obligatoire. E2E dédié et test Playwright de la redirection.
 - Les secrets de test codés en dur dans le runner E2E ont été remplacés par des valeurs aléatoires générées au démarrage.
-- Le seed initial SUPER_ADMIN ne fait plus d’upsert de mot de passe et ne réactive pas un compte existant. Un E2E sur la base de test prouve que deux réexécutions préservent le mot de passe et l’état inactif d’un SUPER_ADMIN existant. Le chemin de création sur base neuve reste à tester par un humain sur base jetable.
+- Le seed initial SUPER_ADMIN ne fait plus d’upsert de mot de passe et ne réactive pas un compte existant. `npm run test:bootstrap` a créé le premier compte dans un schéma aléatoire de `TEST_DATABASE_URL`, vérifié login/2FA, contrôlé qu’une seconde exécution préserve le mot de passe, le rôle, l’état, le 2FA et la version de session, puis confirmé la suppression du schéma.
 - Le limiteur de débit nettoie les entrées expirées dès que sa capacité maximale est atteinte; test unitaire ajouté.
 - L’exception production Prisma a été retirée. `npm audit --omit=dev --omit=optional` et `npm run audit:production` : **0 avis**; exceptions CI : liste vide. L’audit complet reste à **37 avis (32 hauts, 5 modérés, 0 critique)** dans l’arbre de développement/test; la mise à niveau majeure Jest proposée n’a pas été appliquée.
 - `npm run security:scan` : aucun élément détecté dans sources, bundle et historique Git local. Le binaire gitleaks n’est pas disponible ici; contrôle indépendant humain requis.
-- Validation locale : lint réussi; tests outils **19/19**; tests unitaires API **44/44**; E2E PostgreSQL de test **25/25**; Playwright **36/36**; build NestJS et Angular réussi. Aucun changement de migration ou de `DATABASE_URL`.
+- Validation locale : lint réussi; tests outils **23/23**; tests unitaires API **44/44**; E2E PostgreSQL de test **25/25**; Playwright **36/36**; `test:bootstrap` réussi avec schéma temporaire supprimé; build NestJS et Angular réussi. Aucun changement de migration ou de `DATABASE_URL`.
 - Nginx, Docker, TLS réel, OWASP ZAP, restauration hors site et scans sur serveur public n’ont pas été exécutés. L’API n’est **pas prête pour de vraies données en production** avant ces preuves et la validation des blocages consignés dans `CHECKLIST_AUDIT.md` et `BLOCAGES.md`.
+
+## Revue complémentaire — 12 octobre 2026
+
+### Correction appliquée
+
+Une vérification des écritures sans cookie a relevé un risque de login CSRF : une soumission HTML intersite ne déclenche pas nécessairement CORS et les routes de connexion/récupération n'ont pas encore de cookie CSRF. `CsrfGuard` exige désormais en production un en-tête `Origin` exactement égal à `APP_PUBLIC_URL` pour toute méthode d'écriture, avant la vérification double-cookie. Les requêtes sans origine et d'une origine étrangère sont refusées. Test unitaire dédié dans `apps/api/src/guards.spec.ts`.
+
+### Résultats de cette revue
+
+- `npm.cmd test` : outils **23/23**, API **45/45** (11 suites), total **68/68** après le test de refus d'origine intersite.
+- `npm.cmd run lint` : réussi pour TypeScript API et Web.
+- E2E PostgreSQL `paroisse_test` : 25/25; audit production 0 avis critique/haut non accepté; audit complet 37 (32 hauts, 5 modérés, 0 critique) dans l'arbre dev/test et Prisma CLI. Playwright, Docker, Nginx et test réseau/TLS non exécutés pendant cette revue.
+- Aucune migration ni commande de base de données exécutée.
+
+### Risques encore ouverts
+
+- Le limiteur et le délai progressif sont en mémoire : un redémarrage ou plusieurs instances modifient les limites.
+- Nginx/TLS, l'origine réellement transmise par le proxy, les en-têtes, le pare-feu et les secrets ne sont pas vérifiés sur une machine de production.
+- Les scénarios E2E, navigateur, purge PostgreSQL, restauration de sauvegarde et démarrage Compose doivent être relancés dans leurs environnements dédiés.
+- Aucun audit indépendant/pentest n'a été réalisé. Un pourcentage de sécurité (« 99 % ») n'est pas démontrable par des tests locaux; l'application n'est pas certifiée prête pour des données réelles.
+
+### Complément de preuves — revue du 12 octobre 2026
+
+Depuis l'ajout de la vérification stricte d'`Origin` en production, les vérifications exécutées sont : tests outils 23/23, tests API 45/45 (11 suites), E2E PostgreSQL sur `paroisse_test` 25/25, lint API/Web réussi, builds NestJS/Angular réussis, scan local des secrets réussi. Le contrôle `npm run audit:production` conclut à 0 avis critique/haut non accepté. `npm audit --omit=dev --omit=optional` : 0 avis (189 dépendances prod). L'audit complet : 37 avis (32 hauts, 5 modérés, 0 critique), dans l'arbre dev/test et la CLI Prisma; le correctif proposé par npm est une mise à niveau majeure Jest, non appliquée.
+
+Les résultats ne valent pas certification : aucun test navigateur n'a été relancé après le changement Origin; aucun test de conteneur, Nginx/TLS, pentest indépendant, téléphone ou production n'a eu lieu. La limite de débit est mono-processus. Ne pas utiliser cette application pour des données réelles avant les vérifications humaines listées dans `docs/CHECKLIST_AUDIT.md` et `docs/CHECKLIST_PRODUCTION.md`.
