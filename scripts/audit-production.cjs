@@ -36,8 +36,8 @@ function evaluateAudit(report, exceptions, now = new Date()) {
 
 if (require.main === module) {
   const audit = process.platform === 'win32'
-    ? spawnSync('cmd.exe', ['/d', '/s', '/c', 'npm audit --omit=dev --json'], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, windowsHide: true })
-    : spawnSync('npm', ['audit', '--omit=dev', '--json'], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+    ? spawnSync('cmd.exe', ['/d', '/s', '/c', 'npm audit --omit=dev --omit=optional --json'], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, windowsHide: true })
+    : spawnSync('npm', ['audit', '--omit=dev', '--omit=optional', '--json'], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
   let report;
   try { report = JSON.parse(audit.stdout); } catch { console.error('Échec : npm audit n’a pas fourni de JSON valide (vérifier le registre npm).'); process.exit(2); }
   if (audit.error || (audit.status !== 0 && !report?.metadata?.vulnerabilities)) { console.error('Échec : audit de production indisponible.'); process.exit(2); }

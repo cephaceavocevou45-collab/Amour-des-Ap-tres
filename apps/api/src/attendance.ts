@@ -5,6 +5,7 @@ import { normalizeName, totals } from '../../../packages/shared/src';
 import { JwtAuthGuard } from './auth.guard';
 import { PrismaService } from './prisma.service';
 import { ReauthProof, ReauthService } from './reauth';
+import { RateLimitGuard } from './rate-limit.guard';
 
 class EntryDto {
   @IsString() @MaxLength(120) fullName!: string;
@@ -60,7 +61,7 @@ export function isWithinAttendanceWindow(type:SheetType,now=new Date()) {
   return (type!==SheetType.COURS_BIBLIQUE||weekday==='Mon')&&minutes>=start&&minutes<end+grace;
 }
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RateLimitGuard)
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly prisma:PrismaService,@Optional() private readonly reauth?:ReauthService) {}
@@ -106,7 +107,6 @@ export class AttendanceController {
     if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
     if(!isWithinAttendanceWindow(sheet.type))throw new HttpException(sheet.type===SheetType.GROUPE_SEMAINE?'La saisie du Président de semaine est ouverte de 10 h à 18 h.':'La saisie du cours biblique est ouverte de 19 h 30 à 21 h 30.',403);
     await this.prisma.$transaction(async tx=>{
-      await tx.$queryRaw`SELECT "id" FROM "AttendanceSheet" WHERE "id"=${id} FOR UPDATE`;
       const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
       if(!current||current.status!==SheetStatus.OUVERTE&&!(weekPresident&&current.status===SheetStatus.ENREGISTREE))throw new HttpException('Feuille enregistrée et verrouillée.',409);
       const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});
@@ -173,7 +173,6 @@ export class AttendanceController {
     if(!this.isWithinWindow(sheet.type))throw new HttpException('La période d’enregistrement de cette feuille est terminée ou n’a pas encore commencé.',403);
     const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
     const saved=await this.prisma.$transaction(async tx=>{
-      await tx.$queryRaw`SELECT "id" FROM "AttendanceSheet" WHERE "id"=${id} FOR UPDATE`;
       const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
       if(!current||current.status!==SheetStatus.OUVERTE&&!(weekPresident&&current.status===SheetStatus.ENREGISTREE))return false;
       const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.ENREGISTREE,submittedAt:new Date(),submittedById:req.user.sub}});

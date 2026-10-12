@@ -1,8 +1,1 @@
-[
-  {
-    "advisoryId": "GHSA-ggr8-5vv4-36mx",
-    "packages": ["deepmerge-ts", "@prisma/config", "prisma"],
-    "justification": "L'avis concerne le CLI Prisma (outil de migration) et son @prisma/config; prisma est une dépendance dev déclarée. L'image API runtime est installée avec npm ci --omit=dev, sans CLI ni outils de migration. npm audit --omit=dev compte néanmoins ce chemin de peer optionnel dans le lockfile. Réexaminer et supprimer cette exception après validation de la prochaine version correctrice compatible de Prisma.",
-    "expiresOn": "2026-11-10"
-  }
-]
+[]

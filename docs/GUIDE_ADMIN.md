@@ -2,9 +2,7 @@
 
 ## Créer et gérer les responsables
 
-Les candidats peuvent envoyer une demande d'accès depuis **Demander un accès** sur l'écran de connexion responsable. Ils ne peuvent choisir que « Secrétaire des présences — cours biblique » ou « Président d'un jour — présences de la semaine »; le président choisit un jour parmi lundi et dimanche. La demande demande nom, adresse e-mail, numéro au format international (présumé WhatsApp, sans vérification automatique) et mot de passe. Elle ne donne aucun accès tant qu'elle n'est pas approuvée.
-
-Dans **Comptes responsables**, les demandes en attente portent l'indication **Demande en attente de validation**. Vérifiez l'identité et le rôle demandé, saisissez un motif, cochez **Accès actif**, puis enregistrez. L'accès s'ouvre alors et la demande passe à l'état validé; toute modification est auditée et les sessions précédentes sont révoquées. Les demandes non retenues peuvent rester désactivées.
+Les comptes responsables sont créés par ADMIN/SUPER_ADMIN dans **Comptes responsables**. L’auto-inscription publique est désactivée : la route historique `/auth/register` renvoie 404 et l’ancien lien redirige vers la connexion. Le téléphone ne vérifie pas qu’un numéro est actif sur WhatsApp.
 
 1. Connectez-vous à l'espace administrateur sur un appareil de confiance.
 2. Depuis **Comptes responsables**, saisissez le nom, l'adresse e-mail, le rôle et un motif précis. Choisissez un jour (lundi à dimanche) pour un président.
@@ -12,7 +10,11 @@ Dans **Comptes responsables**, les demandes en attente portent l'indication **De
 4. Transmettez le mot de passe temporaire affiché une seule fois par un canal privé sûr. Le titulaire doit le remplacer à sa première connexion. Ne le copiez pas dans un e-mail ou une conversation non protégée.
 5. Toute désactivation, réactivation, modification de rôle/jour ou permission demande un motif; elle est auditée et révoque les sessions de l'utilisateur.
 
-La création directe de comptes et l'approbation sont réservées à ADMIN/SUPER_ADMIN. Les demandes publiques ne peuvent pas créer ni promouvoir un compte administrateur ou sous-administrateur. Les responsables et sous-administrateurs ne peuvent pas s'approuver eux-mêmes. `EDITEUR` est le nom technique conservé pour le sous-administrateur.
+La création de comptes est réservée à ADMIN/SUPER_ADMIN. Le mot de passe temporaire aléatoire est montré une seule fois par l’interface et doit être transmis par un canal privé sûr; l’utilisateur doit le changer au premier accès. Les changements de rôle, jour, activation ou permission exigent un motif, une nouvelle authentification et invalident les sessions. `EDITEUR` est le nom technique conservé pour le sous-administrateur.
+
+### Premier compte SUPER_ADMIN
+
+Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma/seed.ts` peut créer le premier `SUPER_ADMIN` si `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` sont fournies dans l’environnement serveur. Le script ne met plus à jour un SUPER_ADMIN existant et refuse une configuration partielle ou une collision d’adresse sans administrateur. Un E2E sur `TEST_DATABASE_URL` vérifie qu’une réexécution n’altère ni le mot de passe ni l’état du compte existant. Avant le premier usage de production, tester aussi le chemin de création sur une base neuve isolée, avec un secret injecté hors ligne et retiré après amorçage.
 
 ## Présences
 

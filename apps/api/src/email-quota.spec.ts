@@ -10,16 +10,16 @@ describe('EmailQuotaService',()=>{
   afterEach(()=>{for(const key of envKeys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}jest.restoreAllMocks();});
 
   it('does not send once the atomic daily quota is exhausted',async()=>{
-    const query=jest.fn().mockResolvedValue([]),fetchSpy=jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{}',{status:200}));
-    const service=new EmailQuotaService({$queryRaw:query} as any);
+    const updateMany=jest.fn().mockResolvedValue({count:0}),fetchSpy=jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{}',{status:200}));
+    const service=new EmailQuotaService({emailDailyUsage:{upsert:jest.fn(),updateMany,findUnique:jest.fn()}} as any);
     await expect(service.sendImmediate('member@example.invalid','Test','body')).resolves.toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({where:{day:expect.any(Date),sentCount:{lt:100}}}));
   });
 
   it('raises a privacy-safe warning once at the configured daily threshold',async()=>{
     const updateMany=jest.fn().mockResolvedValue({count:1});
-    const prisma={$queryRaw:jest.fn().mockResolvedValue([{sentCount:80,alertSent:false}]),emailDailyUsage:{updateMany}};
+    const prisma={emailDailyUsage:{upsert:jest.fn(),updateMany,findUnique:jest.fn().mockResolvedValue({sentCount:80})}};
     const service=new EmailQuotaService(prisma as any);
     const warning=jest.spyOn((service as any).logger,'warn').mockImplementation();
     jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response('{}',{status:200}));

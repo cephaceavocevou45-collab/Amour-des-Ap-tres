@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomBytes } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 require('dotenv').config({ path: path.resolve(__dirname, '../../../.env') });
 
@@ -36,8 +37,8 @@ if (process.env.DATABASE_URL && target(testUrl) === target(process.env.DATABASE_
 
 process.env.DATABASE_URL = testUrl;
 process.env.NODE_ENV = 'test';
-process.env.JWT_ACCESS_SECRET ??= 'security-e2e-only-jwt-secret-not-for-deployment';
-process.env.TOTP_ENCRYPTION_KEY ??= 'security-e2e-only-totp-key-not-for-deployment';
+process.env.JWT_ACCESS_SECRET ??= randomBytes(48).toString('base64url');
+process.env.TOTP_ENCRYPTION_KEY ??= randomBytes(32).toString('hex');
 process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --max-old-space-size=4096`.trim();
 
 const root = path.resolve(__dirname, '../../../');

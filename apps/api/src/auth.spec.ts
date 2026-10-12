@@ -2,21 +2,9 @@ import { AuthController, AuthService } from './auth';
 import { PrismaService } from './prisma.service';
 
 describe('security-sensitive authentication flows',()=>{
-  it('exposes registration only for attendance responsibilities',()=>{
-    expect(AuthController.prototype).toHaveProperty('register');
+  it('does not expose public account self-registration',()=>{
+    expect(AuthController.prototype).not.toHaveProperty('register');
     expect(AuthController.prototype).toHaveProperty('login');
-  });
-
-  it('stores an attendance responsibility request inactive and audits it without logging credentials',async()=>{
-    const created={id:'pending-member',fullName:'Responsable Exemple',email:'responsable@example.invalid',role:'SECRETAIRE_PRESENCE',assignedDayOfWeek:null};
-    const tx={user:{create:jest.fn().mockResolvedValue(created)},auditLog:{create:jest.fn().mockResolvedValue({})}};
-    const prisma={$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
-    const password='Un_mot_de_passe_fort_2026!';
-    const result=await new AuthService(prisma).requestResponsibleAccount({fullName:created.fullName,email:created.email,phone:'+2290150000000',requestedRole:'SECRETAIRE_PRESENCE',password} as any);
-    expect(result.message).toContain('validation');
-    expect(tx.user.create).toHaveBeenCalledWith({data:expect.objectContaining({role:'SECRETAIRE_PRESENCE',active:false,assignedDayOfWeek:null})});
-    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({action:'DEMANDE_ACCES_PRESENCES',entityId:created.id,after:{role:'SECRETAIRE_PRESENCE',assignedDayOfWeek:null}})});
-    expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(password);
   });
 
   it('rejects a reused or expired email recovery code before changing the account',async()=>{
@@ -27,8 +15,6 @@ describe('security-sensitive authentication flows',()=>{
   });
 
   it('returns the same reset response when the account is absent or mail delivery fails',async()=>{
-    const keys=['RESEND_API_KEY','MAIL_FROM'],previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
-    Object.assign(process.env,{RESEND_API_KEY:'test-only',MAIL_FROM:'Test <test@example.invalid>',APP_PUBLIC_URL:'http://localhost'});
     const emailQuota={sendImmediate:jest.fn().mockResolvedValue(false)};
     try{
       const existingPrisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',email:'known@example.invalid',fullName:'Test',role:'SECRETAIRE_PRESENCE',active:true})},passwordResetToken:{findFirst:jest.fn().mockResolvedValue(null),updateMany:jest.fn().mockResolvedValue({count:0}),create:jest.fn().mockResolvedValue({id:'r1'})}} as unknown as PrismaService;
@@ -41,7 +27,7 @@ describe('security-sensitive authentication flows',()=>{
       expect(existingPrisma.passwordResetToken.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'u1',expiresAt:expect.any(Date),failedAttempts:0,tokenHash:expect.any(String)})});
       expect(existingPrisma.passwordResetToken.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({where:{id:'r1',usedAt:null},data:{usedAt:expect.any(Date)}}));
       expect(Date.now()-started).toBeGreaterThanOrEqual(990);
-    }finally{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}}
+    }finally{jest.restoreAllMocks();}
   });
 
   it('does not expose HTTP 2FA enrollment endpoints',()=>{
@@ -61,6 +47,40 @@ describe('security-sensitive authentication flows',()=>{
     expect(tx.user.create).toHaveBeenCalledWith({data:expect.objectContaining({role:'SECRETAIRE_PRESENCE',mustChangePassword:true,active:true})});
     expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'admin-1',action:'COMPTE_RESPONSABLE_CREE',reason:'Désignation confirmée par le chargé paroissial.'})});
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(result.temporaryPassword);
+  });
+
+  it('lets only administrators manage the point 06 presenters',async()=>{
+    const controller=new AuthController({} as any);
+    expect(()=>controller.presenters({user:{role:'EDITEUR'}} as any)).toThrow();
+    expect(()=>controller.createPresenter({} as any,{user:{role:'SECRETAIRE_PRESENCE',sub:'secretary-1'}} as any)).toThrow();
+    expect(()=>controller.updatePresenter('p1',{} as any,{user:{role:'RESPONSABLE_SEMAINE',sub:'president-1'}} as any)).toThrow();
+    expect(()=>controller.removePresenter('p1',{} as any,{user:{role:'EDITEUR',sub:'editor-1'}} as any)).toThrow();
+  });
+
+  it('adds a presenter with the presentation role and records the administrator and reason',async()=>{
+    const person={id:'presenter-1',firstName:'Jean',lastName:'SEWADE',grade:'Évangéliste',active:true,roles:[{role:'PRESENTATION_THEME'}]};
+    const tx={person:{create:jest.fn().mockResolvedValue(person)},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={person:{findFirst:jest.fn().mockResolvedValue(null),aggregate:jest.fn().mockResolvedValue({_max:{displayOrder:5}})},$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
+    const reauth={requireRecentProof:jest.fn().mockResolvedValue(undefined)} as any;
+    const result=await new AuthService(prisma,undefined,reauth).createManagedPresenter({firstName:' Jean ',lastName:' SEWADE ',grade:' Évangéliste ',reason:'Ajout confirmé par le responsable paroissial.',reauthPassword:'valid-proof'} as any,'admin-1');
+    expect(result).toEqual(person);
+    expect(tx.person.create).toHaveBeenCalledWith({data:{firstName:'Jean',lastName:'SEWADE',grade:'Évangéliste',displayOrder:6,roles:{create:{role:'PRESENTATION_THEME'}}},include:{roles:true}});
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'admin-1',action:'INTERVENANT_BIBLIQUE_AJOUTE',entity:'Person',entityId:'presenter-1',reason:'Ajout confirmé par le responsable paroissial.'})});
+  });
+
+  it('updates and removes only the point 06 role with audited reasons',async()=>{
+    const person={id:'presenter-1',firstName:'Jean',lastName:'SEWADE',grade:null};
+    const updated={...person,grade:'Évangéliste',roles:[{role:'PRESENTATION_THEME'}]};
+    const tx={person:{update:jest.fn().mockResolvedValue(updated)},personRole:{delete:jest.fn().mockResolvedValue({})},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={person:{findFirst:jest.fn().mockResolvedValue(person)},$transaction:jest.fn((work:any)=>work(tx))} as unknown as PrismaService;
+    const reauth={requireRecentProof:jest.fn().mockResolvedValue(undefined)} as any;
+    const service=new AuthService(prisma,undefined,reauth);
+    await expect(service.updateManagedPresenter('presenter-1',{firstName:'Jean',lastName:'SEWADE',grade:'Évangéliste',reason:'Correction du grade validée.'} as any,'admin-1')).resolves.toEqual(updated);
+    expect(tx.person.update).toHaveBeenCalledWith({where:{id:'presenter-1'},data:{firstName:'Jean',lastName:'SEWADE',grade:'Évangéliste'},include:{roles:true}});
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({action:'INTERVENANT_BIBLIQUE_MODIFIE',reason:'Correction du grade validée.'})});
+    await expect(service.removeManagedPresenter('presenter-1',{reason:'La personne ne poursuit plus ce service.'} as any,'admin-1')).resolves.toEqual({id:'presenter-1',removed:true});
+    expect(tx.personRole.delete).toHaveBeenCalledWith({where:{personId_role:{personId:'presenter-1',role:'PRESENTATION_THEME'}}});
+    expect(tx.auditLog.create).toHaveBeenLastCalledWith({data:expect.objectContaining({action:'INTERVENANT_BIBLIQUE_RETIRE',reason:'La personne ne poursuit plus ce service.'})});
   });
 
   it('requires the temporary password before allowing the first password change and revokes sessions',async()=>{

@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { AddressInfo } from 'node:net';
+import { spawnSync } from 'node:child_process';
+import * as path from 'node:path';
 import * as argon2 from 'argon2';
 import * as express from 'express';
 import { UserRole, SheetType, SheetStatus } from '../src/generated/prisma';
@@ -60,7 +62,7 @@ afterAll(async()=>{
 describe('security HTTP e2e on isolated PostgreSQL',()=>{
   it('retire toutes les routes de la communauté et l’inscription publique',async()=>{
     const removed=[
-      ['POST','/auth/social/register'],['GET','/auth/social/registration-config'],
+      ['POST','/auth/register'],['POST','/auth/social/register'],['GET','/auth/social/registration-config'],
       ['GET','/community/conversations'],['POST','/community/conversations/direct'],['POST','/community/conversations/group'],['GET','/community/stories'],['POST','/community/stories'],['GET','/community/lives'],['POST','/community/lives'],
       ['GET','/community/content/programmes'],['GET','/community/groups'],['GET','/social/posts'],['POST','/social/posts'],['POST','/social/reports'],['POST','/media/upload'],['POST','/auth/social/email/confirm']
     ];
@@ -70,27 +72,22 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   it('ne publie aucune route de documentation API ni de schéma OpenAPI',async()=>{
     for(const path of ['/api/docs','/api/docs-json','/api/docs-yaml','/api-json','/docs','/api/v1/api/docs','/openapi.json','/openapi.yaml','/swagger.json'])expect((await call(path)).status).toBe(404);
   });
-  it('stores public registration requests for attendance roles as inactive until admin approval',async()=>{
-    const admin=await addUser(UserRole.ADMIN),adminToken=jwt(admin),email=testEmail(),signupPassword='Responsible_signup_password_2026!';
-    const body={fullName:'Candidat secrétaire E2E',email,phone:'+2290150000000',requestedRole:'SECRETAIRE_PRESENCE',password:signupPassword};
-    const created=await call('/auth/register',{method:'POST',body});
-    expect(created.status).toBe(201);expect(created.body.message).toContain('validation');
-    const row=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(row.id);
-    expect(row).toMatchObject({role:UserRole.SECRETAIRE_PRESENCE,active:false,assignedDayOfWeek:null});
-    expect((await call('/auth/login',{method:'POST',body:{email,password:signupPassword}})).status).toBe(401);
-    expect((await call('/auth/admin/members',{token:adminToken})).body.find((item:any)=>item.id===row.id)).toMatchObject({approvalPending:true,active:false});
-    expect((await call(`/auth/admin/members/${row.id}`,{method:'PATCH',token:adminToken,body:{active:true,reason:'Demande vérifiée par le chargé paroissial.'}})).status).toBe(200);
-    expect(await prisma.user.findUniqueOrThrow({where:{id:row.id}})).toMatchObject({active:true});
-    expect((await call('/auth/admin/members',{token:adminToken})).body.find((item:any)=>item.id===row.id)).toMatchObject({approvalPending:false,active:true});
-    expect(await prisma.auditLog.count({where:{action:'DEMANDE_ACCES_PRESENCES_VALIDEE',entityId:row.id}})).toBe(1);
-    expect((await call('/auth/login',{method:'POST',body:{email,password:signupPassword}})).status).toBe(201);
-    expect(await prisma.auditLog.count({where:{action:'DEMANDE_ACCES_PRESENCES',entityId:row.id}})).toBe(1);
-    const presidentEmail=testEmail(),presidentPassword='President_signup_password_2026!';
-    expect((await call('/auth/register',{method:'POST',body:{fullName:'Candidat président E2E',email:presidentEmail,phone:'+2290150000001',requestedRole:'RESPONSABLE_SEMAINE',assignedDayOfWeek:3,password:presidentPassword}})).status).toBe(201);
-    const president=await prisma.user.findUniqueOrThrow({where:{email:presidentEmail}});userIds.push(president.id);
-    expect(president).toMatchObject({role:UserRole.RESPONSABLE_SEMAINE,active:false,assignedDayOfWeek:3});
-    expect((await call('/auth/login',{method:'POST',body:{email:presidentEmail,password:presidentPassword}})).status).toBe(401);
-    expect((await call('/auth/register',{method:'POST',body:{fullName:'Tentative admin E2E',email:testEmail(),phone:'+2290150000002',requestedRole:'ADMIN',password:signupPassword}})).status).toBe(400);
+  it('does not create accounts through public self-registration',async()=>{
+    const email=testEmail(),before=await prisma.user.count({where:{email}});
+    for(const body of [
+      {fullName:'Demande secrétariat E2E',email,phone:'+2290150000000',requestedRole:'SECRETAIRE_PRESENCE',password},
+      {fullName:'Tentative admin E2E',email,phone:'+2290150000000',requestedRole:'ADMIN',password},
+    ])expect((await call('/auth/register',{method:'POST',body})).status).toBe(404);
+    expect(await prisma.user.count({where:{email}})).toBe(before);
+  });
+  it('never resets or reactivates an existing SUPER_ADMIN when the seed is rerun',async()=>{
+    const email=testEmail(),seedCli=path.join(process.cwd(),'node_modules','ts-node','dist','bin.js'),seedFile=path.join(process.cwd(),'apps','api','prisma','seed.ts');
+    const created=await prisma.user.create({data:{email,fullName:'E2E bootstrap safety',role:UserRole.SUPER_ADMIN,active:false,mustChangePassword:true,passwordHash:await argon2.hash(randomBytes(32).toString('base64url'))}});userIds.push(created.id);
+    const runSeed=(passwordValue:string)=>spawnSync(process.execPath,[seedCli,seedFile],{cwd:process.cwd(),encoding:'utf8',env:{...process.env,DATABASE_URL:process.env.TEST_DATABASE_URL!,BOOTSTRAP_ADMIN_EMAIL:email,BOOTSTRAP_ADMIN_PASSWORD:passwordValue}});
+    expect(runSeed(randomBytes(32).toString('base64url')).status).toBe(0);
+    expect(runSeed(randomBytes(32).toString('base64url')).status).toBe(0);
+    const after=await prisma.user.findUniqueOrThrow({where:{id:created.id}});
+    expect(after).toMatchObject({active:false,passwordHash:created.passwordHash,mustChangePassword:true});
   });
   it('creates responsible accounts only through administration and forces the first password change',async()=>{
     const admin=await addUser(UserRole.ADMIN),adminToken=jwt(admin),memberEmail=testEmail();
@@ -205,7 +202,8 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const today=localDate(),todayDay=weekday(today),dayY=todayDay===7?6:todayDay+1,weekStart=monday(today),otherDayDate=new Date(`${weekStart}T00:00:00.000Z`);otherDayDate.setUTCDate(otherDayDate.getUTCDate()+dayY-1);const dateY=otherDayDate.toISOString().slice(0,10);
     const presidentX=await addUser(UserRole.RESPONSABLE_SEMAINE,{day:todayDay}),presidentY=await addUser(UserRole.RESPONSABLE_SEMAINE,{day:dayY});
     const secretary=await addUser(UserRole.SECRETAIRE_PRESENCE,{day:dayY}),tokenX=jwt(presidentX),tokenY=jwt(presidentY),secretaryToken=jwt(secretary);
-    const own=await addSheet(SheetType.GROUPE_SEMAINE,today),otherDay=await addSheet(SheetType.GROUPE_SEMAINE,dateY),course=await addSheet(SheetType.COURS_BIBLIQUE,today);
+    const priorCourseMonday=new Date(`${monday(today)}T00:00:00.000Z`);priorCourseMonday.setUTCDate(priorCourseMonday.getUTCDate()-7);const priorCourseDate=priorCourseMonday.toISOString().slice(0,10);
+    const own=await addSheet(SheetType.GROUPE_SEMAINE,today),otherDay=await addSheet(SheetType.GROUPE_SEMAINE,dateY),course=await addSheet(SheetType.COURS_BIBLIQUE,priorCourseDate);
     const templeId=randomUUID(),visionId=randomUUID(),otherTempleId=randomUUID(),otherVisionId=randomUUID();
     await prisma.attendanceEntry.create({data:{sheetId:own.id,clientUuid:templeId,fullName:'IDOR-TEMPLE-SENTINEL',sex:'M',zone:'TEMPLE',createdById:presidentX.id}});
     await prisma.attendanceEntry.create({data:{sheetId:own.id,clientUuid:visionId,fullName:'IDOR-VISION-SENTINEL',sex:'F',zone:'SALLE_VISION',createdById:presidentX.id}});
@@ -235,12 +233,12 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
       [`/attendance/sheets/${otherDay.id}/names/access`,{method:'POST',token:tokenX,body:{reason:'VERIFICATION_DEMANDE'}}]
     ] as any[]){expect([403,404]).toContain((await call(path,options)).status);}
     for(const zone of ['TEMPLE','SALLE_VISION'])expect([403,404]).toContain((await call(`/attendance/sheets/${otherDay.id}/entries`,{method:'POST',token:tokenX,body:{fullName:'Cross day write',sex:'M',zone,clientUuid:randomUUID()}})).status);
-    const mondayDate=monday(today);
+    const crossWeekCourseDate=priorCourseDate;
     const priorWeek=new Date(`${weekStart}T00:00:00.000Z`);priorWeek.setUTCDate(priorWeek.getUTCDate()-7);
     expect((await call(`/attendance/week?start=${priorWeek.toISOString().slice(0,10)}`,{token:tokenX})).status).toBe(403);
-    expect((await call(`/attendance/course/${mondayDate}`,{token:secretaryToken})).status).toBe(403);
-    expect((await call(`/attendance/course/${mondayDate}`,{method:'PUT',token:secretaryToken,body:{theme:'Cross date'}})).status).toBe(403);
-    expect((await call(`/attendance/course/${mondayDate}`,{token:tokenX})).status).toBe(403);
+    expect((await call(`/attendance/course/${crossWeekCourseDate}`,{token:secretaryToken})).status).toBe(403);
+    expect((await call(`/attendance/course/${crossWeekCourseDate}`,{method:'PUT',token:secretaryToken,body:{theme:'Cross date'}})).status).toBe(403);
+    expect((await call(`/attendance/course/${crossWeekCourseDate}`,{token:tokenX})).status).toBe(403);
     expect((await call(`/attendance/sheets/${own.id}/entries`,{method:'POST',token:tokenX,body:{fullName:'Wrong zone',sex:'F',zone:'FIDELES',clientUuid:randomUUID()}})).status).toBe(403);
     expect((await call(`/attendance/sheets/${course.id}/summary`,{token:secretaryToken})).status).toBe(403);
     expect((await call(`/attendance/sheets/${own.id}/summary`,{token:secretaryToken})).status).toBe(403);
@@ -248,7 +246,9 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call('/attendance/export',{token:tokenX})).status).toBe(404);
     expect((await call('/attendance/history',{token:tokenX})).status).toBe(404);
     expect((await call('/attendance/today',{token:tokenY})).status).toBe(200);
-    const secretaryToday=await call('/attendance/today',{token:secretaryToken});expect(secretaryToday.status).toBe(200);expect(secretaryToday.body).toEqual([]);
+    const secretaryToday=await call('/attendance/today',{token:secretaryToken});expect(secretaryToday.status).toBe(200);
+    if(weekday(today)===1){expect(secretaryToday.body).toHaveLength(1);expect(secretaryToday.body[0]).toMatchObject({type:'COURS_BIBLIQUE',date:today});}
+    else expect(secretaryToday.body).toEqual([]);
   });
 
   it('shows totals only by default; named admin access requires a reason and is logged',async()=>{

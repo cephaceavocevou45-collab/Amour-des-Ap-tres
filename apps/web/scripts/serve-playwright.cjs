@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const { createGzip } = require('node:zlib');
 
 const webRoot = path.resolve(__dirname, '..');
 const dist = path.join(webRoot, 'dist', 'web', 'browser');
@@ -14,8 +15,19 @@ function createServer() {
     const safe = candidate === dist || candidate.startsWith(`${dist}${path.sep}`);
     const file = safe && fs.existsSync(candidate) && fs.statSync(candidate).isFile() ? candidate : path.join(dist, 'index.html');
     if (!fs.existsSync(file)) { response.writeHead(503); response.end('Application Angular non compilée.'); return; }
-    response.writeHead(200, { 'Content-Type': types[path.extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-    fs.createReadStream(file).pipe(response);
+    const contentType = types[path.extname(file)] ?? 'application/octet-stream';
+    const compressible = /^(text\/|application\/(javascript|json)|image\/svg\+xml)/.test(contentType);
+    const wantsGzip = compressible && request.headers['accept-encoding']?.includes('gzip');
+    response.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      ...(compressible ? { Vary: 'Accept-Encoding' } : {}),
+      ...(wantsGzip ? { 'Content-Encoding': 'gzip' } : {}),
+    });
+    const stream = fs.createReadStream(file);
+    if (wantsGzip) stream.pipe(createGzip({ level: 6 })).pipe(response);
+    else stream.pipe(response);
   });
 }
 

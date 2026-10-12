@@ -110,3 +110,16 @@ Cette section remplace les anciens nombres de tests et statuts navigateur ci-des
 - `npm audit --json` complet : **37 avis** (32 hauts, 5 modérés), code 1, développement surtout; pas de dépendances mises à niveau.
 - Playwright : **non exécuté dans cette passe**. Docker/Compose : **non testé**, la commande `docker` n'est pas disponible dans cet environnement.
 - E2E de non-publication Swagger/OpenAPI : inclus dans les **24/24** E2E réussis.
+
+### Mise à jour audit checklist — 12 octobre 2026
+
+Les résultats de cette section remplacent les compteurs historiques précédents pour le code actuel.
+
+- L’auto-inscription publique a été retirée : `/auth/register` répond 404 et n’insère aucune ligne; les comptes sont créés par ADMIN/SUPER_ADMIN avec mot de passe temporaire et changement obligatoire. E2E dédié et test Playwright de la redirection.
+- Les secrets de test codés en dur dans le runner E2E ont été remplacés par des valeurs aléatoires générées au démarrage.
+- Le seed initial SUPER_ADMIN ne fait plus d’upsert de mot de passe et ne réactive pas un compte existant. Un E2E sur la base de test prouve que deux réexécutions préservent le mot de passe et l’état inactif d’un SUPER_ADMIN existant. Le chemin de création sur base neuve reste à tester par un humain sur base jetable.
+- Le limiteur de débit nettoie les entrées expirées dès que sa capacité maximale est atteinte; test unitaire ajouté.
+- L’exception production Prisma a été retirée. `npm audit --omit=dev --omit=optional` et `npm run audit:production` : **0 avis**; exceptions CI : liste vide. L’audit complet reste à **37 avis (32 hauts, 5 modérés, 0 critique)** dans l’arbre de développement/test; la mise à niveau majeure Jest proposée n’a pas été appliquée.
+- `npm run security:scan` : aucun élément détecté dans sources, bundle et historique Git local. Le binaire gitleaks n’est pas disponible ici; contrôle indépendant humain requis.
+- Validation locale : lint réussi; tests outils **19/19**; tests unitaires API **44/44**; E2E PostgreSQL de test **25/25**; Playwright **36/36**; build NestJS et Angular réussi. Aucun changement de migration ou de `DATABASE_URL`.
+- Nginx, Docker, TLS réel, OWASP ZAP, restauration hors site et scans sur serveur public n’ont pas été exécutés. L’API n’est **pas prête pour de vraies données en production** avant ces preuves et la validation des blocages consignés dans `CHECKLIST_AUDIT.md` et `BLOCAGES.md`.

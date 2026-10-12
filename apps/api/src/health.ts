@@ -1,5 +1,6 @@
-import { Controller, Get, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Injectable, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+import { RateLimitGuard } from './rate-limit.guard';
 
 @Injectable()
 export class HealthService {
@@ -11,7 +12,7 @@ export class HealthService {
 
   async readiness() {
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      await this.prisma.user.count({ where: { id: '__readiness_probe__' } });
       return { status: 'ready', database: 'available' };
     } catch {
       throw new ServiceUnavailableException({ status: 'not_ready' });
@@ -19,6 +20,7 @@ export class HealthService {
   }
 }
 
+@UseGuards(RateLimitGuard)
 @Controller()
 export class HealthController {
   constructor(private readonly health: HealthService) {}

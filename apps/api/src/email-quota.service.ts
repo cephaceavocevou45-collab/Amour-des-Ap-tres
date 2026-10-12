@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 
-type QuotaRow = { sentCount: number; alertSent: boolean };
-
 @Injectable()
 export class EmailQuotaService {
   private readonly logger = new Logger(EmailQuotaService.name);
@@ -32,19 +30,14 @@ export class EmailQuotaService {
     const rawLimit = Number(process.env.RESEND_DAILY_LIMIT ?? 100);
     const limit = Number.isInteger(rawLimit) && rawLimit > 0 && rawLimit <= 100 ? rawLimit : 100;
     const day = new Date(); day.setUTCHours(0, 0, 0, 0);
-    const rows = await this.prisma.$queryRaw<QuotaRow[]>`
-      INSERT INTO "EmailDailyUsage" ("day", "sentCount", "alertSent", "updatedAt")
-      VALUES (${day}, 1, false, CURRENT_TIMESTAMP)
-      ON CONFLICT ("day") DO UPDATE SET
-        "sentCount" = "EmailDailyUsage"."sentCount" + 1,
-        "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "EmailDailyUsage"."sentCount" < ${limit}
-      RETURNING "sentCount", "alertSent"
-    `;
-    if (!rows.length) return false;
+    await this.prisma.emailDailyUsage.upsert({where:{day},create:{day,sentCount:0},update:{}});
+    const reservation = await this.prisma.emailDailyUsage.updateMany({where:{day,sentCount:{lt:limit}},data:{sentCount:{increment:1}}});
+    if (!reservation.count) return false;
+    const usage = await this.prisma.emailDailyUsage.findUnique({where:{day},select:{sentCount:true}});
+    if (!usage) return false;
     const rawThreshold = Number(process.env.RESEND_ALERT_AT ?? Math.ceil(limit * 0.8));
     const threshold = Number.isInteger(rawThreshold) && rawThreshold > 0 ? Math.min(limit, rawThreshold) : Math.ceil(limit * 0.8);
-    if (rows[0].sentCount >= threshold) await this.alertAdministrators(day);
+    if (usage.sentCount >= threshold) await this.alertAdministrators(day);
     return true;
   }
 

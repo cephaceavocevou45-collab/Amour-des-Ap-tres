@@ -1,36 +1,58 @@
-# API active
+# Contrat de l’API active
 
-Préfixe courant : `/api/v1`. Toutes les routes absentes renvoient 404. Les routes de communauté ne sont plus implémentées. Une demande d'accès public est conservée uniquement pour les responsabilités de présence; elle reste inactive jusqu'à validation administrative.
+Préfixe des routes métier : `/api/v1`. `/health` et `/ready` sont hors préfixe. Swagger/OpenAPI est absent. Les routes communautaires, l’auto-inscription et l’export nominatif ne sont pas exposés.
 
-## Présentation publique
+Toutes les requêtes JSON sont limitées à 64 Kio (`express.json` et `express.urlencoded`). Le `ValidationPipe` global utilise `whitelist`, `forbidNonWhitelisted` et `transform`. Les champs du corps non déclarés dans un DTO sont refusés. Les réponses d’erreur 5xx sont neutres.
 
-| Route | Accès | Usage |
+## Routes
+
+| Méthode et route | Authentification et permission | Paramètres et corps acceptés |
 |---|---|---|
-| `POST /auth/register` | Public, limitée à 3 demandes / 10 minutes par IP et adresse | Demande de compte secrétaire des présences ou président d'un jour; pas de rôle libre, de sous-administrateur ni d'accès avant validation admin. |
-| `GET /public/leader` | Public | Présentation du dirigeant et photo publique de présentation. |
-| `GET /public/team` | Public | Équipe et rôles des cours bibliques. |
-| `GET /public/sessions` | Public | Programme biblique public. |
-| `GET /public/sessions/next` | Public | Prochaine séance. |
+| `GET /public/leader` | Public, limiteur global | Aucun paramètre. Données publiques du dirigeant. |
+| `GET /public/team` | Public, limiteur global | Aucun paramètre. Équipe publique active. |
+| `GET /public/sessions` | Public, limiteur global | Aucun paramètre. Programme public. |
+| `GET /public/sessions/next` | Public, limiteur global | Aucun paramètre. Prochaine séance. |
+| `GET /health`, `GET /ready` | Public, limiteur global | Aucun paramètre. État minimal sans détail de connexion. `/ready` vérifie PostgreSQL par une requête Prisma. |
+| `POST /auth/login`, `/auth/admin/login`, `/auth/subadmin/login` | Public, limiteurs IP et compte | `LoginDto`: e-mail (`IsEmail`), mot de passe 1–128 caractères, TOTP ou code de secours optionnel au format strict. Les routes distinguent le rôle requis, pas les erreurs d’identifiants. |
+| `POST /auth/password/forgot` | Public, limiteurs IP et adresse | `email` (`IsEmail`). Réponse uniforme, code à usage unique, expiration de 15 minutes et cinq essais au plus. |
+| `POST /auth/password/reset` | Public, limiteurs IP et adresse | E-mail, code à six chiffres, nouveau mot de passe et confirmation de 12–128 caractères, facteur 2FA optionnel au format strict. |
+| `POST /auth/refresh`, `POST /auth/logout` | Cookie de renouvellement; CSRF requis si un cookie de session accompagne une écriture | Aucun corps. Rotation ou révocation de la famille de sessions. |
+| `GET /auth/session` | Session valide | Aucun paramètre. Retourne l’identifiant, le rôle et les permissions du compte. |
+| `GET /auth/account/sessions` | Session valide | Aucun paramètre. Sessions de l’utilisateur courant uniquement. |
+| `DELETE /auth/account/sessions/:id` | Session valide | `id` opaque de session; suppression limitée au compte courant. Le format de l’identifiant n’est pas validé par un DTO de route. |
+| `POST /auth/account/sessions/revoke-all` | Session valide et CSRF si cookie | Aucun corps; révoque les sessions du compte courant. |
+| `POST /auth/account/password`, `/auth/account/password/first-login` | Session valide et CSRF si cookie | Mot de passe actuel, nouveau mot de passe et confirmation de 12–128 caractères; facteur strict optionnel. |
+| `POST /auth/admin/2fa/recovery-codes` | ADMIN/SUPER_ADMIN/EDITEUR, session valide, facteur actuel requis | Code TOTP à six chiffres ou code de secours au format strict. Les codes nouveaux sont affichés une seule fois. |
+| `GET /auth/admin/members` | ADMIN/SUPER_ADMIN uniquement | Aucun paramètre. Coordonnées de gestion des comptes; EDITEUR reçoit 403. |
+| `POST /auth/admin/members` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Nom 3–120, e-mail ≤254, téléphone optionnel ≤32, rôle dans la liste autorisée, jour entier 1–7 si président, permissions limitées à deux valeurs, motif 8–1000, preuve récente par mot de passe ou 2FA. Le mot de passe temporaire aléatoire est renvoyé une seule fois. |
+| `PATCH /auth/admin/members/:id` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Identifiant opaque, statut actif, rôle/jour/permissions stricts et motif 8–1000. La modification invalide les sessions. L’identifiant de route n’a pas de DTO de format. |
+| `PATCH /auth/admin/members/:id/permissions` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Identifiant opaque, tableau d’au plus deux permissions autorisées et motif 8–1000. |
+| `GET /auth/admin/presenters` | ADMIN/SUPER_ADMIN | Aucun paramètre. Intervenants publics. |
+| `POST /auth/admin/presenters`, `PATCH /auth/admin/presenters/:id` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Prénom 1–80, nom 1–120, grade optionnel ≤80, motif 8–1000; identifiant opaque pour la modification. |
+| `PATCH /auth/admin/presenters/:id/retirer` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Identifiant opaque, motif 8–1000. |
+| `GET /attendance/today` | Session active, rôle responsable autorisé | Aucun paramètre. Le serveur détermine le jour et le périmètre à partir du compte. |
+| `GET /attendance/week?start=YYYY-MM-DD` | Session active; semaine limitée au jour du responsable | `start` optionnel, date calendaire valide. Administrateur : période bornée à 366 jours en arrière et 90 jours en avant; président : semaine courante et jour assigné. |
+| `GET /attendance/sheets/:id/summary` | Session active; contrôle serveur du jour et de la feuille | Identifiant opaque de feuille. Les noms restent masqués sauf consultation admin motivée. |
+| `POST /attendance/sheets/:id/names/access` | ADMIN/SUPER_ADMIN; réauthentification et CSRF | Motif dans une liste fermée (`VERIFICATION_DEMANDE`, `SIGNAL_ADMIN`, `CORRECTION_ADMIN`) et preuve récente. Consultation auditée. |
+| `POST /attendance/sheets/:id/entries` | Responsable assigné à cette feuille, rôle/jour/zone contrôlés côté serveur | `fullName` ≤120, sexe et zone énumérés, `clientUuid` UUID, confirmation de doublon booléenne optionnelle. |
+| `PATCH /attendance/sheets/:id/entries/:clientUuid` | Responsable assigné | UUID de pointage, nom ≤120, sexe/zone énumérés; feuille, jour et zone contrôlés côté serveur. |
+| `DELETE /attendance/sheets/:id/entries/:clientUuid` | Responsable assigné | Identifiant opaque de feuille et UUID de pointage; contrôle IDOR côté serveur. |
+| `POST /attendance/sheets/:id/submit` | Responsable assigné | Corps optionnel avec motif texte. **Constat :** ce champ n’a pas de longueur maximale propre; la limite générale reste 64 Kio. À corriger avant d’accepter du texte métier. |
+| `PATCH /attendance/sheets/:id/entries/:clientUuid/correction` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | UUID de pointage, nom ≤120, sexe/zone énumérés, motif dans une liste fermée. L’administrateur ne saisit pas la feuille à la place du responsable. |
+| `GET /attendance/course/:date` | Secrétaire du cours et administrateurs selon rôle | Date ISO `YYYY-MM-DD`, lundi seulement; date vérifiée au niveau du contrôleur, mais pas par DTO de route. |
+| `PUT /attendance/course/:date` | Secrétaire assigné, fenêtre locale du lundi, CSRF si cookie | Résumé et texte biblique ≤10 000 chacun; référence ≤300; thème ≤500; identifiants intervenants formatés; tableau de 30 moniteurs au plus. |
+| `POST /attendance/course-corrections` | ADMIN/SUPER_ADMIN, CSRF si cookie | Date ISO, identifiant de destinataire au format restreint, message 8–1000. |
+| `GET /attendance/course-corrections` | Secrétaire du cours uniquement | Aucun paramètre; messages adressés au compte courant. |
+| `POST /attendance/course-corrections/read` | Secrétaire du cours, CSRF si cookie | Identifiant de demande au format restreint; la demande est recherchée dans le périmètre du compte. |
 
-## Authentification et comptes
+## Limites de validation à traiter
 
-| Route | Accès | Usage |
-|---|---|---|
-| `POST /auth/login`, `/auth/admin/login`, `/auth/subadmin/login` | Public avec limitation de débit | Connexion selon le type de compte; session par cookies sécurisés en production. |
-| `GET /auth/session` | Connecté | Identité et permissions courantes. |
-| `POST /auth/password/forgot`, `/auth/password/reset` | Public avec limitation de débit | Code e-mail uniforme, haché, valable 15 minutes et limité à cinq essais; 2FA exigée lorsqu'elle est active. |
-| `POST /auth/account/password/first-login`, `POST /auth/account/password` | Connecté | Changement initial ou courant du mot de passe. |
-| `GET /auth/account/sessions`, `DELETE /auth/account/sessions/:id`, `POST /auth/refresh`, `POST /auth/logout` | Connecté/cookie de session selon l'action | Consultation et révocation des sessions, rotation du jeton de renouvellement, déconnexion. |
-| `GET/POST/PATCH /auth/admin/members` | ADMIN/SUPER_ADMIN selon la route | Liste des comptes et demandes en attente, création par mot de passe temporaire, approbation/désactivation et modification auditée. |
-| `PATCH /auth/admin/members/:id/permissions` | ADMIN/SUPER_ADMIN | Attribution auditée des permissions autorisées au sous-administrateur. |
-| `POST /auth/admin/2fa/recovery-codes` | Administrateur avec second facteur | Régénération confirmée des codes de secours. |
+- La validation stricte du corps JSON est active globalement, mais certaines méthodes reçoivent `@Req() req: any`, `@Res() response: any`, et plusieurs paramètres `@Param()` n’ont pas de DTO avec un validateur UUID/format. Ces cas ne sont pas des champs libres de corps, mais rendent l’inventaire TypeScript/validation non entièrement strict : statut **Partiel** dans `CHECKLIST_AUDIT.md`.
+- `SubmitDto.reason` n’a pas de `MaxLength`; la limite de corps globale est 64 Kio, supérieure à une limite métier attendue.
+- Il n’existe aucune route d’export CSV/Excel/PDF, d’upload ou de téléchargement communautaire dans l’API active; aucune protection d’export ne doit être présumée pour une future route.
+- Les réponses JSON sérialisent les noms comme des valeurs de données. Angular les affiche par interpolation normale; le test Playwright vérifie l’échappement pour des champs de noms existants.
+- Les contrôles d’accès et les limites de débit sont côté API. Les réglages Nginx sont documentés dans `infra/nginx-edge.conf`, mais ne sont pas validés par `nginx -t` dans cet environnement.
 
-La demande publique ne permet pas d'obtenir un compte actif : l'activation par ADMIN/SUPER_ADMIN est requise. Aucune inscription fidèle, communauté, média ni messagerie n'est disponible.
+## Politique de sécurité
 
-## Présences et programme
-
-Les contrôles sont appliqués côté serveur à chaque route et relus depuis le compte actif. Les responsables sont limités à leur jour et leur fonction. L'administrateur supervise les totaux; toute consultation de noms requiert un motif et laisse une trace d'audit. Les routes principales couvrent `/attendance/today`, `/attendance/week`, les feuilles `/attendance/sheets/:id` (résumé, noms, entrées, correction, soumission, historique et export) et le programme `/attendance/course/:date`.
-
-Les dates, zones, doublons et fenêtres horaires sont contrôlés côté serveur. Les totaux ne viennent pas du client. Les noms anciens sont anonymisés après la durée de rétention configurée; les totaux figés sont conservés.
-
-La documentation de référence est ce fichier `docs/API.md`. L'API ne publie pas de route Swagger/OpenAPI dans aucun environnement. Les tests de sécurité vérifient que les anciennes routes de documentation renvoient 404.
+Les écritures avec cookies requièrent la preuve CSRF. CORS de production est limité à l’origine `APP_PUBLIC_URL`. En production les cookies de session sont `HttpOnly`, `Secure` et `SameSite=Strict`. Aucun jeton de session n’est stocké dans `localStorage`, `sessionStorage` ou IndexedDB. Les routes de documentation répondent 404; tests E2E associés dans `apps/api/test/security.e2e-spec.ts`.

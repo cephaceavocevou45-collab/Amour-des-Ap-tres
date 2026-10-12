@@ -1,5 +1,5 @@
 import { ExecutionContext } from '@nestjs/common';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { JwtAuthGuard } from './auth.guard';
 import { CsrfGuard } from './csrf.guard';
 import { RateLimitGuard } from './rate-limit.guard';
@@ -14,7 +14,7 @@ function context(request:any){return {switchToHttp:()=>({getRequest:()=>request}
 
 describe('security guards',()=>{
   const originalSecret=process.env.JWT_ACCESS_SECRET;
-  beforeEach(()=>{process.env.JWT_ACCESS_SECRET='test-key-that-is-long-enough-for-hmac-signing';});
+  beforeEach(()=>{process.env.JWT_ACCESS_SECRET=randomBytes(32).toString('base64url');});
   afterAll(()=>{if(originalSecret===undefined)delete process.env.JWT_ACCESS_SECRET;else process.env.JWT_ACCESS_SECRET=originalSecret;});
 
   it('uses the current database role instead of a stale role embedded in a token',async()=>{

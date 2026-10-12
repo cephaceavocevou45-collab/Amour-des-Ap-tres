@@ -3,7 +3,7 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsS
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from './prisma.service';
 import { JwtAuthGuard } from './auth.guard';
-import { UserRole } from './generated/prisma';
+import { PersonRoleName, UserRole } from './generated/prisma';
 import * as argon2 from 'argon2';
 import { RateLimitGuard } from './rate-limit.guard';
 import { createTotpSecret, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, totpUri, verifyTotp } from './totp';
@@ -18,12 +18,13 @@ class LoginDto {
   @IsString() @MinLength(1) @MaxLength(128) password!:string;
   @IsOptional() @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) totp?:string;
 }
-class ResponsibleRegistrationDto { @IsString() @Length(3,120) fullName!:string; @IsEmail() @MaxLength(254) email!:string; @IsString() @Matches(/^\+[1-9]\d{7,14}$/) phone!:string; @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE']) requestedRole!:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsString() @MinLength(12) @MaxLength(128) password!:string; }
 class SubAdminPermissionsDto implements ReauthProof { @IsArray() @ArrayMaxSize(2) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE'],{each:true}) permissions!:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string; }
 class RecoveryCodesDto { @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) code!:string; }
 class ChangePasswordDto { @IsString() @MaxLength(128) currentPassword!:string; @IsString() @MinLength(12) @MaxLength(128) newPassword!:string; @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string; @IsOptional() @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) factor?:string; }
 class CreateManagedAccountDto implements ReauthProof { @IsString() @Length(3,120) fullName!:string; @IsEmail() @MaxLength(254) email!:string; @IsOptional() @IsString() @MaxLength(32) phone?:string; @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','EDITEUR']) role!:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(2) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE'],{each:true}) permissions?:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string; }
 class UpdateManagedAccountDto implements ReauthProof { @IsOptional() @IsBoolean() active?:boolean; @IsOptional() @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','EDITEUR']) role?:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(2) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE'],{each:true}) permissions?:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string; }
+class ManagePresenterDto implements ReauthProof { @IsString() @Length(1,80) firstName!:string; @IsString() @Length(1,120) lastName!:string; @IsOptional() @IsString() @MaxLength(80) grade?:string|null; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) reauthFactor?:string; }
+class RemovePresenterDto implements ReauthProof { @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) reauthFactor?:string; }
 
 const forbiddenPasswords=new Set(['password1234','123456789012','azerty123456','qwerty123456','motdepasse123']);
 function b64(value:string){return Buffer.from(value).toString('base64url');}
@@ -39,23 +40,6 @@ function signToken(user:{id:string;role:UserRole;sessionVersion:number},family:s
 export class AuthService {
   private readonly loginFailures=new Map<string,{count:number}>();
   constructor(private prisma:PrismaService,@Optional() private readonly emailQuota?:EmailQuotaService,private readonly reauth?:ReauthService){}
-  async requestResponsibleAccount(dto:ResponsibleRegistrationDto){
-    const email=dto.email.trim().toLowerCase(),fullName=dto.fullName.trim(),role=dto.requestedRole as UserRole;
-    if(role!==UserRole.SECRETAIRE_PRESENCE&&role!==UserRole.RESPONSABLE_SEMAINE)throw new BadRequestException('Choisissez une responsabilité liée aux présences.');
-    if(forbiddenPasswords.has(dto.password.toLowerCase()))throw new BadRequestException('Choisissez un mot de passe moins prévisible.');
-    if(fullName.length<3)throw new BadRequestException('Saisissez votre nom complet.');
-    if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(dto.assignedDayOfWeek);
-    else if(dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
-    const passwordHash=await argon2.hash(dto.password,{type:argon2.argon2id});
-    try{
-      const created=await this.prisma.$transaction(async tx=>{
-        const account=await tx.user.create({data:{fullName,email,phone:dto.phone.trim(),passwordHash,role,assignedDayOfWeek:role===UserRole.RESPONSABLE_SEMAINE?dto.assignedDayOfWeek:null,active:false,mustChangePassword:false,permissions:[]}});
-        await tx.auditLog.create({data:{action:'DEMANDE_ACCES_PRESENCES',entity:'UserAccess',entityId:account.id,after:{role,assignedDayOfWeek:account.assignedDayOfWeek}}});
-        return account;
-      });
-      return {message:'Votre demande a été transmise. L’accès aux présences sera ouvert après validation de l’administration paroissiale, généralement sous 48 heures.'};
-    }catch(error:any){if(error?.code==='P2002')return {message:'Votre demande a été transmise. L’accès aux présences sera ouvert après validation de l’administration paroissiale, généralement sous 48 heures.'};throw error;}
-  }
   async login(dto:LoginDto,adminOnly=false,ip='unknown',subAdminOnly=false){const started=Date.now();const email=dto.email.trim().toLowerCase(),key=`${ip}:${createHash('sha256').update(email).digest('hex')}`,prior=this.loginFailures.get(key)?.count??0;if(prior>=3)await new Promise(resolve=>setTimeout(resolve,Math.min(30_000,500*2**Math.min(prior-3,6))));const user=await this.prisma.user.findUnique({where:{email}});const generic='Adresse e-mail ou mot de passe invalide.';const good=user?await argon2.verify(user.passwordHash,dto.password).catch(()=>false):await argon2.verify(await AuthService.dummyHash(),dto.password).catch(()=>false);let authorized=!!user&&user.active&&good;if(authorized&&adminOnly)authorized=subAdminOnly?user!.role==='EDITEUR':['ADMIN','SUPER_ADMIN'].includes(user!.role);if(authorized&&!adminOnly)authorized=['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(user!.role);if(authorized&&(adminOnly||(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(user!.role)&&process.env['2FA_REQUIS_RESPONSABLES']==='true'))){const code=dto.totp??'';let valid=!!user!.totpSecret&&verifyTotp(decryptTotpSecret(user!.totpSecret!),code);if(!valid&&user!.totpSecret)valid=await this.consumeRecoveryCode(user!.id,code);authorized=valid;}if(!authorized){if(this.loginFailures.size>=20000&&!this.loginFailures.has(key))this.loginFailures.delete(this.loginFailures.keys().next().value!);this.loginFailures.set(key,{count:Math.min(prior+1,12)});await this.prisma.auditLog.create({data:{userId:user?.id,action:'CONNEXION_ECHOUEE',entity:'LoginAttempt',entityId:createHash('sha256').update(email).digest('hex'),ip}}).catch(()=>undefined);await new Promise(resolve=>setTimeout(resolve,Math.max(0,500-(Date.now()-started))));throw new UnauthorizedException(generic);}this.loginFailures.delete(key);await this.prisma.user.update({where:{id:user!.id},data:{failedAttempts:0,lockedUntil:null}});await this.prisma.auditLog.create({data:{userId:user!.id,action:'CONNEXION_REUSSIE',entity:'UserSecurity',entityId:user!.id,ip}});return this.session(user!);}
   private static readonly fakeHashPromise=argon2.hash('not-a-real-user-password-value',{type:argon2.argon2id});
   private static dummyHash(){return this.fakeHashPromise;}
@@ -114,6 +98,52 @@ export class AuthService {
       if(approvalPending&&dto.active===false)await tx.auditLog.create({data:{userId:actorId,action:'DEMANDE_ACCES_PRESENCES_REFUSEE',entity:'UserAccess',entityId:id,reason}});
       return {id:updated.id,role:updated.role,active:updated.active,permissions:updated.permissions,assignedDayOfWeek:updated.assignedDayOfWeek};
     });
+  }
+  async listManagedPresenters(){
+    const people=await this.prisma.person.findMany({where:{active:true,roles:{some:{role:PersonRoleName.PRESENTATION_THEME}}},include:{roles:true},orderBy:[{displayOrder:'asc'},{lastName:'asc'},{firstName:'asc'}]});
+    // Normalize the previous seed format in the admin editor too. Saving any
+    // edit persists the clean family name and grade through updateManagedPresenter.
+    return people.map(person=>{
+      const legacyDehoto=/^DEHOTO\s+/i.test(person.lastName);
+      return {...person,lastName:legacyDehoto?person.lastName.replace(/^DEHOTO\s+/i,''):person.lastName,grade:person.grade??(legacyDehoto?'Dehoto':null)};
+    });
+  }
+  async createManagedPresenter(dto:ManagePresenterDto,actorId:string){
+    if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');
+    await this.reauth.requireRecentProof(actorId,dto);
+    const firstName=dto.firstName.trim(),lastName=dto.lastName.trim(),grade=dto.grade?.trim()||null,reason=dto.reason.trim();
+    const duplicate=await this.prisma.person.findFirst({where:{firstName,lastName,active:true,roles:{some:{role:PersonRoleName.PRESENTATION_THEME}}},select:{id:true}});
+    if(duplicate)throw new BadRequestException('Cette personne figure déjà parmi les intervenants du thème.');
+    const order=await this.prisma.person.aggregate({_max:{displayOrder:true}});
+    return this.prisma.$transaction(async tx=>{
+      const person=await tx.person.create({data:{firstName,lastName,grade,displayOrder:(order._max.displayOrder??0)+1,roles:{create:{role:PersonRoleName.PRESENTATION_THEME}}},include:{roles:true}});
+      await tx.auditLog.create({data:{userId:actorId,action:'INTERVENANT_BIBLIQUE_AJOUTE',entity:'Person',entityId:person.id,after:{firstName,lastName,grade,role:PersonRoleName.PRESENTATION_THEME},reason}});
+      return person;
+    });
+  }
+  async updateManagedPresenter(id:string,dto:ManagePresenterDto,actorId:string){
+    if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');
+    await this.reauth.requireRecentProof(actorId,dto);
+    const person=await this.prisma.person.findFirst({where:{id,active:true,roles:{some:{role:PersonRoleName.PRESENTATION_THEME}}},select:{id:true,firstName:true,lastName:true,grade:true}});
+    if(!person)throw new NotFoundException('Cet intervenant n’est plus dans la liste.');
+    const firstName=dto.firstName.trim(),lastName=dto.lastName.trim(),grade=dto.grade?.trim()||null,reason=dto.reason.trim();
+    return this.prisma.$transaction(async tx=>{
+      const updated=await tx.person.update({where:{id},data:{firstName,lastName,grade},include:{roles:true}});
+      await tx.auditLog.create({data:{userId:actorId,action:'INTERVENANT_BIBLIQUE_MODIFIE',entity:'Person',entityId:id,before:{firstName:person.firstName,lastName:person.lastName,grade:person.grade},after:{firstName,lastName,grade},reason}});
+      return updated;
+    });
+  }
+  async removeManagedPresenter(id:string,dto:RemovePresenterDto,actorId:string){
+    if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');
+    await this.reauth.requireRecentProof(actorId,dto);
+    const person=await this.prisma.person.findFirst({where:{id,active:true,roles:{some:{role:PersonRoleName.PRESENTATION_THEME}}},select:{id:true,firstName:true,lastName:true,grade:true}});
+    if(!person)throw new NotFoundException('Cet intervenant n’est plus dans la liste.');
+    const reason=dto.reason.trim();
+    await this.prisma.$transaction(async tx=>{
+      await tx.personRole.delete({where:{personId_role:{personId:id,role:PersonRoleName.PRESENTATION_THEME}}});
+      await tx.auditLog.create({data:{userId:actorId,action:'INTERVENANT_BIBLIQUE_RETIRE',entity:'Person',entityId:id,before:{firstName:person.firstName,lastName:person.lastName,grade:person.grade,role:PersonRoleName.PRESENTATION_THEME},reason}});
+    });
+    return {id,removed:true};
   }
   async sessions(userId:string,currentToken?:string){const rows=await this.prisma.refreshToken.findMany({where:{userId},orderBy:{createdAt:'desc'},select:{id:true,createdAt:true,expiresAt:true,revokedAt:true,hashedToken:true,userAgent:true}});const currentHash=currentToken?createHash('sha256').update(currentToken).digest('hex'):'';return rows.map(({hashedToken,userAgent,...row})=>({...row,isCurrent:!!currentHash&&hashedToken===currentHash,device:userAgent?userAgent.slice(0,180):'Appareil non identifié'}));}
   async revokeSession(userId:string,id:string){const result=await this.prisma.refreshToken.updateMany({where:{id,userId,revokedAt:null},data:{revokedAt:new Date()}});if(!result.count)throw new ForbiddenException('Cette session ne vous appartient pas ou est déjà fermée.');await this.prisma.auditLog.create({data:{userId,action:'SESSION_REVOQUEE',entity:'RefreshToken',entityId:id}});return {id,revoked:true};}
@@ -186,7 +216,6 @@ export class AuthController {
   constructor(private auth:AuthService){}
   private setSessionCookies(response:any,session:{accessToken:string;refreshToken:string}){const secure=process.env.NODE_ENV==='production';response.cookie('paroisse_access',session.accessToken,sessionCookieOptions(secure,600_000));response.cookie('paroisse_refresh',session.refreshToken,sessionCookieOptions(secure,7*24*60*60_000));response.cookie('paroisse_csrf',randomBytes(32).toString('base64url'),{httpOnly:false,secure,sameSite:'strict',path:'/',maxAge:7*24*60*60_000});}
   private publicSession(session:any){return {expiresIn:session.expiresIn,user:session.user};}
-  @Post('register') register(@Body() dto:ResponsibleRegistrationDto){return this.auth.requestResponsibleAccount(dto);}
   @Post('password/forgot') async forgotPassword(@Body() dto:ForgotPasswordDto,@Req() req:any){await this.auth.logPasswordResetRequest(dto.email,req.ip);return this.auth.requestPasswordReset(dto.email);}
   @Post('password/reset') resetPassword(@Body() dto:ResetPasswordDto){return this.auth.resetPassword(dto);}
   @Post('login') async login(@Body() dto:LoginDto,@Req() req:any,@Res({passthrough:true}) response:any){const session=await this.auth.login(dto,false,req.ip);await this.auth.recordSessionDevice(session.refreshToken,req.ip??'unknown',req.headers['user-agent']??'');this.setSessionCookies(response,session);return this.publicSession(session);}
@@ -203,6 +232,10 @@ export class AuthController {
   private cookieValue(header:string|undefined,name:string){return header?.split(';').map((part:string)=>part.trim()).find((part:string)=>part.startsWith(`${name}=`))?.slice(name.length+1);}
   @UseGuards(JwtAuthGuard) @Post('admin/2fa/recovery-codes') recoveryCodes(@Body() body:RecoveryCodesDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN','EDITEUR'].includes(req.user.role))throw new ForbiddenException('Action réservée à l’administration.');return this.auth.regenerateRecoveryCodes(req.user.sub,body.code);}
   @UseGuards(JwtAuthGuard) @Get('admin/members') members(@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('La liste des comptes est réservée aux personnes administratrices.');return this.auth.listManagedAccounts();}
+  @UseGuards(JwtAuthGuard) @Get('admin/presenters') presenters(@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('La gestion des intervenants est réservée à l’administration.');return this.auth.listManagedPresenters();}
+  @UseGuards(JwtAuthGuard) @Post('admin/presenters') createPresenter(@Body() body:ManagePresenterDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur peut ajouter un intervenant.');return this.auth.createManagedPresenter(body,req.user.sub);}
+  @UseGuards(JwtAuthGuard) @Patch('admin/presenters/:id') updatePresenter(@Param('id') id:string,@Body() body:ManagePresenterDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur peut modifier un intervenant.');return this.auth.updateManagedPresenter(id,body,req.user.sub);}
+  @UseGuards(JwtAuthGuard) @Patch('admin/presenters/:id/retirer') removePresenter(@Param('id') id:string,@Body() body:RemovePresenterDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur peut retirer un intervenant.');return this.auth.removeManagedPresenter(id,body,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Post('admin/members') createManagedAccount(@Body() body:CreateManagedAccountDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur principal peut créer les comptes responsables.');return this.auth.createManagedAccount(body,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Patch('admin/members/:id') updateManagedAccount(@Param('id') id:string,@Body() body:UpdateManagedAccountDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur principal peut modifier les comptes responsables.');return this.auth.updateManagedAccount(id,body,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Patch('admin/members/:id/permissions') subAdminPermissions(@Param('id') id:string,@Body() body:SubAdminPermissionsDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur principal peut attribuer ces autorisations.');return this.auth.setSubAdminPermissions(id,body.permissions,req.user.sub,body.reason,body);}
