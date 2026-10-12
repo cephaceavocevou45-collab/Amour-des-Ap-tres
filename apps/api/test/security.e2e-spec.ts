@@ -10,6 +10,7 @@ import { UserRole, SheetType, SheetStatus } from '../src/generated/prisma';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 import { CsrfGuard } from '../src/csrf.guard';
+import { noStoreResponses } from '../src/http-security';
 import { decryptTotpSecret, encryptTotpSecret } from '../src/totp';
 import * as attendanceModule from '../src/attendance';
 import { completeAdminTwoFactorEnrollment, prepareAdminTwoFactorEnrollment, resetAdminTwoFactor } from '../scripts/admin-2fa-operations';
@@ -41,6 +42,7 @@ beforeAll(async()=>{
   const logger={log:capture,error:capture,warn:capture,debug:capture,verbose:capture,fatal:capture};
   for(const method of ['log','info','warn','error','debug'] as const)jest.spyOn(console,method).mockImplementation((...args:any[])=>capture(...args));
   app=await NestFactory.create(AppModule,{logger:logger as any,bodyParser:false});
+  app.use(noStoreResponses);
   app.use(express.json({limit:'64kb'}));app.use(express.urlencoded({extended:false,limit:'64kb'}));
   app.getHttpAdapter().getInstance().set('trust proxy','loopback');
   app.setGlobalPrefix('api/v1');
@@ -48,6 +50,15 @@ beforeAll(async()=>{
   app.useGlobalGuards(new CsrfGuard());
   await app.listen(0,'127.0.0.1');
   baseUrl=`http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
+  globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const response=await nativeFetch(input,init);
+    const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);
+    if(url.origin===baseUrl&&(/^\/api\//.test(url.pathname)||url.pathname==='/health'||url.pathname==='/ready')){
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('pragma')).toBe('no-cache');
+    }
+    return response;
+  };
   prisma=app.get(PrismaService);
   await prisma.$connect();
 });
@@ -55,7 +66,7 @@ afterAll(async()=>{
   try{
     if(prisma){await prisma.auditLog.deleteMany({where:{OR:[{userId:{in:userIds}},{entityId:{in:sheetIds}}]}});await prisma.attendanceEntry.deleteMany({where:{sheetId:{in:sheetIds}}});await prisma.attendanceSheet.deleteMany({where:{id:{in:sheetIds}}});await prisma.user.deleteMany({where:{id:{in:userIds}}});}
   }finally{
-    try{if(app)await app.close();}finally{if(prisma)await prisma.$disconnect();observedLogs.length=0;sensitiveCanaries.clear();jest.restoreAllMocks();}
+    try{if(app)await app.close();}finally{if(prisma)await prisma.$disconnect();globalThis.fetch=nativeFetch;observedLogs.length=0;sensitiveCanaries.clear();jest.restoreAllMocks();}
   }
 });
 

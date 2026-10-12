@@ -88,7 +88,7 @@ services:
     depends_on:
       api: {condition: service_healthy}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://172.33.0.2:8080/healthz || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -106,8 +106,8 @@ services:
     networks:
       app:
         ipv4_address: 172.31.0.2
-      tunnel:
-        ipv4_address: 172.32.0.2
+      tunnel-origin:
+        ipv4_address: 172.33.0.2
 
   cloudflared:
     image: cloudflare/cloudflared:2026.10.0
@@ -126,6 +126,8 @@ services:
     cap_drop: [ALL]
     logging: *rotated_logs
     networks:
+      tunnel-origin:
+        ipv4_address: 172.33.0.3
       tunnel:
         ipv4_address: 172.32.0.3
 
@@ -165,6 +167,11 @@ networks:
     name: amour-des-apotres_tunnel
     ipam:
       config: [{subnet: 172.32.0.0/24}]
+  tunnel-origin:
+    name: amour-des-apotres_tunnel-origin
+    internal: true
+    ipam:
+      config: [{subnet: 172.33.0.0/24}]
 
 volumes:
   postgres_data:

@@ -150,10 +150,19 @@ Depuis l'ajout de la vérification stricte d'`Origin` en production, les vérifi
 
 Les résultats ne valent pas certification : aucun test navigateur n'a été relancé après le changement Origin; aucun test de conteneur, Nginx/TLS, pentest indépendant, téléphone ou production n'a eu lieu. La limite de débit est mono-processus. Ne pas utiliser cette application pour des données réelles avant les vérifications humaines listées dans `docs/CHECKLIST_AUDIT.md` et `docs/CHECKLIST_PRODUCTION.md`.
 
-## Préparation Cloudflare Tunnel — 12 octobre 2026
+## Préparation Cloudflare Tunnel — revue locale mise à jour le 12 octobre 2026
 
-- Compose sans ports publiés avec `postgres`, `api`, `web` (Angular + reverse proxy API), `cloudflared` et `migrate` à la demande. Réseaux `data`/`app` isolés; le tunnel n'atteint que Nginx. Le jeton provient de `CLOUDFLARED_TOKEN` et est fourni à cloudflared par la variable runtime `TUNNEL_TOKEN`.
-- Nginx fait confiance à `CF-Connecting-IP` uniquement depuis `172.32.0.3` (pair cloudflared fixé sur le réseau tunnel), remplace XFF/CF-Connecting-IP vers l'API par l'adresse contrôlée; l'API ne fait confiance qu'au pair web `172.31.0.2`. Test API utilisant un vrai serveur Express local : headers XFF/CF forgés ne changent pas `req.ip` et ne déplacent pas le quota d'IP; test de compteurs confirme 10 connexions permises puis 429 à la 11e.
-- Middleware API global : `Cache-Control: no-store`, `Pragma: no-cache`; E2E contrôle endpoints santé, public et authentifié. Seuls assets de noms hachés ont cache immutable dans Nginx; autres ressources et HTML sans cache.
+- Compose sans ports publiés avec `postgres`, `api`, `web` (Angular + reverse proxy API), `cloudflared` et `migrate` à la demande. `data`, `app` et `tunnel-origin` sont internes; seul `cloudflared` rejoint aussi le réseau sortant `tunnel`. Le jeton provient de `CLOUDFLARED_TOKEN` et est fourni à cloudflared par la variable runtime `TUNNEL_TOKEN`.
+- Nginx fait confiance à `CF-Connecting-IP` uniquement depuis `172.33.0.3` sur `tunnel-origin`, remplace XFF/CF-Connecting-IP vers l'API par l'adresse contrôlée; l'API ne fait confiance qu'au pair web `172.31.0.2`. Un vrai serveur Express local a reçu des en-têtes XFF/CF forgés : `req.ip` reste loopback et le quota ne change pas; 10 requêtes sont admises, la 11e reçoit 429.
+- Middleware API global : `Cache-Control: no-store`, `Pragma: no-cache`; un intercepteur E2E vérifie ces deux valeurs sur chaque requête d'API émise par la suite. Seuls les noms d'assets hachés (y compris le format Angular `main-<hash>.js`) ont cache immutable dans Nginx; autres ressources et HTML sans cache. Les règles Nginx masquent les en-têtes API redondants avant d'ajouter une seule politique de sécurité d'origine.
 - Préparation locale ne constitue pas validation de production : Docker, `nginx -t`, Cloudflare dashboard/tunnel réel, domaine, règles WAF/cache/Access/limitation, HSTS et mobile hors réseau paroissial sont non testés. La procédure et les commandes exactes sont dans `docs/DEPLOIEMENT_CLOUDFLARE.md`.
 - Cloudflare termine TLS public et voit le trafic en clair à son entrée; l'information de confidentialité doit le dire.
+
+### Résultats d'exécution locale — même revue
+
+- `npm.cmd run lint` : réussi (TypeScript API et web).
+- `npm.cmd run build` : réussi (génération Prisma, build NestJS et copie du client, build Angular).
+- `npm.cmd test` : outils **26/26** et API **47/47** (12 suites), soit **73/73**; `npm.cmd run test:tools` relancé après le dernier changement Nginx : **26/26**.
+- `$env:NODE_OPTIONS='--max-old-space-size=4096'; npm.cmd run test:e2e` : **26/26** sur `paroisse_test`; 33 migrations trouvées, aucune en attente. Le test vérifie `no-store` pour chaque requête API effectuée pendant la suite. Aucune migration n'était à appliquer; `DATABASE_URL` n'a pas été modifiée.
+- `npm.cmd run test:playwright` : reconstruction Angular actuelle puis **36/36** Chromium.
+- **Non testés** : Docker/Compose (`docker` absent), Nginx (`nginx` absent), vrai tunnel/domaine, règles du tableau Cloudflare et en-têtes/cookies vus depuis Internet. Les cookies de production et politiques Helmet ont des tests unitaires; cela ne prouve pas le chemin TLS réel. Commandes Linux : `docker compose --env-file .env -f infra/compose.yaml config --quiet`, `docker compose --env-file .env -f infra/compose.yaml build --pull`, `docker compose --env-file .env -f infra/compose.yaml up -d`, `docker compose --env-file .env -f infra/compose.yaml exec web nginx -t`, puis `curl -sSI https://<DOMAINE>/health` et essais externes selon `docs/DEPLOIEMENT_CLOUDFLARE.md`.
