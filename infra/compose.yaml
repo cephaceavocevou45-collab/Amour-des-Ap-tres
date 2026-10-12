@@ -9,10 +9,10 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the production environment}
-      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in the production environment}
-      POSTGRES_MIGRATION_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD:?Set POSTGRES_MIGRATION_PASSWORD in the production environment}
-      POSTGRES_APP_DATABASE: ${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE in the production environment}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}
+      POSTGRES_MIGRATION_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD:?Set POSTGRES_MIGRATION_PASSWORD}
+      POSTGRES_APP_DATABASE: ${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -33,8 +33,7 @@ services:
     logging: &rotated_logs
       driver: json-file
       options: {max-size: "10m", max-file: "5"}
-    networks:
-      - data
+    networks: [data]
 
   api:
     build:
@@ -47,11 +46,12 @@ services:
       NODE_OPTIONS: --max-old-space-size=1536
       DATABASE_URL: postgresql://paroisse_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
       PORT: "3000"
+      HOST: 0.0.0.0
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:?Set the exact public HTTPS origin}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Set TOTP_ENCRYPTION_KEY}
       RESEND_API_KEY: ${RESEND_API_KEY:?Set RESEND_API_KEY}
-      MAIL_FROM: ${MAIL_FROM:?Set a verified MAIL_FROM address}
+      MAIL_FROM: ${MAIL_FROM:?Set MAIL_FROM}
       2FA_REQUIS_RESPONSABLES: ${2FA_REQUIS_RESPONSABLES:-false}
       RESEND_DAILY_LIMIT: ${RESEND_DAILY_LIMIT:-100}
       RESEND_ALERT_AT: ${RESEND_ALERT_AT:-80}
@@ -71,23 +71,24 @@ services:
     mem_limit: 2048m
     cpus: 0.75
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+    tmpfs: [/tmp:rw,noexec,nosuid,size=128m,mode=1777]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     logging: *rotated_logs
     networks:
       data: {}
-      edge:
-        ipv4_address: 172.30.0.3
+      app:
+        ipv4_address: 172.31.0.3
 
   web:
     build:
       context: ..
       dockerfile: infra/Dockerfile.web
     restart: unless-stopped
+    depends_on:
+      api: {condition: service_healthy}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -96,54 +97,72 @@ services:
     cpus: 0.10
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
-      - /var/cache/nginx:rw,noexec,nosuid,size=16m,uid=101,gid=101
-      - /var/run:rw,noexec,nosuid,size=4m,uid=101,gid=101
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    logging: *rotated_logs
-    networks: [edge]
-
-  nginx:
-    image: nginxinc/nginx-unprivileged:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "80:8080"
-      - "443:8443"
-    volumes:
-      - ./nginx-main.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx-edge.conf:/etc/nginx/conf.d/default.conf:ro
-      - ${TLS_CERT_DIR:?Set TLS_CERT_DIR to the host Let’s Encrypt configuration directory}:/etc/nginx/tls:ro
-    depends_on:
-      api: {condition: service_healthy}
-      web: {condition: service_healthy}
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1:8443/healthz || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    mem_limit: 256m
-    cpus: 0.25
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
-      - /var/cache/nginx:rw,noexec,nosuid,size=16m,uid=101,gid=101
-      - /var/run:rw,noexec,nosuid,size=4m,uid=101,gid=101
+      - /tmp:rw,noexec,nosuid,size:16m,mode=1777
+      - /var/cache/nginx:rw,noexec,nosuid,size:16m,uid:101,gid:101
+      - /var/run:rw,noexec,nosuid,size:4m,uid:101,gid:101
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     logging: *rotated_logs
     networks:
-      edge:
-        ipv4_address: 172.30.0.2
+      app:
+        ipv4_address: 172.31.0.2
+      tunnel:
+        ipv4_address: 172.32.0.2
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    user: "65532:65532"
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TOKEN:?Set CLOUDFLARED_TOKEN}"]
+    depends_on:
+      web: {condition: service_healthy}
+    mem_limit: 256m
+    cpus: 0.25
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=16m]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging: *rotated_logs
+    networks:
+      tunnel:
+        ipv4_address: 172.32.0.3
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+      target: migrate
+    profiles: [maintenance]
+    user: node
+    command: ["npm", "run", "prisma:deploy", "--workspace", "@paroisse/api"]
+    environment:
+      NODE_ENV: production
+      npm_config_cache: /tmp/npm-cache
+      DATABASE_URL: postgresql://paroisse_migrator:${POSTGRES_MIGRATION_PASSWORD:?Set POSTGRES_MIGRATION_PASSWORD}@postgres:5432/${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE}?schema=public
+    depends_on:
+      postgres: {condition: service_healthy}
+    mem_limit: 1536m
+    cpus: 0.50
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size:128m]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging: *rotated_logs
+    networks: [data]
 
 networks:
   data:
+    name: amour-des-apotres_data
     internal: true
-  edge:
+  app:
+    name: amour-des-apotres_app
+    internal: true
     ipam:
-      config:
-        - subnet: 172.30.0.0/24
+      config: [{subnet: 172.31.0.0/24}]
+  tunnel:
+    name: amour-des-apotres_tunnel
+    ipam:
+      config: [{subnet: 172.32.0.0/24}]
 
 volumes:
   postgres_data:
