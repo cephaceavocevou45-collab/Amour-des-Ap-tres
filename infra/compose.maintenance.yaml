@@ -88,4 +88,4 @@ networks:
     name: amour-des-apotres_data
   edge:
     external: true
-    name: amour-des-apotres_edge
+    name: amour-des-apotres_tunnel

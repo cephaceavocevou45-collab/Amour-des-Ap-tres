@@ -72,6 +72,13 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   it('ne publie aucune route de documentation API ni de schéma OpenAPI',async()=>{
     for(const path of ['/api/docs','/api/docs-json','/api/docs-yaml','/api-json','/docs','/api/v1/api/docs','/openapi.json','/openapi.yaml','/swagger.json'])expect((await call(path)).status).toBe(404);
   });
+  it('marks public, authenticated, health and readiness API responses as non-cacheable',async()=>{
+    const admin=await addUser(UserRole.ADMIN),token=jwt(admin);
+    for(const result of [await fetch(`${baseUrl}/health`),await fetch(`${baseUrl}/ready`),await fetch(`${baseUrl}/api/v1/public/leader`),await call('/auth/session',{token})]){
+      expect(result.headers.get('cache-control')).toBe('no-store');
+      expect(result.headers.get('pragma')).toBe('no-cache');
+    }
+  });
   it('does not create accounts through public self-registration',async()=>{
     const email=testEmail(),before=await prisma.user.count({where:{email}});
     for(const body of [

@@ -110,10 +110,12 @@ services:
         ipv4_address: 172.32.0.2
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.0
     user: "65532:65532"
     restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TOKEN:?Set CLOUDFLARED_TOKEN}"]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?Set CLOUDFLARED_TOKEN}
     depends_on:
       web: {condition: service_healthy}
     mem_limit: 256m
