@@ -240,6 +240,18 @@ test('l’emblème de connexion et d’inscription conserve le fond ivoire du po
   }
 });
 
+test('le point 02 de l’accueil affiche l’emblème fourni de la paroisse', async ({ page }) => {
+  await page.goto('/');
+  const emblem = page.locator('.leader-mark-seal img');
+  await expect(emblem).toHaveAttribute('src', 'paroisse-emblem-720.webp');
+  await expect(emblem).toHaveAttribute('alt', 'Emblème de la paroisse Amour des Apôtres');
+  await expect(page.locator('.leader-mark-seal source')).toHaveAttribute('srcset', 'paroisse-emblem-480.webp 480w, paroisse-emblem-720.webp 720w');
+  await expect.poll(() => emblem.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => emblem.evaluate(image => Math.round(image.getBoundingClientRect().width))).toBeGreaterThan(230);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => emblem.evaluate(image => Math.round(image.getBoundingClientRect().width))).toBeGreaterThan(180);
+});
+
 test('l’ordre de lecture est logique, les images ont un texte alternatif et le menu reste navigable', async ({ page }) => {
   await prepare(page);
   await page.goto('/');

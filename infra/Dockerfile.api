@@ -24,7 +24,7 @@ COPY apps/api/prisma/schema.prisma apps/api/prisma/schema.prisma
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/shared/src packages/shared/src
-RUN npm ci --omit=dev \
+RUN npm ci --omit=dev --omit=optional \
  && node -e "for (const name of ['prisma', '@nestjs/cli', 'jest']) { try { require.resolve(name + '/package.json'); console.error('Development package leaked into API runtime: ' + name); process.exitCode = 1; } catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error; } }"
 
 FROM node:22-alpine AS runtime

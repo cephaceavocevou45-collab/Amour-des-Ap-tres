@@ -4,7 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { CsrfGuard } from './csrf.guard';
-import { applySecurityHeaders, assertProductionConfiguration, corsOrigin } from './runtime-config';
+import { applySecurityHeaders, assertProductionConfiguration, corsOrigin, trustedProxyDepth } from './runtime-config';
 import { SafeExceptionFilter } from './safe-exception.filter';
 import { isTrustedProxyAddress, noStoreResponses } from './http-security';
 import * as express from 'express';
@@ -17,7 +17,8 @@ async function bootstrap() {
   app.use(express.json({limit:'64kb'}));
   app.use(express.urlencoded({extended:false,limit:'64kb'}));
   app.enableShutdownHooks();
-  if(process.env.NODE_ENV==='production')app.getHttpAdapter().getInstance().set('trust proxy',isTrustedProxyAddress);
+  if(process.env.NODE_ENV==='production')app.getHttpAdapter().getInstance().set('trust proxy',trustedProxyDepth(process.env)!);
+  else app.getHttpAdapter().getInstance().set('trust proxy',isTrustedProxyAddress);
   app.setGlobalPrefix('api/v1',{exclude:['health','ready']});
   app.enableCors({ origin: corsOrigin(process.env), credentials: true });
   applySecurityHeaders(app, process.env.NODE_ENV === 'production');

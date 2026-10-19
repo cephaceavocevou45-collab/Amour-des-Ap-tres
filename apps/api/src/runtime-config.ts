@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import helmet from 'helmet';
 
-const REQUIRED_PRODUCTION_VALUES = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'TOTP_ENCRYPTION_KEY', 'RESEND_API_KEY', 'MAIL_FROM', 'APP_PUBLIC_URL'] as const;
+const REQUIRED_PRODUCTION_VALUES = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'TOTP_ENCRYPTION_KEY', 'RESEND_API_KEY', 'MAIL_FROM', 'APP_PUBLIC_URL', 'TRUST_PROXY_DEPTH'] as const;
 
 export function assertProductionConfiguration(env: NodeJS.ProcessEnv): void {
   if (env.NODE_ENV !== 'production') return;
@@ -11,7 +11,7 @@ export function assertProductionConfiguration(env: NodeJS.ProcessEnv): void {
       throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
     }
   }
-  if ((env.JWT_ACCESS_SECRET?.length ?? 0) < 32 || (env.TOTP_ENCRYPTION_KEY?.length ?? 0) < 24) {
+  if (trustedProxyDepth(env) === null || (env.JWT_ACCESS_SECRET?.length ?? 0) < 32 || (env.TOTP_ENCRYPTION_KEY?.length ?? 0) < 24) {
     throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
   }
   try {
@@ -20,6 +20,14 @@ export function assertProductionConfiguration(env: NodeJS.ProcessEnv): void {
   } catch {
     throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
   }
+}
+
+/** Number of trusted infrastructure proxy hops in front of the API (Railway web/Nginx: 1). */
+export function trustedProxyDepth(env: NodeJS.ProcessEnv): number | null {
+  const raw = env.TRUST_PROXY_DEPTH?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const depth = Number(raw);
+  return Number.isSafeInteger(depth) && depth >= 1 && depth <= 5 ? depth : null;
 }
 
 export function corsOrigin(env: NodeJS.ProcessEnv): string {

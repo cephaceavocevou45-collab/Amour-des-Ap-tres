@@ -1,6 +1,6 @@
-import { applySecurityHeaders, assertProductionConfiguration, corsOrigin, sessionCookieOptions } from './runtime-config';
+import { applySecurityHeaders, assertProductionConfiguration, corsOrigin, sessionCookieOptions, trustedProxyDepth } from './runtime-config';
 
-const prod = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://app:private@db:5432/app', JWT_ACCESS_SECRET: 'a'.repeat(40), TOTP_ENCRYPTION_KEY: 'b'.repeat(32), RESEND_API_KEY: `re_${'x'.repeat(32)}`, MAIL_FROM: 'paroisse@paroisse.org', APP_PUBLIC_URL: 'https://paroisse.org' } as NodeJS.ProcessEnv;
+const prod = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://app:private@db:5432/app', JWT_ACCESS_SECRET: 'a'.repeat(40), TOTP_ENCRYPTION_KEY: 'b'.repeat(32), RESEND_API_KEY: `re_${'x'.repeat(32)}`, MAIL_FROM: 'paroisse@paroisse.org', APP_PUBLIC_URL: 'https://paroisse.org', TRUST_PROXY_DEPTH: '1' } as NodeJS.ProcessEnv;
 
 describe('production configuration', () => {
   it('requires real production secrets and an exact HTTPS origin without echoing the missing setting', () => {
@@ -15,6 +15,15 @@ describe('production configuration', () => {
   it('allows only APP_PUBLIC_URL in production and uses the local setting only outside production', () => {
     expect(corsOrigin({ ...prod, FRONTEND_ORIGIN: 'https://attacker.example' })).toBe(prod.APP_PUBLIC_URL);
     expect(corsOrigin({ FRONTEND_ORIGIN: 'http://localhost:4200' })).toBe('http://localhost:4200');
+  });
+
+  it('requires a bounded numeric trusted proxy depth in production', () => {
+    expect(trustedProxyDepth({ TRUST_PROXY_DEPTH: '1' } as NodeJS.ProcessEnv)).toBe(1);
+    expect(trustedProxyDepth({ TRUST_PROXY_DEPTH: '2' } as NodeJS.ProcessEnv)).toBe(2);
+    for (const value of [undefined, '', '0', '-1', 'six', '6']) {
+      expect(trustedProxyDepth({ TRUST_PROXY_DEPTH: value } as NodeJS.ProcessEnv)).toBeNull();
+      expect(() => assertProductionConfiguration({ ...prod, TRUST_PROXY_DEPTH: value })).toThrow(/Configuration de production incompl/);
+    }
   });
 
   it('marks both production authentication cookies HttpOnly, Secure and SameSite Strict', () => {
