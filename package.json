@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@angular/service-worker": "^20.0.0",
+    "@angular/service-worker": "^22.2.3",
     "@playwright/test": "^1.63.0"
   },
   "scripts": {
