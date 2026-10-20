@@ -8,6 +8,8 @@ import * as argon2 from 'argon2';
 import * as express from 'express';
 import { UserRole, SheetType, SheetStatus } from '../src/generated/prisma';
 import { AppModule } from '../src/app.module';
+import { AuthService } from '../src/auth';
+import { LoginBackoffPolicy } from '../src/login-backoff.policy';
 import { PrismaService } from '../src/prisma.service';
 import { CsrfGuard } from '../src/csrf.guard';
 import { noStoreResponses } from '../src/http-security';
@@ -27,6 +29,7 @@ sensitiveCanaries.add(password);
 const testEmail=()=>`${randomUUID()}@security-test.invalid`;
 function localDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function weekday(date:string){const value=new Date(`${date}T00:00:00Z`).getUTCDay();return value===0?7:value;}
+function median(values:number[]){const sorted=[...values].sort((left,right)=>left-right);return sorted[Math.floor(sorted.length/2)];}
 function monday(date:string){const value=new Date(`${date}T00:00:00Z`),day=value.getUTCDay();value.setUTCDate(value.getUTCDate()-(day===0?6:day-1));return value.toISOString().slice(0,10);}
 async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string;createdAt?:Date}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null,...(options.createdAt?{createdAt:options.createdAt}:{})}});userIds.push(row.id);return row;}
 function jwt(user:{id:string;role:UserRole;sessionVersion:number},family?:string){const enc=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url'),now=Math.floor(Date.now()/1000),unsigned=`${enc({alg:'HS256',typ:'JWT'})}.${enc({sub:user.id,role:user.role,ver:user.sessionVersion,...(family?{fam:family}:{}),iat:now,exp:now+600})}`,token=`${unsigned}.${createHmac('sha256',process.env.JWT_ACCESS_SECRET!).update(unsigned).digest('base64url')}`;sensitiveCanaries.add(token);return token;}
@@ -133,16 +136,30 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call('/attendance/today',{token})).status).toBe(401);
     expect(await prisma.refreshToken.findUnique({where:{id:sessionId.id}})).toMatchObject({revokedAt:expect.any(Date)});
   });
-  it('equalizes failure messages and applies the same minimum response time to existing and unknown accounts',async()=>{
-    const known=await addUser(UserRole.SECRETAIRE_PRESENCE),inputs=[known.email,testEmail()],durations:number[]=[],messages:any[]=[];
-    for(const email of inputs){const started=Date.now(),result=await call('/auth/login',{method:'POST',body:{email,password:'incorrect-password'}});durations.push(Date.now()-started);messages.push(result.body);expect(result.status).toBe(401);}
-    expect(messages[0]).toEqual(messages[1]);expect(durations.every(value=>value>=450)).toBe(true);expect(Math.abs(durations[0]-durations[1])).toBeLessThan(350);
+  it('equalizes failure messages and applies a minimum response time to known and unknown accounts',async()=>{
+    const known=await addUser(UserRole.SECRETAIRE_PRESENCE),unknownWarmup=testEmail(),knownDurations:number[]=[],unknownDurations:number[]=[],knownMessages:any[]=[],unknownMessages:any[]=[];
+    await argon2.verify(known.passwordHash,'warm-up-only');
+    expect((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':'198.18.110.1'},body:{email:unknownWarmup,password:'warm-up-only'}})).status).toBe(401);
+    for(let index=0;index<5;index++){
+      const knownStart=Date.now(),knownResult=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':`198.18.111.${index+1}`},body:{email:known.email,password:'incorrect-password'}});
+      knownDurations.push(Date.now()-knownStart);knownMessages.push(knownResult.body);expect(knownResult.status).toBe(401);
+      const unknownStart=Date.now(),unknownResult=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':`198.18.112.${index+1}`},body:{email:testEmail(),password:'incorrect-password'}});
+      unknownDurations.push(Date.now()-unknownStart);unknownMessages.push(unknownResult.body);expect(unknownResult.status).toBe(401);
+    }
+    expect(knownMessages.every(message=>JSON.stringify(message)===JSON.stringify(unknownMessages[0]))).toBe(true);
+    expect([...knownDurations,...unknownDurations].every(value=>value>=450)).toBe(true);
+    expect(Math.abs(median(knownDurations)-median(unknownDurations))).toBeLessThan(350);
   });
   it('slows repeated password failures without permanently locking a valid account and rate-limits reset-code guessing',async()=>{
-    const user=await addUser(UserRole.SECRETAIRE_PRESENCE),durations:number[]=[];
-    const sourceIp='198.18.200.1';for(let index=0;index<4;index++){const started=Date.now(),result=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':sourceIp},body:{email:user.email,password:'wrong-password'}});durations.push(Date.now()-started);expect(result.status).toBe(401);}
-    expect(durations[3]).toBeGreaterThan(durations[0]);
+    const user=await addUser(UserRole.SECRETAIRE_PRESENCE),sourceIp='198.18.200.1',policy=app.get(LoginBackoffPolicy) as LoginBackoffPolicy,observedDelays:number[]=[];
+    const originalWait=policy.wait.bind(policy);
+    const appliedWait=jest.spyOn(policy,'wait').mockImplementation(async(ip,email)=>{const delay=await originalWait(ip,email);if(ip===sourceIp&&email===user.email)observedDelays.push(delay);return delay;});
+    for(let index=0;index<4;index++){const result=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':sourceIp},body:{email:user.email,password:'wrong-password'}});expect(result.status).toBe(401);}
+    expect(observedDelays).toEqual([0,0,0,500]);
     expect((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':sourceIp},body:{email:user.email,password}})).status).toBe(201);
+    expect(policy.failureCount(sourceIp,user.email)).toBe(0);
+    expect(policy.delayMs(sourceIp,user.email)).toBe(0);
+    appliedWait.mockRestore();
     const email=testEmail();let last:any;
     for(let index=0;index<5;index++)last=await call('/auth/password/forgot',{method:'POST',body:{email}});
     expect(last.status).toBe(429);

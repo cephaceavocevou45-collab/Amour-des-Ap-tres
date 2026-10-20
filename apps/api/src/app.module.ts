@@ -10,6 +10,7 @@ import { RetentionService } from './retention.service';
 import { HealthController, HealthService } from './health';
 import { EmailQuotaService } from './email-quota.service';
 import { ReauthService } from './reauth';
+import { LoginBackoffPolicy } from './login-backoff.policy';
 
-@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService] })
+@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService, LoginBackoffPolicy] })
 export class AppModule {}
