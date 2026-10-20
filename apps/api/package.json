@@ -13,6 +13,7 @@
     "prisma:deploy": "node scripts/prisma-cli.cjs migrate deploy",
     "admin:enroll-2fa": "ts-node scripts/admin-enroll-2fa.ts",
     "admin:reset-2fa": "ts-node scripts/admin-enroll-2fa.ts",
+    "admin:bootstrap": "node scripts/admin-bootstrap.cjs",
     "test:e2e": "node scripts/security-e2e.cjs"
   },
   "dependencies": {

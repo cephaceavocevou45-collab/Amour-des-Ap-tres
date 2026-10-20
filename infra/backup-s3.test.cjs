@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { config, pgEnvironment } = require('./backup-s3.cjs');
+const { config, pgEnvironment, prune } = require('./backup-s3.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const names = ['BACKUP_DATABASE_URL','BACKUP_KEY_HEX','S3_ENDPOINT','S3_REGION','S3_BUCKET','S3_ACCESS_KEY','S3_SECRET_KEY','BACKUP_RETENTION_DAYS'];
 function withEnvironment(values, callback) {
@@ -24,4 +26,40 @@ test('backup password is passed to libpq environment, never included in PostgreS
   assert.equal(env.PGPASSWORD,'p@ssword');
   assert.equal(env.PGSSLMODE,'require');
   assert.equal(env.PGHOST,'db.example.invalid');
+});
+
+test('remote restore refuses non-empty targets and counts rows after restore', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'backup-s3.cjs'), 'utf8');
+  assert.match(source, /pg_class c JOIN pg_namespace n/);
+  assert.match(source, /SELECT count\(\*\) FROM public\.\$\{quoted\}/);
+  assert.match(source, /restoredRows \+= BigInt\(restoredCount\)/);
+  assert.match(source, /tables, \$\{restoredRows\} lignes comptées/);
+  assert.match(source, /pg_restore.*--no-owner.*--exit-on-error/s);
+  assert.doesNotMatch(source, /pg_restore[^\n]*(?:--clean|--create)/);
+});
+
+test('backup retention removes expired objects and old versions, including delete markers', async () => {
+  const { ListObjectsV2Command, ListObjectVersionsCommand, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+  const deleted = [];
+  const s3 = { async send(command) {
+    if (command instanceof ListObjectsV2Command) return { Contents: [{ Key: 'paroisse-backups/old.enc', LastModified: new Date(Date.now() - 40 * 86400_000) }] };
+    if (command instanceof ListObjectVersionsCommand) return {
+      Versions: [
+        { Key: 'paroisse-backups/old.enc', VersionId: 'old-version', LastModified: new Date(Date.now() - 40 * 86400_000) },
+        { Key: 'paroisse-backups/recent.enc', VersionId: 'recent-version', LastModified: new Date() },
+      ],
+      DeleteMarkers: [{ Key: 'paroisse-backups/old.enc', VersionId: 'old-marker', LastModified: new Date(Date.now() - 40 * 86400_000) }],
+    };
+    if (command instanceof DeleteObjectsCommand) { deleted.push(...command.input.Delete.Objects); return { Errors: [] }; }
+    throw new Error('Unexpected S3 operation');
+  } };
+  const previous = process.env.S3_BUCKET;
+  process.env.S3_BUCKET = 'fake-test-bucket';
+  try { await prune(s3, 35); }
+  finally { if (previous === undefined) delete process.env.S3_BUCKET; else process.env.S3_BUCKET = previous; }
+  assert.deepEqual(deleted, [
+    { Key: 'paroisse-backups/old.enc' },
+    { Key: 'paroisse-backups/old.enc', VersionId: 'old-version' },
+    { Key: 'paroisse-backups/old.enc', VersionId: 'old-marker' },
+  ]);
 });

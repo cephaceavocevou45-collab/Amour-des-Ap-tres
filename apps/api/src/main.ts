@@ -25,7 +25,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalGuards(new CsrfGuard());
   app.useGlobalFilters(new SafeExceptionFilter());
-  const port = process.env.PLAYWRIGHT_API_PORT ?? process.env.PORT ?? 3000;
+  const port = process.env.PORT ?? (process.env.NODE_ENV === 'production' ? undefined : process.env.PLAYWRIGHT_API_PORT) ?? 3000;
   const host = process.env.HOST ?? '0.0.0.0';
   await app.listen(port, host);
 }

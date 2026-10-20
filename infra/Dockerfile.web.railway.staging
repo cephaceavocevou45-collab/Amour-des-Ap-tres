@@ -1,0 +1,19 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY . .
+RUN npm ci
+RUN npm run build --workspace @paroisse/web -- --configuration=staging
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+ENV PORT=8080 \
+    API_PRIVATE_HOST=api.railway.internal:3000 \
+    PROXY_DIAGNOSTICS_ENABLED=0 \
+    PROXY_DIAGNOSTIC_TOKEN=disabled \
+    STAGING_NOINDEX="noindex, nofollow, noarchive" \
+    NGINX_ENVSUBST_FILTER=^(PORT|API_PRIVATE_HOST|PROXY_DIAGNOSTICS_ENABLED|PROXY_DIAGNOSTIC_TOKEN|STAGING_NOINDEX)$
+COPY infra/nginx-main.railway.conf /etc/nginx/nginx.conf
+COPY infra/railway-web.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/apps/web/dist/web/browser /usr/share/nginx/html
+USER 101:101
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD-SHELL wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1

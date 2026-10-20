@@ -30,19 +30,18 @@ try {
   const sql = `
 DO $roles$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${literal(appName)}) THEN
-    EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', ${literal(appName)}, ${literal(appPassword)});
+    EXECUTE format('ALTER ROLE %I WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', ${literal(appName)});
   ELSE
-    EXECUTE format('CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', ${literal(appName)}, ${literal(appPassword)});
+    EXECUTE format('CREATE ROLE %I WITH LOGIN NOINHERIT PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', ${literal(appName)}, ${literal(appPassword)});
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${literal(migrationName)}) THEN
-    EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', ${literal(migrationName)}, ${literal(migrationPassword)});
+    EXECUTE format('ALTER ROLE %I WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', ${literal(migrationName)});
   ELSE
-    EXECUTE format('CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', ${literal(migrationName)}, ${literal(migrationPassword)});
+    EXECUTE format('CREATE ROLE %I WITH LOGIN NOINHERIT PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', ${literal(migrationName)}, ${literal(migrationPassword)});
   END IF;
 END $roles$;
 GRANT CONNECT ON DATABASE ${identifier(dbName)} TO ${identifier(appName)}, ${identifier(migrationName)};
-ALTER DATABASE ${identifier(dbName)} OWNER TO ${identifier(migrationName)};
-ALTER SCHEMA public OWNER TO ${identifier(migrationName)};
+GRANT USAGE, CREATE ON SCHEMA public TO ${identifier(migrationName)};
 GRANT USAGE ON SCHEMA public TO ${identifier(appName)};
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${identifier(appName)};
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${identifier(appName)};

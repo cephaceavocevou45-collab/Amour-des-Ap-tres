@@ -25,6 +25,8 @@
     "test-db:setup": "node scripts/test-db-setup.cjs",
     "backup:create": "sh infra/backup.sh",
     "backup:restore-test": "sh infra/backup-restore-test.sh",
-    "db:least-privilege": "node scripts/db-least-privilege.cjs"
+    "db:least-privilege": "node scripts/db-least-privilege.cjs",
+    "test:production-deps": "node scripts/test-production-deps.cjs",
+    "test:railway-image": "node scripts/test-railway-image-runtime.cjs"
   }
 }
