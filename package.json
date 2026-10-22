@@ -6,8 +6,11 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@angular/service-worker": "^20.0.0",
-    "@playwright/test": "^1.63.0"
+    "@aws-sdk/client-s3": "3.1147.0",
+    "@angular/service-worker": "20.3.34",
+    "@playwright/test": "^1.63.0",
+    "dotenv": "16.6.1",
+    "playwright": "1.63.0"
   },
   "scripts": {
     "dev:web": "npm --workspace @paroisse/web start",
