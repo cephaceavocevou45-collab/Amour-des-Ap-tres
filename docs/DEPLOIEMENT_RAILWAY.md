@@ -2,6 +2,19 @@
 
 **État : préparation seulement. Aucun service ni domaine Railway n’a été créé ou testé.** Les tarifs, régions et sauvegardes à vérifier chez Railway. Railway termine TLS à son réseau d’entrée, voit le trafic en clair à cette entrée et héberge la base et les autres données : l’information de confidentialité destinée aux personnes doit le dire.
 
+## Configuration Railway du service API
+
+Le message Railpack `No start command detected` s'explique par les manifestes précédents : le dépôt racine n'avait pas de script npm `start`, et `apps/api/package.json` ne déclarait que `start:dev` (Railpack ne traite pas ce nom comme commande de démarrage). Le Dockerfile API est situé dans `infra/Dockerfile.api`, pas à la racine; Railway ne le sélectionne donc pas automatiquement. Le journal fourni confirme que le déploiement a choisi Railpack. Cela n'exclut pas d'autres erreurs ultérieures : le Build Log du prochain déploiement doit être relu.
+
+La voie de production prévue est le Dockerfile `infra/Dockerfile.api`, pas Railpack. Les scripts npm `start` restent présents comme secours de détection/diagnostic, mais ne remplacent pas la configuration de l’image de production :
+
+1. **Chemin recommandé, image de production prévue :** dans les paramètres Build du service `api`, sélectionner le builder Dockerfile et le chemin `infra/Dockerfile.api`, avec la racine du dépôt comme contexte. Cette image exécute le build Nest, installe seulement les dépendances de production dans son runtime et démarre `node apps/api/dist/apps/api/src/main.js`. Ne configurez pas une commande qui lance une compilation au redémarrage.
+2. **Secours temporaire uniquement :** si Railpack est imposé pour diagnostiquer l’ancienne erreur, le script racine `npm start` délègue à `npm run start:prod --workspace @paroisse/api`; le workspace API démarre le fichier compilé `dist/apps/api/src/main.js`. Le Build Command doit alors être `npm run build --workspace @paroisse/api`. Ne retenez pas ce chemin pour la production : il ne fournit pas les garanties de l’image runtime multi-étapes, qui sépare les dépendances d’exécution de la CLI Prisma et des outils de build.
+
+Pour le service API Railway, garder la racine `/` (contexte partagé du monorepo), définir `PORT=3000`, et ne lui attribuer aucun domaine public. Avec le Dockerfile de production, ne configurez pas de Build Command ou Start Command Railpack personnalisé : son `CMD` est le point d’entrée. Le script racine `build` compile API **et** web; il n’est pas nécessaire lorsque Railway construit `infra/Dockerfile.api`.
+
+Pour le service web, sélectionner séparément `infra/Dockerfile.web.railway` et conserver son domaine public unique. Ne configurez pas un fichier Railway global qui imposerait le Dockerfile API au service web. Les chemins Build/Start doivent être vérifiés dans les paramètres du déploiement et dans ses détails; le dépôt ne peut pas modifier la configuration déjà enregistrée dans le tableau Railway.
+
 ## Architecture cible
 
 Créer un projet Railway avec trois services dans le même environnement :

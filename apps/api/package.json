@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "start:dev": "npm run build && node dist/apps/api/src/main.js",
+    "start": "npm run start:prod",
+    "start:prod": "node dist/apps/api/src/main.js",
     "build": "npm run prisma:generate && nest build && node scripts/copy-prisma-client.cjs",
     "lint": "npm run prisma:generate && tsc --noEmit",
     "test": "npm run prisma:generate && jest --runInBand --cacheDirectory .jest-cache",

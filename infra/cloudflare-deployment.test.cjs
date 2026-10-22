@@ -2,40 +2,78 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const yaml = require('js-yaml');
 
 const root = path.join(__dirname);
 const compose = fs.readFileSync(path.join(root, 'compose.yaml'), 'utf8');
 const web = fs.readFileSync(path.join(root, 'web-static.conf'), 'utf8');
 const api = fs.readFileSync(path.join(root, '..', 'apps/api/src/main.ts'), 'utf8');
-const networkNames = service => Array.isArray(service.networks) ? service.networks : Object.keys(service.networks ?? {});
+function namedBlock(source, key, indent) {
+  const lines = source.split(/\r?\n/);
+  const heading = new RegExp(`^ {${indent}}${key.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}:\\s*(?:#.*)?$`);
+  const start = lines.findIndex(line => heading.test(line));
+  if (start < 0) return null;
+
+  const block = [lines[start]];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const content = line.trimStart();
+    const currentIndent = line.length - content.length;
+    if (content && !content.startsWith('#') && currentIndent <= indent) break;
+    block.push(line);
+  }
+  return block.join('\n');
+}
+
+function serviceBlock(serviceName) {
+  const services = namedBlock(compose, 'services', 0);
+  return services && namedBlock(services, serviceName, 2);
+}
+
+function networkNames(serviceName) {
+  const service = serviceBlock(serviceName);
+  assert.ok(service, `missing compose service: ${serviceName}`);
+  const networks = namedBlock(service, 'networks', 4);
+  const line = (networks ?? service).match(/^ {4}networks:\s*(.*)$/m);
+  assert.ok(line, `${serviceName} must declare networks`);
+  if (line[1].trim().startsWith('[')) {
+    return line[1].trim().slice(1, -1).split(',').map(value => value.trim()).filter(Boolean);
+  }
+  return [...networks.matchAll(/^ {6}([A-Za-z0-9_-]+):(?:\s+\{\})?\s*$/gm)].map(match => match[1]);
+}
+
+function networkIsInternal(networkName) {
+  const networks = namedBlock(compose, 'networks', 0);
+  const network = networks && namedBlock(networks, networkName, 2);
+  return !!network && /^ {4}internal:\s*true\s*$/m.test(network);
+}
 
 test('Cloudflare production compose exposes only cloudflared and keeps app and database on private networks', () => {
-  const parsed = yaml.load(compose);
-  assert.ok(parsed.services.cloudflared && parsed.services.api && parsed.services.web && parsed.services.postgres && parsed.services.migrate);
-  assert.deepEqual(networkNames(parsed.services.web).sort(), ['app', 'tunnel-origin']);
-  assert.deepEqual(networkNames(parsed.services.cloudflared).sort(), ['tunnel', 'tunnel-origin']);
-  assert.deepEqual(networkNames(parsed.services.api).sort(), ['app', 'data']);
-  assert.deepEqual(networkNames(parsed.services.postgres), ['data']);
-  assert.deepEqual(networkNames(parsed.services.migrate), ['data']);
-  assert.equal(parsed.networks['tunnel-origin'].internal, true);
+  for (const service of ['cloudflared', 'api', 'web', 'postgres', 'migrate']) assert.ok(serviceBlock(service), `missing compose service: ${service}`);
+  assert.deepEqual(networkNames('web').sort(), ['app', 'tunnel-origin']);
+  assert.deepEqual(networkNames('cloudflared').sort(), ['tunnel', 'tunnel-origin']);
+  assert.deepEqual(networkNames('api').sort(), ['app', 'data']);
+  assert.deepEqual(networkNames('postgres'), ['data']);
+  assert.deepEqual(networkNames('migrate'), ['data']);
+  assert.equal(networkIsInternal('tunnel-origin'), true);
   assert.match(compose, /^  cloudflared:/m);
   assert.match(compose, /TUNNEL_TOKEN: \$\{CLOUDFLARED_TOKEN:\?Set CLOUDFLARED_TOKEN\}/);
   assert.match(compose, /^  api:/m);
   assert.match(compose, /^  web:/m);
   assert.match(compose, /^  postgres:/m);
   assert.match(compose, /^  migrate:/m);
-  assert.doesNotMatch(compose, /^\s+ports:/m);
-  assert.match(compose, /data:\s*\n\s+name: amour-des-apotres_data\s*\n\s+internal: true/);
-  assert.match(compose, /app:\s*\n\s+name: amour-des-apotres_app\s*\n\s+internal: true/);
-  assert.match(compose, /tunnel-origin:\s*\n\s+name: amour-des-apotres_tunnel-origin\s*\n\s+internal: true/);
+  for (const service of ['cloudflared', 'api', 'web', 'postgres', 'migrate']) {
+    assert.doesNotMatch(serviceBlock(service), /^ {4}ports:/m, `${service} must not publish a host port`);
+  }
+  assert.match(namedBlock(compose, 'data', 2), /^ {4}name: amour-des-apotres_data\s*\n {4}internal: true/m);
+  assert.match(namedBlock(compose, 'app', 2), /^ {4}name: amour-des-apotres_app\s*\n {4}internal: true/m);
+  assert.match(namedBlock(compose, 'tunnel-origin', 2), /^ {4}name: amour-des-apotres_tunnel-origin\s*\n {4}internal: true/m);
   assert.match(compose, /172\.33\.0\.2/);
   assert.match(compose, /172\.33\.0\.3/);
-  assert.match(compose, /tunnel-origin:\s*\n\s+ipv4_address: 172\.33\.0\.3/);
-  assert.match(compose, /target: runtime/);
-  assert.match(compose, /target: migrate/);
-  assert.match(compose, /user: "65532:65532"/);
-  assert.match(compose, /command: \["tunnel", "--no-autoupdate", "run"\]/);
+  assert.match(serviceBlock('cloudflared'), /^ {8}ipv4_address: 172\.33\.0\.3$/m);
+  assert.match(serviceBlock('api'), /^ {6}target: runtime$/m);
+  assert.match(serviceBlock('migrate'), /^ {6}target: migrate$/m);
+  assert.match(serviceBlock('cloudflared'), /^ {4}user: "65532:65532"$/m);
+  assert.match(serviceBlock('cloudflared'), /^ {4}command: \["tunnel", "--no-autoupdate", "run"\]$/m);
 });
 
 test('only the cloudflared peer may supply client IP; Nginx overwrites forwarded identity headers', () => {
