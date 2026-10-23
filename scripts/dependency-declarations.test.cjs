@@ -73,6 +73,10 @@ function missingDeclarations(sources, declarations) {
   return missing;
 }
 
+function isExactVersion(value) {
+  return typeof value === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value);
+}
+
 test('scripts, infrastructure and tests declare every imported third-party package', () => {
   const manifests = walk(root, file => path.basename(file) === 'package.json');
   const missing = missingDeclarations(scannedFiles(), declaredPackages(manifests));
@@ -129,10 +133,12 @@ test('runtime and tool packages are pinned exactly in their owning manifests', (
   const rootPackage = require('../package.json');
   const apiPackage = require('../apps/api/package.json');
   const backupPackage = require('../infra/backup-runtime/package.json');
-  assert.equal(apiPackage.dependencies.dotenv, '16.6.1');
-  assert.equal(rootPackage.devDependencies.dotenv, '16.6.1');
-  assert.equal(rootPackage.devDependencies.playwright, '1.63.0');
-  assert.equal(backupPackage.dependencies['@aws-sdk/client-s3'], '3.1147.0');
+  assert.equal(isExactVersion(apiPackage.dependencies.dotenv), true);
+  assert.equal(isExactVersion(rootPackage.devDependencies.dotenv), true);
+  assert.equal(isExactVersion(rootPackage.devDependencies.playwright), true);
+  assert.equal(isExactVersion(backupPackage.dependencies['@aws-sdk/client-s3']), true);
+  assert.equal(isExactVersion('18.0.8'), true, 'an exact Dependabot upgrade remains pinned');
+  assert.equal(isExactVersion('^18.0.8'), false, 'a version range is not an exact pin');
 });
 
 module.exports = { importsIn, packageName, missingDeclarations };
