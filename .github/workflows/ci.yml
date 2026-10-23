@@ -2,7 +2,7 @@ name: CI
 on: [push, pull_request]
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -17,9 +17,9 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://test_user:${{ github.run_id }}x${{ github.run_attempt }}xCI@localhost:5432/paroisse_test?schema=public
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: {fetch-depth: 0}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with: {node-version: 22, cache: npm}
       - name: Generate ephemeral test secrets
         run: |
@@ -37,7 +37,7 @@ jobs:
       - name: Informational full dependency audit
         if: always()
         run: npm audit --json > npm-audit-full.json || echo "Full audit returned advisories or could not reach the registry; see uploaded report."
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: npm-audit-full-report

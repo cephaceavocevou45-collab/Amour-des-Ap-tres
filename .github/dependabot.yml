@@ -4,9 +4,41 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    # npm workspaces share the root lockfile: Dependabot cannot assign a
+    # different schedule to production and development dependencies here.
+    # Keep one weekly scan so production updates are not delayed.
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: jest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: prisma
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@angular/*"
+        update-types: ["version-update:semver-major"]
     groups:
-      production-dependencies:
+      production-major:
+        applies-to: version-updates
         dependency-type: production
-      development-dependencies:
+        update-types: ["major"]
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: production
+        update-types: ["minor", "patch"]
+      development-major:
+        applies-to: version-updates
         dependency-type: development
+        update-types: ["major"]
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: development
+        update-types: ["minor", "patch"]
+      production-security:
+        applies-to: security-updates
+        dependency-type: production
+        patterns: ["*"]
+      development-security:
+        applies-to: security-updates
+        dependency-type: development
+        patterns: ["*"]

@@ -83,7 +83,31 @@ test('dependency scan detects an undeclared package in a source fixture', () => 
   const missing = missingDeclarations([
     path.join(root, 'infra', 'backup-s3.cjs'),
   ], new Set(['dotenv']));
-  assert.ok(missing.includes('infra\\backup-s3.cjs -> @aws-sdk/client-s3'));
+  assert.ok(missing.includes(`${path.join('infra', 'backup-s3.cjs')} -> @aws-sdk/client-s3`));
+});
+
+test('Dependabot limits version PRs, groups by dependency type and separates major updates', () => {
+  const config = fs.readFileSync(path.join(root, '.github/dependabot.yml'), 'utf8');
+  assert.match(config, /open-pull-requests-limit:\s*2/);
+  assert.match(config, /interval:\s*weekly/);
+  for (const group of ['production-major', 'production-minor-patch', 'development-major', 'development-minor-patch']) {
+    assert.match(config, new RegExp(`${group}:\\s*\\n\\s+applies-to: version-updates\\s*\\n\\s+dependency-type: (?:production|development)\\s*\\n\\s+update-types: \\[\\"(?:major|minor|patch)\\"`));
+  }
+  for (const dependency of ['jest', 'prisma', '@prisma/client', '@angular/*']) {
+    assert.ok(config.includes(`dependency-name: ${dependency.startsWith('@') ? `"${dependency}"` : dependency}`));
+  }
+  assert.match(config, /production-security:\s*\n\s+applies-to: security-updates/);
+  assert.match(config, /development-security:\s*\n\s+applies-to: security-updates/);
+  assert.doesNotMatch(config, /dependency-name:\s*["']?\*["']?\s*\n\s+update-types:\s*\["version-update:semver-major"\]/);
+});
+
+test('CI uses a stable Ubuntu image and actions with the Node 24 runtime', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
+  assert.match(workflow, /runs-on:\s*ubuntu-24\.04/);
+  assert.match(workflow, /actions\/checkout@v5/);
+  assert.match(workflow, /actions\/setup-node@v5/);
+  assert.match(workflow, /actions\/upload-artifact@v6/);
+  assert.doesNotMatch(workflow, /actions\/(?:checkout|setup-node|upload-artifact)@v4/);
 });
 
 test('S3 SDK is isolated to backup runtime and tooling; it is absent from the API image dependencies', () => {
