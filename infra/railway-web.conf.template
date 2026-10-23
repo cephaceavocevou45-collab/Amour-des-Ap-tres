@@ -38,7 +38,7 @@ server {
     add_header X-Robots-Tag "${STAGING_NOINDEX}" always;
     return 200 "proxy-chain-depth=$proxy_chain_depth; resolved-ip=$http_x_real_ip\n";
   }
-  location ~* [.-][A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|svg|png|webp|avif|jpe?g|ico)$ {
+  location ~* "[.-][A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|svg|png|webp|avif|jpe?g|ico)$" {
     add_header Cache-Control "public, max-age=31536000, immutable" always;
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
