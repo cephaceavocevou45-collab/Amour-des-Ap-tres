@@ -37,7 +37,10 @@
             "production": {
               "optimization": {
                 "scripts": true,
-                "styles": true,
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                },
                 "fonts": {
                   "inline": false
                 }
@@ -63,7 +66,16 @@
                   "with": "src/environments/environment.staging.ts"
                 }
               ],
-              "optimization": true,
+              "optimization": {
+                "scripts": true,
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                },
+                "fonts": {
+                  "inline": false
+                }
+              },
               "outputHashing": "all"
             }
           },
