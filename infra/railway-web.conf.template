@@ -25,10 +25,9 @@ server {
   location = /index.html { add_header Cache-Control "no-store" always; add_header Pragma "no-cache" always; add_header X-Robots-Tag "${STAGING_NOINDEX}" always; add_header X-Content-Type-Options nosniff always; add_header Referrer-Policy strict-origin-when-cross-origin always; add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always; add_header Content-Security-Policy "default-src 'self'; script-src 'self'; frame-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always; try_files $uri =404; }
   location = /__ops/proxy-check {
     access_log off;
-    if (${PROXY_DIAGNOSTICS_ENABLED} != 1) { return 404; }
-    if (${PROXY_DIAGNOSTIC_TOKEN} = disabled) { return 404; }
+    if ($http_x_proxy_diagnostic_token !~ "^${PROXY_DIAGNOSTICS_ENABLED}-[a-f0-9]{64}$") { return 404; }
     if ($http_x_real_ip = "") { return 404; }
-    if ($http_x_proxy_diagnostic_token != ${PROXY_DIAGNOSTIC_TOKEN}) { return 404; }
+    if ($http_x_proxy_diagnostic_token != "${PROXY_DIAGNOSTICS_ENABLED}-${PROXY_DIAGNOSTIC_TOKEN}") { return 404; }
     limit_req zone=auth_rate burst=2 nodelay;
     default_type text/plain;
     add_header Cache-Control "no-store" always;
