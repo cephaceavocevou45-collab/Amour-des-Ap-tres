@@ -12,6 +12,10 @@
     "dotenv": "16.6.1",
     "playwright": "1.63.0"
   },
+  "overrides": {
+    "body-parser": "2.4.0",
+    "multer": "2.5.0"
+  },
   "scripts": {
     "dev:web": "npm --workspace @paroisse/web start",
     "dev:api": "npm --workspace @paroisse/api run start:dev",
