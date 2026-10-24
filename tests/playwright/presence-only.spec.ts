@@ -22,6 +22,7 @@ async function prepare(page: Page, role?: string) {
       { id: 'presenter-jean', name: 'SEWADE Jean', grade: 'Évangéliste', roles: ['PRESENTATION_THEME'] }
     ] });
     if (path.endsWith('/auth/session')) return route.fulfill({ status: 200, json: { user: { id: 'test-user', role } } });
+    if (path.endsWith('/auth/register') && route.request().method() === 'POST') return route.fulfill({ status: 201, json: { message: 'Votre demande a été reçue. L’administration paroissiale doit valider votre compte avant votre première connexion.' } });
     if (path.endsWith('/attendance/today')) {
       return route.fulfill({ status: 200, json: [{ id: 'course-1', type: 'COURS_BIBLIQUE', date: '2026-10-05', status: 'OUVERTE', totals: { men: 0, women: 0, total: 0 } }] });
     }
@@ -520,13 +521,17 @@ test('les ressources d’accueil respectent les budgets locaux et ne provoquent 
   expect(pageErrors, `erreurs navigateur : ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('la création des comptes responsables est réservée à l’administration', async ({ page }) => {
+test('les responsables peuvent demander un compte soumis à validation administrative', async ({ page }) => {
   await prepare(page);
   await page.goto('/inscription-responsable');
-  await expect(page).toHaveURL(/\/connexion$/);
-  await expect(page.getByText(/comptes responsables sont créés par l’administration paroissiale/).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: /Envoyer ma demande/ })).toHaveCount(0);
-  await expect(page.locator('#requestedRole')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Demander un compte responsable' })).toBeVisible();
+  await expect(page.getByText(/L’accès reste désactivé jusqu’à sa validation par l’administration/)).toBeVisible();
+  await page.getByLabel('Nom complet').fill('Demande responsable E2E');
+  await page.getByLabel('Adresse e-mail').fill('responsable-e2e@example.invalid');
+  await page.getByLabel('Mot de passe (12 caractères minimum)').fill('ResponsableE2E_2026!');
+  await page.getByLabel('Confirmer le mot de passe').fill('ResponsableE2E_2026!');
+  await page.getByRole('button', { name: /Envoyer la demande/ }).click();
+  await expect(page.getByRole('status')).toContainText(/doit valider votre compte avant votre première connexion/);
 });
 
 test('un nom hostile reste du texte dans la liste des présences', async ({ page }) => {
