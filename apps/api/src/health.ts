@@ -18,7 +18,12 @@ export class HealthService {
       return { status: 'ready', database: 'available' };
     } catch (error) {
       const details = error instanceof Error ? error : new Error(String(error));
-      const prismaCode = /\bP\d{4}\b/.exec(details.message)?.[0];
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+      const prismaCode = typeof code === 'string' && /^P\d{4}$/.test(code)
+        ? code
+        : /\bP\d{4}\b/.exec(details.message)?.[0];
       this.logger.error(`Readiness database probe failed (${details.name}${prismaCode ? `, ${prismaCode}` : ''})`);
       throw new ServiceUnavailableException({ status: 'not_ready' });
     }
