@@ -74,14 +74,14 @@ afterAll(async()=>{
 });
 
 describe('security HTTP e2e on isolated PostgreSQL',()=>{
-  it('retire toutes les routes de la communauté et l’inscription publique',async()=>{
+  it('retire les routes de communauté et d’inscription sociale obsolètes',async()=>{
     const removed=[
-      ['POST','/auth/register'],['POST','/auth/social/register'],['GET','/auth/social/registration-config'],
+      ['POST','/auth/social/register'],['GET','/auth/social/registration-config'],
       ['GET','/community/conversations'],['POST','/community/conversations/direct'],['POST','/community/conversations/group'],['GET','/community/stories'],['POST','/community/stories'],['GET','/community/lives'],['POST','/community/lives'],
       ['GET','/community/content/programmes'],['GET','/community/groups'],['GET','/social/posts'],['POST','/social/posts'],['POST','/social/reports'],['POST','/media/upload'],['POST','/auth/social/email/confirm']
     ];
     for(const [method,path] of removed)expect((await call(path,{method})).status).toBe(404);
-    expect(Object.values(UserRole)).not.toContain('FIDELE');expect(Object.values(UserRole)).not.toContain('MODERATEUR');expect(Object.values(UserRole)).not.toContain('PENDING');
+    expect(Object.values(UserRole)).toContain('FIDELE');expect(Object.values(UserRole)).not.toContain('MODERATEUR');expect(Object.values(UserRole)).not.toContain('PENDING');
   });
   it('ne publie aucune route de documentation API ni de schéma OpenAPI',async()=>{
     for(const path of ['/api/docs','/api/docs-json','/api/docs-yaml','/api-json','/docs','/api/v1/api/docs','/openapi.json','/openapi.yaml','/swagger.json'])expect((await call(path)).status).toBe(404);
@@ -93,13 +93,18 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
       expect(result.headers.get('pragma')).toBe('no-cache');
     }
   });
-  it('does not create accounts through public self-registration',async()=>{
+  it('allows faithful self-registration immediately but never self-assigns an administrative role',async()=>{
     const email=testEmail(),before=await prisma.user.count({where:{email}});
-    for(const body of [
-      {fullName:'Demande secrétariat E2E',email,phone:'+2290150000000',requestedRole:'SECRETAIRE_PRESENCE',password},
-      {fullName:'Tentative admin E2E',email,phone:'+2290150000000',requestedRole:'ADMIN',password},
-    ])expect((await call('/auth/register',{method:'POST',body})).status).toBe(404);
-    expect(await prisma.user.count({where:{email}})).toBe(before);
+    const created=await call('/auth/register/faithful',{method:'POST',body:{fullName:'Compte fidèle E2E',email,phone:'+2290150000000',password,confirmPassword:password}});
+    expect(created.status).toBe(201);
+    const faithful=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(faithful.id);
+    expect(faithful).toMatchObject({role:UserRole.FIDELE,active:true,mustChangePassword:false});
+    expect(await prisma.user.count({where:{email}})).toBe(before+1);
+
+    const privilegedEmail=testEmail();
+    const denied=await call('/auth/register',{method:'POST',body:{fullName:'Tentative admin E2E',email:privilegedEmail,role:'ADMIN',password,confirmPassword:password}});
+    expect(denied.status).toBe(400);
+    expect(await prisma.user.count({where:{email:privilegedEmail}})).toBe(0);
   });
   it('never resets or reactivates an existing SUPER_ADMIN when the seed is rerun',async()=>{
     const email=testEmail(),seedCli=path.join(process.cwd(),'node_modules','ts-node','dist','bin.js'),seedFile=path.join(process.cwd(),'apps','api','prisma','seed.ts');
