@@ -1,12 +1,17 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 
 @Catch()
 export class SafeExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(SafeExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const response = http.getResponse();
     const status = exception instanceof HttpException ? exception.getStatus() : 500;
     if (status >= 500) {
+      const details = exception instanceof Error ? exception : new Error(String(exception));
+      const prismaCode = /\bP\d{4}\b/.exec(details.message)?.[0];
+      this.logger.error(`Request failed (${status}; ${details.name}${prismaCode ? `; ${prismaCode}` : ''})`);
       response.status(status).json({ statusCode: status, message: 'Une erreur interne est survenue.' });
       return;
     }

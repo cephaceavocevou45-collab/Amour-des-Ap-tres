@@ -1,9 +1,11 @@
-import { Controller, Get, Injectable, ServiceUnavailableException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Injectable, Logger, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { RateLimitGuard } from './rate-limit.guard';
 
 @Injectable()
 export class HealthService {
+  private readonly logger = new Logger(HealthService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   liveness() {
@@ -14,7 +16,10 @@ export class HealthService {
     try {
       await this.prisma.user.count({ where: { id: '__readiness_probe__' } });
       return { status: 'ready', database: 'available' };
-    } catch {
+    } catch (error) {
+      const details = error instanceof Error ? error : new Error(String(error));
+      const prismaCode = /\bP\d{4}\b/.exec(details.message)?.[0];
+      this.logger.error(`Readiness database probe failed (${details.name}${prismaCode ? `, ${prismaCode}` : ''})`);
       throw new ServiceUnavailableException({ status: 'not_ready' });
     }
   }
