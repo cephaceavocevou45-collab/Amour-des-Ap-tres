@@ -13,6 +13,7 @@ enum UserRole {
   EDITEUR
   SECRETAIRE_PRESENCE
   RESPONSABLE_SEMAINE
+  FIDELE
 }
 enum SessionStatus {
   PLANIFIEE

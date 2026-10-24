@@ -371,3 +371,5 @@ body{background:var(--surface-page);color:var(--text-main);font-family:var(--fon
 .faithful-page .announcement h3{margin:7px 0;font:21px Georgia,serif}
 .faithful-page .announcement p{margin:0;color:#596b7e;font-size:12px;line-height:1.7;white-space:pre-wrap}
 .admin-screen .quick-links{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.faithful-page nav .logout-button{padding:0;border:0;background:none;color:#314964;font:inherit;font-size:12px;cursor:pointer}
+@media(max-width:600px){.faithful-page nav .logout-button{font-size:10px}}

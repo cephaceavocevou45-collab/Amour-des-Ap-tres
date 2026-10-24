@@ -11,7 +11,7 @@ export const authInterceptor:HttpInterceptorFn=(request,next)=>{
   }
   const prepared=request.clone({withCredentials:true,headers});
   return next(prepared).pipe(catchError((error:HttpErrorResponse)=>{
-    const isAuthEndpoint=request.url.includes('/auth/login')||request.url.includes('/auth/admin/login')||request.url.includes('/auth/refresh')||request.url.includes('/auth/logout');
+    const isAuthEndpoint=request.url.includes('/auth/');
     if(error.status!==401||isAuthEndpoint||!sessionStorage.getItem('paroisse_role'))return throwError(()=>error);
     return http.post('/api/v1/auth/refresh',{}).pipe(switchMap(()=>next(prepared)),catchError(()=>throwError(()=>error)));
   }));

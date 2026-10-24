@@ -41,7 +41,8 @@ export class PublicController {
   }
 
   @Get('sessions/next') next() { const d=new Date(); const until=((8-d.getUTCDay())%7)||7; d.setUTCDate(d.getUTCDate()+until); return {date:d.toISOString().slice(0,10),startTime:'19:30',endTime:'21:30',theme:'Thème à venir'}; }
-  @Get('sessions') async sessions() {
+  @UseGuards(JwtAuthGuard) @Get('sessions') async sessions(@Req() req:any) {
+    this.requireFaithful(req.user.role);
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
     const today=`${parts.find(part=>part.type==='year')!.value}-${parts.find(part=>part.type==='month')!.value}-${parts.find(part=>part.type==='day')!.value}`;
     const rows=await this.prisma.session.findMany({
@@ -52,7 +53,8 @@ export class PublicController {
     return rows.map(row=>({date:row.date.toISOString().slice(0,10),startTime:row.startTime,endTime:row.endTime,theme:row.theme,bibleReference:row.bibleReference,bibleText:row.bibleText,previousSummary:row.previousSummary,people:row.assignments.map(item=>({role:item.role,name:`${item.person.firstName} ${item.person.lastName}`,grade:item.person.grade}))}));
   }
 
-  @Get('announcements') async announcements(){
+  @UseGuards(JwtAuthGuard) @Get('announcements') async announcements(@Req() req:any){
+    this.requireFaithful(req.user.role);
     return this.prisma.announcement.findMany({where:{published:true},orderBy:{createdAt:'desc'},take:30,select:{id:true,title:true,body:true,createdAt:true}});
   }
 
@@ -84,4 +86,5 @@ export class PublicController {
   }
 
   private requireAdmin(role:string){if(!['ADMIN','SUPER_ADMIN'].includes(role))throw new ForbiddenException('Action réservée à l’administration paroissiale.');}
+  private requireFaithful(role:string){if(role!=='FIDELE')throw new ForbiddenException('Cette rubrique est réservée aux comptes fidèles.');}
 }
