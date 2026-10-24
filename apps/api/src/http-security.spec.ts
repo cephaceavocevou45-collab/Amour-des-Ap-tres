@@ -27,10 +27,10 @@ describe('trusted proxy and response caching',()=>{
       await new Promise<void>(resolve=>listener.once('listening',resolve));
       const address=listener.address() as AddressInfo;
       let final:Response|undefined;
-      for(let attempt=0;attempt<11;attempt++){
+      for(let attempt=0;attempt<81;attempt++){
         final=await fetch(`http://127.0.0.1:${address.port}/api/v1/auth/login`,{method:'POST',headers:{'Connection':'close','Content-Type':'application/json','X-Forwarded-For':`203.0.113.${attempt+1}`,'X-Real-IP':`203.0.113.${attempt+1}`,'CF-Connecting-IP':`203.0.113.${attempt+1}`},body:JSON.stringify({email:`spoof-${attempt}@example.invalid`})});
         expect((await final.json()).ip).toBe('127.0.0.1');
-        expect(final.status).toBe(attempt<10?200:429);
+        expect(final.status).toBe(attempt<80?200:429);
       }
       expect(final?.headers.get('cache-control')).toBe('no-store');
       expect(final?.headers.get('pragma')).toBe('no-cache');

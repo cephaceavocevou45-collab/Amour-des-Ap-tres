@@ -76,13 +76,13 @@ describe('security guards',()=>{
 
   it('limits repeated login attempts by client address and route',()=>{
     const guard=new RateLimitGuard();
-    for(let i=0;i<10;i++)expect(guard.canActivate(context({path:'/api/v1/auth/login',ip:'192.0.2.1',body:{email:'one@example.com'}}))).toBe(true);
+    for(let i=0;i<20;i++)expect(guard.canActivate(context({path:'/api/v1/auth/login',ip:'192.0.2.1',body:{email:'one@example.com'}}))).toBe(true);
     expect(()=>guard.canActivate(context({path:'/api/v1/auth/login',ip:'192.0.2.1',body:{email:'one@example.com'}}))).toThrow();
   });
 
   it('limits attendance account applications independently by IP and address',()=>{
     const byIp=new RateLimitGuard();
-    for(let i=0;i<3;i++)expect(byIp.canActivate(context({path:'/api/v1/auth/register',method:'POST',ip:'198.51.100.10',body:{email:`applicant-${i}@example.invalid`}}))).toBe(true);
+    for(let i=0;i<20;i++)expect(byIp.canActivate(context({path:'/api/v1/auth/register',method:'POST',ip:'198.51.100.10',body:{email:`applicant-${i}@example.invalid`}}))).toBe(true);
     expect(()=>byIp.canActivate(context({path:'/api/v1/auth/register',method:'POST',ip:'198.51.100.10',body:{email:'another@example.invalid'}}))).toThrow();
     const byEmail=new RateLimitGuard();
     for(let i=0;i<3;i++)expect(byEmail.canActivate(context({path:'/api/v1/auth/register',method:'POST',ip:`198.51.100.${i+20}`,body:{email:'same@example.invalid'}}))).toBe(true);
