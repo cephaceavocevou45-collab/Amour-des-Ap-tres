@@ -15,8 +15,10 @@ export class RateLimitGuard implements CanActivate {
     const account = email || (typeof request.user?.sub === 'string' ? request.user.sub : '');
     const ip = typeof request.ip === 'string' ? request.ip : 'unknown';
     const now = Date.now();
-    const windowMs = 10 * 60_000;
-    const limit = path.endsWith('/register') ? 3
+    const register = /\/register(?:\/|$)/.test(path);
+    const login = path.endsWith('/login');
+    const windowMs = register ? 60 * 60_000 : 10 * 60_000;
+    const limit = register ? 3
       : path.endsWith('/login') ? 10
       : path.endsWith('/2fa/setup') || path.endsWith('/2fa/new-secret') || path.endsWith('/2fa/recovery-codes') ? 5
       : path.endsWith('/password/forgot') ? 4
@@ -30,7 +32,13 @@ export class RateLimitGuard implements CanActivate {
       for (const [key, bucket] of this.buckets) if (bucket.resetAt <= now) this.buckets.delete(key);
     }
     const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-    const keys:Array<{key:string;limit:number}>=[{key:`ip:${hash(ip)}:${method}:${path}`,limit}, ...(account ? [{key:`account:${hash(account)}:${method}:${path}`,limit}] : [])];
+    // Shared parish, school, and mobile networks often send many legitimate
+    // users through one public IP. Keep a strict per-account cap while giving
+    // those shared IPs room to authenticate. Registration remains stricter
+    // per email than per network.
+    const ipLimit = login ? 40 : register ? 20 : limit;
+    const accountLimit = login ? 10 : register ? 3 : limit;
+    const keys:Array<{key:string;limit:number}>=[{key:`ip:${hash(ip)}:${method}:${path}`,limit:ipLimit}, ...(account ? [{key:`account:${hash(account)}:${method}:${path}`,limit:accountLimit}] : [])];
     for (const {key,limit:keyLimit} of keys) {
       const current = this.buckets.get(key);
       if(!current&&this.buckets.size>=10_000){request.res?.setHeader?.('Retry-After',String(Math.max(1,Math.ceil(windowMs/1000))));throw new HttpException('Trop de tentatives. Réessayez plus tard.',429);}

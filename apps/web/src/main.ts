@@ -11,8 +11,9 @@ import { environment } from './environments/environment';
 
 const routes: Routes = [
   {path:'', component:HomeComponent},
+  {path:'fideles',loadComponent:()=>import('./app/faithful.component').then(m=>m.FaithfulComponent)},
   {path:'connexion',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'login'}},
-  {path:'inscription-responsable',redirectTo:'connexion'},
+  {path:'inscription-responsable',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'register'}},
   {path:'mot-de-passe-oublie',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'forgot'}},
   {path:'nouveau-mot-de-passe',redirectTo:'mot-de-passe-oublie'},
   {path:'premiere-connexion',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'first-password-change'}},
@@ -20,6 +21,7 @@ const routes: Routes = [
   {path:'admin/connexion',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'admin'}},
   {path:'sous-admin/connexion',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'subadmin'}},
   {path:'admin',loadComponent:()=>import('./app/admin.component').then(m=>m.AdminComponent),canActivate:[authGuard],data:{admin:true}},
+  {path:'admin/informations',loadComponent:()=>import('./app/admin-announcements.component').then(m=>m.AdminAnnouncementsComponent),canActivate:[authGuard],data:{announcements:true}},
   {path:'presence', loadComponent:()=>import('./app/attendance.component').then(m=>m.AttendanceComponent),canActivate:[authGuard]},
   {path:'**', redirectTo:''}
 ];

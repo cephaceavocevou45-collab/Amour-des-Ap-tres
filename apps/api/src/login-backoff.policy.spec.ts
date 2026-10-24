@@ -3,7 +3,7 @@ import { LoginBackoffPolicy } from './login-backoff.policy';
 describe('LoginBackoffPolicy', () => {
   afterEach(() => jest.useRealTimers());
 
-  it('increases the delay exponentially and caps it at thirty seconds', () => {
+  it('increases the delay exponentially and caps it at eight seconds', () => {
     const policy = new LoginBackoffPolicy();
     const ip = '198.51.100.10';
     const email = 'Member@Example.invalid';
@@ -16,7 +16,7 @@ describe('LoginBackoffPolicy', () => {
     expect(policy.delayMs(ip, email)).toBe(2_000);
     for (let index = 0; index < 12; index++) policy.recordFailure(ip, email);
     expect(policy.failureCount(ip, email)).toBe(12);
-    expect(policy.delayMs(ip, email)).toBe(30_000);
+    expect(policy.delayMs(ip, email)).toBe(8_000);
   });
 
   it('keeps backoff state isolated by both IP and normalized account', () => {
@@ -45,7 +45,7 @@ describe('LoginBackoffPolicy', () => {
     const ip = '198.51.100.13';
     const email = 'valid@example.invalid';
     for (let index = 0; index < 20; index++) policy.recordFailure(ip, email);
-    expect(policy.delayMs(ip, email)).toBe(30_000);
+    expect(policy.delayMs(ip, email)).toBe(8_000);
     policy.clear(ip, email);
     expect(policy.failureCount(ip, email)).toBe(0);
     expect(policy.delayMs(ip, email)).toBe(0);

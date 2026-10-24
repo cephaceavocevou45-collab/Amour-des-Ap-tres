@@ -21,7 +21,7 @@ export class LoginBackoffPolicy {
   delayMs(ip: string, email: string): number {
     const prior = this.failureCount(ip, email);
     if (prior < 3) return 0;
-    return Math.min(30_000, 500 * 2 ** Math.min(prior - 3, 6));
+    return Math.min(8_000, 500 * 2 ** Math.min(prior - 3, 4));
   }
 
   async wait(ip: string, email: string): Promise<number> {

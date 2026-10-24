@@ -6,7 +6,7 @@ import { JwtAuthGuard } from './auth.guard';
 import { PersonRoleName, UserRole } from './generated/prisma';
 import * as argon2 from 'argon2';
 import { RateLimitGuard } from './rate-limit.guard';
-import { createTotpSecret, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, totpUri, verifyTotp } from './totp';
+import { createTotpSecret, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, verifyTotp } from './totp';
 import { EmailQuotaService } from './email-quota.service';
 import { ReauthProof, ReauthService } from './reauth';
 import { sessionCookieOptions } from './runtime-config';
@@ -19,6 +19,18 @@ class LoginDto {
   @IsString() @MinLength(1) @MaxLength(128) password!:string;
   @IsOptional() @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) totp?:string;
 }
+class RegisterAccountDto {
+  @IsString() @Length(3,120) fullName!:string;
+  @IsEmail() @MaxLength(254) email!:string;
+  @IsOptional() @IsString() @MaxLength(32) phone?:string;
+  @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','EDITEUR']) role!:string;
+  @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number;
+  @IsString() @MinLength(12) @MaxLength(128) password!:string;
+  @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string;
+  @IsOptional() @IsString() @Matches(/^[A-Z2-7]{32}$/) totpSecret?:string;
+  @IsOptional() @IsString() @Matches(/^\d{6}$/) totpCode?:string;
+}
+class RegistrationTotpDto { @IsOptional() @IsEmail() @MaxLength(254) email?:string; }
 class SubAdminPermissionsDto implements ReauthProof { @IsArray() @ArrayMaxSize(2) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE'],{each:true}) permissions!:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string; }
 class RecoveryCodesDto { @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) code!:string; }
 class ChangePasswordDto { @IsString() @MaxLength(128) currentPassword!:string; @IsString() @MinLength(12) @MaxLength(128) newPassword!:string; @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string; @IsOptional() @IsString() @Matches(/^(?:\d{6}|[A-F0-9]{5}(?:-[A-F0-9]{5}){3})$/) factor?:string; }
@@ -49,6 +61,24 @@ export class AuthService {
   async recordSessionDevice(rawToken:string,ip:string,userAgent:string){const hashedToken=createHash('sha256').update(rawToken).digest('hex');await this.prisma.refreshToken.updateMany({where:{hashedToken,revokedAt:null},data:{ip:ip.slice(0,64),userAgent:userAgent.slice(0,500)}});}
   async regenerateRecoveryCodes(userId:string,code:string){const user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,totpSecret:true,role:true,active:true}});if(!user||!user.active||!['ADMIN','SUPER_ADMIN','EDITEUR'].includes(user.role)||!user.totpSecret)throw new UnauthorizedException('Compte administrateur invalide.');let valid=verifyTotp(decryptTotpSecret(user.totpSecret),code);if(!valid)valid=await this.consumeRecoveryCode(user.id,code);if(!valid)throw new UnauthorizedException('Code de confirmation invalide.');const codes=generateRecoveryCodes(),rows=await Promise.all(codes.map(async value=>({userId,codeHash:await argon2.hash(value,{type:argon2.argon2id})})));await this.prisma.$transaction(async tx=>{await (tx as any).recoveryCode.deleteMany({where:{userId}});await (tx as any).recoveryCode.createMany({data:rows});await tx.auditLog.create({data:{userId,action:'2FA_CODES_REGENERATION',entity:'UserSecurity',entityId:userId}});});return {codes};}
   async logPasswordResetRequest(email:string,ip:string){await this.prisma.auditLog.create({data:{action:'RESET_DEMANDE',entity:'PasswordReset',entityId:createHash('sha256').update(email.trim().toLowerCase()).digest('hex'),ip}});}
+  async registerManagedAccount(dto:RegisterAccountDto,ip:string){
+    if(dto.password!==dto.confirmPassword)throw new BadRequestException('La confirmation du mot de passe ne correspond pas.');
+    if(forbiddenPasswords.has(dto.password.toLowerCase()))throw new BadRequestException('Choisissez un mot de passe moins courant.');
+    const role=dto.role as UserRole,email=dto.email.trim().toLowerCase();
+    if(role===UserRole.EDITEUR){if(!dto.totpSecret||!dto.totpCode||!verifyTotp(dto.totpSecret,dto.totpCode))throw new BadRequestException('Configurez et confirmez la double vérification avant de demander un accès sous-administrateur.');}
+    else if(dto.totpSecret||dto.totpCode)throw new BadRequestException('La double vérification est demandée uniquement pour les comptes sous-administrateur.');
+    if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(dto.assignedDayOfWeek);
+    else if(dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
+    const passwordHash=await argon2.hash(dto.password,{type:argon2.argon2id});
+    try{
+      await this.prisma.$transaction(async tx=>{
+        const user=await tx.user.create({data:{fullName:dto.fullName.trim(),email,phone:dto.phone?.trim()||null,role,assignedDayOfWeek:role===UserRole.RESPONSABLE_SEMAINE?dto.assignedDayOfWeek:null,permissions:[],passwordHash,totpSecret:role===UserRole.EDITEUR?encryptTotpSecret(dto.totpSecret!):null,active:false,mustChangePassword:false}});
+        await tx.auditLog.create({data:{action:'DEMANDE_ACCES_PRESENCES',entity:'UserAccess',entityId:user.id,after:{role,assignedDayOfWeek:user.assignedDayOfWeek},reason:'Inscription en attente de validation administrative.',ip}});
+      });
+      return {message:'Votre demande a été reçue. L’administration paroissiale doit valider votre compte avant votre première connexion.'};
+    }catch(error:any){if(error?.code==='P2002')throw new BadRequestException('Cette adresse e-mail est déjà utilisée.');throw error;}
+  }
+  beginRegistrationTotp(){return {secret:createTotpSecret()};}
   private async consumeRecoveryCode(userId:string,code:string){if(!/^[A-F0-9]{5}(?:-[A-F0-9]{5}){3}$/.test(code))return false;const candidates=await (this.prisma as any).recoveryCode.findMany({where:{userId,usedAt:null},select:{id:true,codeHash:true}});for(const row of candidates){if(await argon2.verify(row.codeHash,code).catch(()=>false)){const used=await (this.prisma as any).recoveryCode.updateMany({where:{id:row.id,usedAt:null},data:{usedAt:new Date()}});if(used.count===1)return true;}}return false;}
   async listManagedAccounts(){
     const accounts=await this.prisma.user.findMany({where:{role:{in:[UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.EDITEUR,UserRole.ADMIN,UserRole.SUPER_ADMIN]}},select:{id:true,fullName:true,email:true,phone:true,role:true,active:true,permissions:true,assignedDayOfWeek:true},orderBy:[{role:'asc'},{fullName:'asc'}]});
@@ -216,6 +246,8 @@ export class AuthController {
   constructor(private auth:AuthService){}
   private setSessionCookies(response:any,session:{accessToken:string;refreshToken:string}){const secure=process.env.NODE_ENV==='production';response.cookie('paroisse_access',session.accessToken,sessionCookieOptions(secure,600_000));response.cookie('paroisse_refresh',session.refreshToken,sessionCookieOptions(secure,7*24*60*60_000));response.cookie('paroisse_csrf',randomBytes(32).toString('base64url'),{httpOnly:false,secure,sameSite:'strict',path:'/',maxAge:7*24*60*60_000});}
   private publicSession(session:any){return {expiresIn:session.expiresIn,user:session.user};}
+  @Post('register') register(@Body() dto:RegisterAccountDto,@Req() req:any){return this.auth.registerManagedAccount(dto,req.ip??'unknown');}
+  @Post('register/2fa') registrationTotp(@Body() _body:RegistrationTotpDto){return this.auth.beginRegistrationTotp();}
   @Post('password/forgot') async forgotPassword(@Body() dto:ForgotPasswordDto,@Req() req:any){await this.auth.logPasswordResetRequest(dto.email,req.ip);return this.auth.requestPasswordReset(dto.email);}
   @Post('password/reset') resetPassword(@Body() dto:ResetPasswordDto){return this.auth.resetPassword(dto);}
   @Post('login') async login(@Body() dto:LoginDto,@Req() req:any,@Res({passthrough:true}) response:any){const session=await this.auth.login(dto,false,req.ip);await this.auth.recordSessionDevice(session.refreshToken,req.ip??'unknown',req.headers['user-agent']??'');this.setSessionCookies(response,session);return this.publicSession(session);}

@@ -2,7 +2,7 @@ import { PublicController } from './public';
 
 describe('PublicController', () => {
   const prisma = { person: { findMany: jest.fn() } } as any;
-  const controller = new PublicController(prisma);
+  const controller = new PublicController(prisma, { requireRecentProof: jest.fn() } as any);
 
   it('publishes the corrected parish leader identity and responsive portrait asset', () => {
     expect(controller.leader()).toEqual({

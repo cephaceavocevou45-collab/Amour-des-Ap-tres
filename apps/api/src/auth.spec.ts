@@ -2,8 +2,8 @@ import { AuthController, AuthService } from './auth';
 import { PrismaService } from './prisma.service';
 
 describe('security-sensitive authentication flows',()=>{
-  it('does not expose public account self-registration',()=>{
-    expect(AuthController.prototype).not.toHaveProperty('register');
+  it('exposes controlled registration for responsible accounts',()=>{
+    expect(AuthController.prototype).toHaveProperty('register');
     expect(AuthController.prototype).toHaveProperty('login');
   });
 

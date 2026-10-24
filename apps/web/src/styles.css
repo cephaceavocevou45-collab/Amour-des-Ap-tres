@@ -361,3 +361,13 @@ body{background:var(--surface-page);color:var(--text-main);font-family:var(--fon
 @media(max-width:650px){.hero-emblem{right:8px}.hero-halo{max-width:100vw}.auth-page{width:100%;grid-template-columns:minmax(0,1fr)}.auth-brand-panel{width:100%;min-width:0}.auth-form-panel{width:100%;padding-inline:22px}.auth-form{width:100%}}
 @media(max-width:650px){.leader-mark-seal{min-height:250px}.leader-mark-seal img{width:min(92%,230px)}}
 @media(min-width:651px) and (max-width:950px){.faith-heading{display:block}.faith-heading .source-link{display:inline-block;margin-top:10px}}
+.faithful-link{padding:10px 12px;border:1px solid var(--line-subtle);color:var(--text-main);font-size:11px}
+.leader-mark-seal{position:relative;display:block;min-height:300px;padding:0;overflow:hidden;background:#fff!important;border-right:1px solid var(--line-subtle)}
+.leader-mark-seal picture{position:absolute;inset:0;display:block;width:100%;height:100%}
+.leader-mark-seal picture img{display:block;width:100%;height:100%;max-width:none;aspect-ratio:auto;object-fit:cover;object-position:center;background:#fff}
+@media(max-width:650px){.leader-mark-seal{min-height:250px}.leader-mark-seal picture img{width:100%;height:100%;object-fit:cover}}
+.faithful-page .announcement{margin:0 0 12px;padding:20px 22px;background:#fff;border:1px solid #e4e7ea;border-left:4px solid #b18e51}
+.faithful-page .announcement small{color:#8c7044;font-size:10px}
+.faithful-page .announcement h3{margin:7px 0;font:21px Georgia,serif}
+.faithful-page .announcement p{margin:0;color:#596b7e;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.admin-screen .quick-links{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
