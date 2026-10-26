@@ -10,7 +10,7 @@ Cette configuration est un modèle portable, pas une preuve de fonctionnement en
 
 1. Préparer un serveur Linux maintenu, un domaine contrôlé par la paroisse et des comptes d'administration nominatifs avec MFA.
 2. Installer Docker Engine/Compose depuis les sources officielles du système. Configurer pare-feu pour n'exposer que SSH restreint, HTTP et HTTPS; limiter SSH par clé et IP si possible.
-3. Générer des secrets indépendants avec un gestionnaire de secrets. Créer `.env` sur le serveur, jamais dans Git. Renseigner `FRONTEND_ORIGIN`, les mots de passe de base, JWT, chiffrement TOTP, Resend et certificat TLS. Aucun secret d'exemple ne doit être réutilisé.
+3. Générer des secrets indépendants avec un gestionnaire de secrets. Créer `.env` sur le serveur, jamais dans Git. Renseigner `FRONTEND_ORIGIN`, les mots de passe de base, un `JWT_ACCESS_SECRET` aléatoire d'au moins 32 octets, Resend et certificat TLS. La clé TOTP est dérivée de manière dédiée depuis le JWT; sa rotation impose le ré-enrôlement des facteurs. Aucun secret d'exemple ne doit être réutilisé.
 4. Obtenir le certificat Let's Encrypt avec un client ACME approprié. Monter le dossier TLS en lecture seule et tester renouvellement automatique. Ne servir les cookies que derrière HTTPS; HSTS seulement après validation HTTPS sur tout le domaine.
 5. Exécuter `docker compose -f infra/compose.yaml config --quiet`, puis construire/démarrer dans un environnement de préproduction fictif. Lancer les contrôles `/health` et `/ready`, les e2e sur base séparée, et un essai de restauration.
 6. Surveiller disponibilité, espace disque, CPU/mémoire, connexion PostgreSQL, échecs de sauvegarde et quota d'e-mail. Alerter avant les plafonds gratuits; tarifs et limites à vérifier chez le fournisseur.

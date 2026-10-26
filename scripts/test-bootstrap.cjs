@@ -76,7 +76,6 @@ async function run() {
   const originalDatabaseUrl = process.env.DATABASE_URL;
   const originalTsNodeProject = process.env.TS_NODE_PROJECT;
   const originalJwtSecret = process.env.JWT_ACCESS_SECRET;
-  const originalTotpKey = process.env.TOTP_ENCRYPTION_KEY;
   const applicationLogs = [];
   const commandOutputs = [];
   const sensitiveValues = [];
@@ -104,7 +103,6 @@ async function run() {
       NODE_ENV: 'test',
       TS_NODE_PROJECT: path.join(root, 'apps/api/tsconfig.json'),
       JWT_ACCESS_SECRET: randomBytes(48).toString('base64url'),
-      TOTP_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
     };
     phase = 'application des migrations dans le schéma isolé';
     const migrate = runNode([
@@ -123,7 +121,7 @@ async function run() {
     const email = `bootstrap-${randomBytes(10).toString('hex')}@test.invalid`;
     const password = `${randomBytes(30).toString('base64url')}A9!`;
     const rerunPassword = `${randomBytes(30).toString('base64url')}B7!`;
-    sensitiveValues.push(email, password, rerunPassword, childEnv.JWT_ACCESS_SECRET, childEnv.TOTP_ENCRYPTION_KEY, testBaseUrl.toString(), scopedUrl.toString(), controlUrl.toString());
+    sensitiveValues.push(email, password, rerunPassword, childEnv.JWT_ACCESS_SECRET, testBaseUrl.toString(), scopedUrl.toString(), controlUrl.toString());
     const seedEnv = { ...childEnv, BOOTSTRAP_ADMIN_EMAIL: email, BOOTSTRAP_ADMIN_PASSWORD: password };
     const seedFile = path.join(root, 'apps/api/prisma/seed.ts');
     const tsNode = path.join(root, 'node_modules/ts-node/dist/bin.js');
@@ -143,7 +141,6 @@ async function run() {
     process.env.DATABASE_URL = scopedUrl.toString();
     process.env.TS_NODE_PROJECT = path.join(root, 'apps/api/tsconfig.json');
     process.env['JWT_ACCESS_SECRET'] = childEnv.JWT_ACCESS_SECRET;
-    process.env['TOTP_ENCRYPTION_KEY'] = childEnv.TOTP_ENCRYPTION_KEY;
     phase = 'démarrage de l’API isolée';
     phase = 'chargement de l’application Nest';
     const { createServer } = net;
@@ -250,8 +247,6 @@ async function run() {
     else process.env.TS_NODE_PROJECT = originalTsNodeProject;
     if (originalJwtSecret === undefined) delete process.env['JWT_ACCESS_SECRET'];
     else process.env['JWT_ACCESS_SECRET'] = originalJwtSecret;
-    if (originalTotpKey === undefined) delete process.env['TOTP_ENCRYPTION_KEY'];
-    else process.env['TOTP_ENCRYPTION_KEY'] = originalTotpKey;
     applicationLogs.length = 0;
     commandOutputs.length = 0;
     sensitiveValues.length = 0;

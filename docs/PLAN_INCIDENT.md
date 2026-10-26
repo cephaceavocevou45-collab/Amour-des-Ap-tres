@@ -31,7 +31,7 @@ Ne publiez pas les coordonnées directes des personnes concernées dans un canal
 
 1. Alerter les trois rôles de contact ci-dessus; consigner la portée connue, l'heure de détection et les systèmes impliqués.
 2. Protéger les preuves et les journaux, puis retirer temporairement l'accès public ou isoler l'instance si la fuite continue. Ne pas effacer les journaux ni restaurer par-dessus la base en service.
-3. Révoquer/faire tourner les secrets potentiellement exposés (JWT, chiffrement TOTP, fournisseur e-mail, PostgreSQL, stockage de sauvegarde) selon la procédure de déploiement. Révoquer toutes les sessions après rotation JWT.
+3. Révoquer/faire tourner les secrets potentiellement exposés (JWT, fournisseur e-mail, PostgreSQL, stockage de sauvegarde) selon la procédure de déploiement. La rotation JWT invalide aussi les secrets TOTP et impose le ré-enrôlement par codes de secours selon `EXPLOITATION.md`. Révoquer toutes les sessions après rotation JWT.
 4. Comparer les journaux d'audit et les sauvegardes chiffrées; faire examiner l'incident par la personne responsable de la protection des données et vérifier les obligations de notification applicables.
 5. Restaurer uniquement dans une base isolée pour enquête. La reprise en production exige validation de l'intégrité et décision documentée du responsable d'incident.
 

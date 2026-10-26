@@ -1,15 +1,17 @@
 import { applySecurityHeaders, assertProductionConfiguration, corsOrigin, sessionCookieOptions, trustedProxyDepth } from './runtime-config';
 
-const prod = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://app:private@db:5432/app', JWT_ACCESS_SECRET: 'a'.repeat(40), TOTP_ENCRYPTION_KEY: 'b'.repeat(32), RESEND_API_KEY: `re_${'x'.repeat(32)}`, MAIL_FROM: 'paroisse@paroisse.org', APP_PUBLIC_URL: 'https://paroisse.org', TRUST_PROXY_DEPTH: '1' } as NodeJS.ProcessEnv;
+const prod = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://app:private@db:5432/app', JWT_ACCESS_SECRET: 'a'.repeat(40), RESEND_API_KEY: `re_${'x'.repeat(32)}`, MAIL_FROM: 'paroisse@paroisse.org', APP_PUBLIC_URL: 'https://paroisse.org', TRUST_PROXY_DEPTH: '1' } as NodeJS.ProcessEnv;
 
 describe('production configuration', () => {
   it('requires real production secrets and an exact HTTPS origin without echoing the missing setting', () => {
     expect(() => assertProductionConfiguration({ ...prod, JWT_ACCESS_SECRET: '' })).toThrow('Configuration de production incomplète');
-    expect(() => assertProductionConfiguration({ ...prod, TOTP_ENCRYPTION_KEY: 'change-me-please-this-is-an-example' })).toThrow('Configuration de production incomplète');
     expect(() => assertProductionConfiguration({ ...prod, RESEND_API_KEY: 'private-provider-key' })).toThrow('Configuration de production incomplète');
     expect(() => assertProductionConfiguration({ ...prod, MAIL_FROM: '' })).toThrow('Configuration de production incomplète');
     expect(() => assertProductionConfiguration({ ...prod, APP_PUBLIC_URL: 'http://paroisse.example.org' })).toThrow('Configuration de production incomplète');
     expect(() => assertProductionConfiguration(prod)).not.toThrow();
+    expect(() => assertProductionConfiguration({ ...prod, JWT_ACCESS_SECRET: 'short' })).toThrow('Configuration de production incomplète');
+    expect(() => assertProductionConfiguration({ ...prod, JWT_ACCESS_SECRET: 'é'.repeat(15) })).toThrow('Configuration de production incomplète');
+    expect(() => assertProductionConfiguration({ ...prod, JWT_ACCESS_SECRET: 'change-me-example-' + 'x'.repeat(40) })).toThrow('Configuration de production incomplète');
   });
 
   it('allows only APP_PUBLIC_URL in production and uses the local setting only outside production', () => {

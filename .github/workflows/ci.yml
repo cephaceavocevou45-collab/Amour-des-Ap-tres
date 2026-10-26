@@ -23,7 +23,7 @@ jobs:
         with: {node-version: 22, cache: npm}
       - name: Generate ephemeral test secrets
         run: |
-          node -e 'const c=require("node:crypto"),f=require("node:fs"),v=[["JWT_ACCESS_SECRET",c.randomBytes(48).toString("base64url")],["TOTP_ENCRYPTION_KEY",c.randomBytes(32).toString("hex")]];f.appendFileSync(process.env.GITHUB_ENV,v.map(([k,x])=>`${k}=${x}`).join("\n")+"\n")'
+          node -e 'const c=require("node:crypto"),f=require("node:fs");f.appendFileSync(process.env.GITHUB_ENV,`JWT_ACCESS_SECRET=${c.randomBytes(48).toString("base64url")}\n`)'
       - run: npm ci
       - run: npm run lint --if-present
       - run: npm test --if-present

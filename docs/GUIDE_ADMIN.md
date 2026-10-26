@@ -28,6 +28,8 @@ Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma
 
 Les comptes ADMIN/SUPER_ADMIN doivent avoir une application TOTP. Conservez les codes de secours hors ligne et séparément du mot de passe. L'enrôlement ou la récupération s'effectue par les scripts serveur `admin:enroll-2fa` / `admin:reset-2fa`, jamais depuis une route publique. La récupération de compte exige une intervention d'un autre administrateur déjà protégé et révoque les sessions. Ne transmettez pas les clés ou codes au support par courriel.
 
+La clé protégeant les secrets TOTP est dérivée de `JWT_ACCESS_SECRET` avec HKDF-SHA256 et un contexte réservé à cet usage. Une rotation de `JWT_ACCESS_SECRET` invalide donc les secrets TOTP enregistrés et les anciens jetons d’accès; les sessions persistantes peuvent rester valides jusqu'à leur révocation ou leur expiration. Avant une rotation planifiée, vérifier que chaque administrateur possède des codes de secours non utilisés, conservés hors ligne. Après la rotation, lancer `admin:enroll-2fa` sur le service API et utiliser un code de secours à usage unique lorsqu'il est demandé pour remplacer le facteur; ensuite, se connecter avec la nouvelle application TOTP. Ne pas désactiver la 2FA. En cas de rotation urgente sans codes disponibles, un autre SUPER_ADMIN actif doit utiliser la procédure auditée `admin:reset-2fa`, après vérification de l'identité, puis l'intéressé doit immédiatement ré-enrôler son facteur. Les codes de secours sont hachés indépendamment et ne sont pas invalidés par la rotation JWT.
+
 `2FA_REQUIS_RESPONSABLES` contrôle l'exigence pour les secrétaires et présidents; la valeur par défaut demeure désactivée jusqu'à décision et test par la paroisse.
 
 ## Sauvegarde et incidents

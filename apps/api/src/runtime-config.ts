@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import helmet from 'helmet';
 
-const REQUIRED_PRODUCTION_VALUES = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'TOTP_ENCRYPTION_KEY', 'RESEND_API_KEY', 'MAIL_FROM', 'APP_PUBLIC_URL', 'TRUST_PROXY_DEPTH'] as const;
+const REQUIRED_PRODUCTION_VALUES = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'RESEND_API_KEY', 'MAIL_FROM', 'APP_PUBLIC_URL', 'TRUST_PROXY_DEPTH'] as const;
 
 export function assertProductionConfiguration(env: NodeJS.ProcessEnv): void {
   if (env.NODE_ENV !== 'production') return;
@@ -11,7 +11,7 @@ export function assertProductionConfiguration(env: NodeJS.ProcessEnv): void {
       throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
     }
   }
-  if (trustedProxyDepth(env) === null || (env.JWT_ACCESS_SECRET?.length ?? 0) < 32 || (env.TOTP_ENCRYPTION_KEY?.length ?? 0) < 24) {
+  if (trustedProxyDepth(env) === null || Buffer.byteLength(env.JWT_ACCESS_SECRET?.trim() ?? '', 'utf8') < 32) {
     throw new Error('Configuration de production incomplète ou contenant une valeur exemple.');
   }
   try {

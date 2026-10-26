@@ -1,6 +1,6 @@
 import { PrismaClient, UserRole } from '../src/generated/prisma';
 import * as argon2 from 'argon2';
-import { createTotpSecret, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, totpUri, verifyTotp } from '../src/totp';
+import { createTotpSecret, decryptTotpSecretAndMigrate, encryptTotpSecret, generateRecoveryCodes, totpUri, verifyTotp } from '../src/totp';
 
 const adminRoles=new Set<string>([UserRole.ADMIN,UserRole.SUPER_ADMIN,UserRole.EDITEUR]);
 const responsibleRoles=new Set<string>([UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE]);
@@ -14,7 +14,10 @@ async function consumeRecoveryCode(prisma:PrismaClient,userId:string,code:string
 }
 
 async function confirmFactor(prisma:PrismaClient,userId:string,encryptedSecret:string,code:string){
-  if(verifyTotp(decryptTotpSecret(encryptedSecret),code))return true;
+  try{
+    const secret=await decryptTotpSecretAndMigrate(encryptedSecret,reencryptedSecret=>prisma.user.updateMany({where:{id:userId,totpSecret:encryptedSecret},data:{totpSecret:reencryptedSecret}}));
+    if(verifyTotp(secret,code))return true;
+  }catch{/* The one-time recovery code remains usable after a JWT key rotation. */}
   return consumeRecoveryCode(prisma,userId,code);
 }
 

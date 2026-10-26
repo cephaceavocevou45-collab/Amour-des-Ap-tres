@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { PrismaService } from './prisma.service';
-import { decryptTotpSecret, verifyTotp } from './totp';
+import { decryptTotpSecretAndMigrate, verifyTotp } from './totp';
 
 export type ReauthProof = { reauthPassword?: string; reauthFactor?: string };
 
@@ -15,9 +15,14 @@ export class ReauthService {
     const validPassword = typeof proof.reauthPassword === 'string' && proof.reauthPassword.length <= 128
       ? await argon2.verify(user.passwordHash, proof.reauthPassword).catch(() => false)
       : false;
-    const validFactor = typeof proof.reauthFactor === 'string' && user.totpSecret
-      ? verifyTotp(decryptTotpSecret(user.totpSecret), proof.reauthFactor)
-      : false;
+    let validFactor = false;
+    if (typeof proof.reauthFactor === 'string' && user.totpSecret) {
+      const encryptedSecret = user.totpSecret;
+      try {
+        const secret = await decryptTotpSecretAndMigrate(encryptedSecret, reencryptedSecret => this.prisma.user.updateMany({ where: { id: userId, totpSecret: encryptedSecret }, data: { totpSecret: reencryptedSecret } }));
+        validFactor = verifyTotp(secret, proof.reauthFactor);
+      } catch { validFactor = false; }
+    }
     if (!validPassword && !validFactor) throw new UnauthorizedException('Réauthentification requise. Confirmez votre mot de passe ou votre code de vérification.');
   }
 }

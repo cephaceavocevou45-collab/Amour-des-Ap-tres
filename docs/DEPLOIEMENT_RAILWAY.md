@@ -56,7 +56,7 @@ Les noms ci-dessous sont les seuls à configurer pour ce déploiement. Les valeu
 | `NODE_ENV` | Service API production et service API de test, avec environnements distincts |
 | `DATABASE_URL` | API production (connexion privée, rôle applicatif); job migrate (connexion privée, rôle migrateur distinct) |
 | `TEST_DATABASE_URL` | Runner e2e de test uniquement; base isolée avec données fictives |
-| `JWT_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY` | Secrets propres à l’API production; secrets indépendants pour test |
+| `JWT_ACCESS_SECRET` | Secret aléatoire d’au moins 32 octets, propre à chaque environnement. La clé TOTP est dérivée séparément par HKDF-SHA256; cette variable n’est pas configurée. |
 | `RESEND_API_KEY`, `MAIL_FROM` | API production; service/valeurs de test séparés sans adresse réelle de fidèle |
 | `APP_PUBLIC_URL`, `TRUST_PROXY_DEPTH`, `PORT` | API production; variable proxy requise seulement en production |
 | `API_PRIVATE_HOST` | Service web seulement, référence au DNS privé du service API |
@@ -139,7 +139,9 @@ Le script `scripts/seed-staging-fake.cjs` ne lit pas `DATABASE_URL`; il se conne
 railway ssh --environment staging --service ops -- node scripts/seed-staging-fake.cjs
 ```
 
-Variables requises de staging : `APP_ENVIRONMENT`, `STAGING_DATABASE_URL`, ainsi que des secrets indépendants `JWT_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY`, `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL`, `TRUST_PROXY_DEPTH`. La base de staging et ses secrets doivent être inventoriés distinctement des valeurs production. `TEST_DATABASE_URL` reste réservée au runner de tests locaux/CI et ne doit pointer ni sur staging ni sur production.
+Variables requises de staging : `APP_ENVIRONMENT`, `STAGING_DATABASE_URL`, ainsi que des secrets indépendants `JWT_ACCESS_SECRET` (au moins 32 octets), `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL`, `TRUST_PROXY_DEPTH`. La clé de chiffrement TOTP est dérivée de façon dédiée depuis `JWT_ACCESS_SECRET` avec HKDF-SHA256; aucune variable TOTP séparée n’est requise. La base de staging et ses secrets doivent être inventoriés distinctement des valeurs production. `TEST_DATABASE_URL` reste réservée au runner de tests locaux/CI et ne doit pointer ni sur staging ni sur production.
+
+La rotation de `JWT_ACCESS_SECRET` invalide les secrets TOTP chiffrés avec la clé dérivée ainsi que les anciens jetons d’accès. Les sessions persistantes peuvent toutefois rester valides jusqu'à leur révocation ou leur expiration. Avant une rotation planifiée, vérifier que chaque administrateur possède des codes de secours inutilisés. Après la rotation et le redéploiement, chaque administrateur utilise un code de secours à usage unique dans la procédure CLI `admin:enroll-2fa`, puis se connecte avec le nouveau facteur; ne pas désactiver le 2FA. Si un compte ne possède plus de code de secours, un autre SUPER_ADMIN vérifie son identité et utilise la procédure auditée `admin:reset-2fa`. Pour les anciennes lignes chiffrées avec l’ancienne configuration TOTP, déployer d’abord la version compatible avec l’ancienne variable encore présente, laisser chaque compte valider un TOTP afin que son secret soit migré, puis retirer l’ancienne variable. Si la clé historique est déjà absente, ces comptes se ré-enrôlent avec un code de secours.
 
 ## Calibration sûre de l'adresse IP
 
