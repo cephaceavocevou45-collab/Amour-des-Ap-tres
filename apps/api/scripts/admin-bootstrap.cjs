@@ -55,7 +55,9 @@ async function main() {
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   const created = await prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(202610200)`;
+    // Keep the void-returning lock function inside a CTE and return a normal
+    // scalar to Prisma, which cannot deserialize PostgreSQL's `void` type.
+    await tx.$queryRaw`WITH bootstrap_lock AS MATERIALIZED (SELECT pg_advisory_xact_lock(202610200)) SELECT TRUE AS locked FROM bootstrap_lock`;
     if (await tx.user.findFirst({ where: { role: UserRole.SUPER_ADMIN }, select: { id: true } })) return false;
     if (await tx.user.findUnique({ where: { email }, select: { id: true } })) {
       throw new Error('Cette adresse est déjà associée à un compte ; aucun compte n’a été modifié.');
