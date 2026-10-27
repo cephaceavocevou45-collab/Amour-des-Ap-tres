@@ -24,7 +24,7 @@ La configuration limite les services applicatifs à environ 2 cœurs et 5 Gio de
 1. Choisir une région proche des fidèles et vérifier les règles locales de protection des données.
 2. Installer Docker Engine et le plugin Compose depuis les dépôts officiels de la distribution, avec les mises à jour de sécurité activées. Aucun service distant n’est installé ou activé par cette documentation.
 3. Configurer le DNS du domaine vers l’adresse du serveur. Au pare-feu, n’autoriser en entrée que SSH depuis des adresses d’administration connues, TCP 80 et TCP 443. Ne pas ouvrir PostgreSQL (5432), l’API (3000) ni le site (8080).
-4. Copier le dépôt dans un répertoire de déploiement non public, puis créer un fichier de variables dédié à la production à partir de `.env.example`. Compléter les valeurs localement dans un gestionnaire de secrets ou un éditeur sécurisé. Ne pas envoyer ni coller le fichier `.env` dans un rapport. Utiliser des secrets aléatoires distincts pour PostgreSQL, JWT et les sauvegardes. La clé TOTP est dérivée de `JWT_ACCESS_SECRET` par HKDF-SHA256 avec un contexte réservé; `JWT_ACCESS_SECRET` doit faire au moins 32 octets. `POSTGRES_APP_PASSWORD` entre dans une URL PostgreSQL : le générer avec un alphabet compatible URL (par exemple base64url) pour éviter les erreurs d’encodage. Le compte DB applicatif n’est pas superutilisateur ; les migrations sont lancées séparément.
+4. Copier le dépôt dans un répertoire de déploiement non public, puis créer un fichier de variables dédié à la production à partir de `.env.example`. Compléter les valeurs localement dans un gestionnaire de secrets ou un éditeur sécurisé. Ne pas envoyer ni coller le fichier `.env` dans un rapport. Utiliser des secrets aléatoires distincts pour PostgreSQL, JWT et les sauvegardes. `JWT_ACCESS_SECRET` doit faire au moins 32 octets. `POSTGRES_APP_PASSWORD` entre dans une URL PostgreSQL : le générer avec un alphabet compatible URL (par exemple base64url) pour éviter les erreurs d’encodage. Le compte DB applicatif n’est pas superutilisateur ; les migrations sont lancées séparément. La connexion à l’application utilise uniquement l’adresse e-mail et le mot de passe.
 5. Le fichier Compose ne démarre pas les migrations automatiquement. Examiner le statut et les SQL de migration, sauvegarder la base, puis exécuter explicitement la commande de migration documentée dans `MIGRATION_PROCEDURE.md`. Ne jamais appliquer directement les migrations historiques en attente sans revue et restauration vérifiée.
 
 Variables obligatoires du Compose : `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_APP_DATABASE`, `FRONTEND_ORIGIN`, `JWT_ACCESS_SECRET` (au moins 32 octets), `RESEND_API_KEY`, `MAIL_FROM` et `TLS_CERT_DIR`. Les opérations S3/maintenance exigent aussi `BACKUP_KEY_HEX`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY` et `S3_SECRET_KEY`. Compose échoue volontairement si une variable obligatoire manque. Ne pas inclure les véritables valeurs dans un terminal partagé ou une capture d’écran.
@@ -93,14 +93,14 @@ Les journaux Docker sont limités à 10 Mio × 5 fichiers pour les services perm
 
 - Acheter/enregistrer et contrôler le domaine de la paroisse, puis vérifier DNS et HTTPS.
 - Créer les comptes fournisseurs au nom de la paroisse et donner l’accès à au moins deux administrateurs humains distincts avec MFA.
-- Préparer de façon sécurisée le premier compte administrateur : Compose ne lance pas le seed et ne crée pas automatiquement de compte privilégié. Faire provisionner ce compte selon la procédure d’administration approuvée, puis enrôler sa 2FA avant ouverture du site. Créer et tester un second compte administrateur distinct.
+- Préparer de façon sécurisée le premier compte administrateur : Compose ne lance pas le seed et ne crée pas automatiquement de compte privilégié. Faire provisionner ce compte selon la procédure d’administration approuvée. Créer et tester un second compte administrateur distinct.
 - Vérifier l’exigence de carte bancaire, limites de dépenses et alertes budget; la carte ne doit pas être un compte personnel isolé.
 - Choisir la région du serveur et valider latence, résidence des données, sauvegarde et récupération.
-- Générer, enregistrer hors machine et faire tourner tous les secrets (DB, JWT, Resend, S3, sauvegarde); une rotation JWT exige le ré-enrôlement des facteurs TOTP avec des codes de secours. Ne jamais réutiliser un secret de test.
+- Générer, enregistrer hors machine et faire tourner tous les secrets (DB, JWT, Resend, S3, sauvegarde). Ne jamais réutiliser un secret de test.
 - Tester la restauration chiffrée sur une base vierge, comparer les données sans afficher les noms, puis consigner le résultat et l’opérateur.
 - Vérifier l’identité du domaine expéditeur, les messages de récupération et les limites effectives du compte Resend.
 - Tester sur de vrais téléphones : navigation 360 px, connexion sous les rôles prévus, cookies HTTPS et saisie/synchronisation des présences.
-- Faire examiner les migrations de développement encore en attente, l’audit npm et les procédures 2FA avant tout transfert de données réelles.
+- Faire examiner les migrations de développement encore en attente et l’audit npm avant tout transfert de données réelles.
 
 ## État vérifiable
 

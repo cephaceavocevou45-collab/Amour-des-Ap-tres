@@ -43,7 +43,7 @@ class CorrectionDto {
   @IsEnum(Zone) zone!:Zone;
   @IsIn(['DOUBLON','ERREUR_DE_SAISIE','JUSTIFICATIF_PAROISSIAL']) reason!:string;
 }
-class NamesAccessDto implements ReauthProof { @IsIn(['VERIFICATION_DEMANDE','SIGNAL_ADMIN','CORRECTION_ADMIN']) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string; }
+class NamesAccessDto implements ReauthProof { @IsIn(['VERIFICATION_DEMANDE','SIGNAL_ADMIN','CORRECTION_ADMIN']) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 
 function localDateKey(date=new Date()) {
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);

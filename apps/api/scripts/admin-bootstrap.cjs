@@ -84,7 +84,7 @@ async function main() {
     process.stdout.write('Un SUPER_ADMIN existe déjà ; aucune modification effectuée.\n');
     return;
   }
-  process.stdout.write('Premier SUPER_ADMIN créé. Le changement du mot de passe est obligatoire à la première connexion. Enrôlez immédiatement la 2FA avec la commande admin:enroll-2fa.\n');
+  process.stdout.write('Premier SUPER_ADMIN créé. Le changement du mot de passe est obligatoire à la première connexion.\n');
 }
 
 main()

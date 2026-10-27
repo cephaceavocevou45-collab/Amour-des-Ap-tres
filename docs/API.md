@@ -13,18 +13,17 @@ Toutes les requêtes JSON sont limitées à 64 Kio (`express.json` et `express.u
 | `GET /public/sessions` | Public, limiteur global | Aucun paramètre. Programme public. |
 | `GET /public/sessions/next` | Public, limiteur global | Aucun paramètre. Prochaine séance. |
 | `GET /health`, `GET /ready` | Public, limiteur global | Aucun paramètre. État minimal sans détail de connexion. `/ready` vérifie PostgreSQL par une requête Prisma. |
-| `POST /auth/login`, `/auth/admin/login`, `/auth/subadmin/login` | Public, limiteurs IP et compte | `LoginDto`: e-mail (`IsEmail`), mot de passe 1–128 caractères, TOTP ou code de secours optionnel au format strict. Les routes distinguent le rôle requis, pas les erreurs d’identifiants. |
+| `POST /auth/login`, `/auth/admin/login`, `/auth/subadmin/login` | Public, limiteurs IP et compte | `LoginDto`: e-mail (`IsEmail`) et mot de passe 1–128 caractères uniquement. Les routes distinguent le rôle requis, pas les erreurs d’identifiants. |
 | `POST /auth/password/forgot` | Public, limiteurs IP et adresse | `email` (`IsEmail`). Réponse uniforme, code à usage unique, expiration de 15 minutes et cinq essais au plus. |
-| `POST /auth/password/reset` | Public, limiteurs IP et adresse | E-mail, code à six chiffres, nouveau mot de passe et confirmation de 12–128 caractères, facteur 2FA optionnel au format strict. |
+| `POST /auth/password/reset` | Public, limiteurs IP et adresse | E-mail, code de récupération reçu par e-mail, nouveau mot de passe et confirmation de 12–128 caractères. |
 | `POST /auth/refresh`, `POST /auth/logout` | Cookie de renouvellement; CSRF requis si un cookie de session accompagne une écriture | Aucun corps. Rotation ou révocation de la famille de sessions. |
 | `GET /auth/session` | Session valide | Aucun paramètre. Retourne l’identifiant, le rôle et les permissions du compte. |
 | `GET /auth/account/sessions` | Session valide | Aucun paramètre. Sessions de l’utilisateur courant uniquement. |
 | `DELETE /auth/account/sessions/:id` | Session valide | `id` opaque de session; suppression limitée au compte courant. Le format de l’identifiant n’est pas validé par un DTO de route. |
 | `POST /auth/account/sessions/revoke-all` | Session valide et CSRF si cookie | Aucun corps; révoque les sessions du compte courant. |
-| `POST /auth/account/password`, `/auth/account/password/first-login` | Session valide et CSRF si cookie | Mot de passe actuel, nouveau mot de passe et confirmation de 12–128 caractères; facteur strict optionnel. |
-| `POST /auth/admin/2fa/recovery-codes` | ADMIN/SUPER_ADMIN/EDITEUR, session valide, facteur actuel requis | Code TOTP à six chiffres ou code de secours au format strict. Les codes nouveaux sont affichés une seule fois. |
+| `POST /auth/account/password`, `/auth/account/password/first-login` | Session valide et CSRF si cookie | Mot de passe actuel, nouveau mot de passe et confirmation de 12–128 caractères. |
 | `GET /auth/admin/members` | ADMIN/SUPER_ADMIN uniquement | Aucun paramètre. Coordonnées de gestion des comptes; EDITEUR reçoit 403. |
-| `POST /auth/admin/members` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Nom 3–120, e-mail ≤254, téléphone optionnel ≤32, rôle dans la liste autorisée, jour entier 1–7 si président, permissions limitées à deux valeurs, motif 8–1000, preuve récente par mot de passe ou 2FA. Le mot de passe temporaire aléatoire est renvoyé une seule fois. |
+| `POST /auth/admin/members` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Nom 3–120, e-mail ≤254, téléphone optionnel ≤32, rôle dans la liste autorisée, jour entier 1–7 si président, permissions limitées à deux valeurs, motif 8–1000, preuve récente par mot de passe. Le mot de passe temporaire aléatoire est renvoyé une seule fois. |
 | `PATCH /auth/admin/members/:id` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Identifiant opaque, statut actif, rôle/jour/permissions stricts et motif 8–1000. La modification invalide les sessions. L’identifiant de route n’a pas de DTO de format. |
 | `PATCH /auth/admin/members/:id/permissions` | ADMIN/SUPER_ADMIN, réauthentification et CSRF | Identifiant opaque, tableau d’au plus deux permissions autorisées et motif 8–1000. |
 | `GET /auth/admin/presenters` | ADMIN/SUPER_ADMIN | Aucun paramètre. Intervenants publics. |

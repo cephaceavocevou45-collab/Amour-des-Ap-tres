@@ -21,7 +21,7 @@ Les tests de base de données doivent employer exclusivement `TEST_DATABASE_URL`
 - Accueil public : présentation, dirigeant, équipe des cours bibliques, liens bibliques et contenu doctrinal déjà publié.
 - Programme biblique du lundi, selon les rôles et permissions attribués.
 - Saisie hors ligne, contrôle, totaux, historique et exports de présences : cours biblique et groupe de semaine.
-- Connexion des responsables, comptes créés par l'administration, changement obligatoire du mot de passe temporaire, récupération par code e-mail, 2FA et sessions.
+- Connexion par e-mail et mot de passe, comptes créés par l'administration, changement obligatoire du mot de passe temporaire, récupération par code e-mail et gestion des sessions.
 - Administration, journal d'audit, limitation de débit, anonymisation des noms de présence à la durée configurée et sauvegardes chiffrées.
 
 Les présences nominatives sont des données sensibles. L'administrateur consulte les totaux par défaut; l'accès aux noms exige un motif et est journalisé. Les présidents sont isolés à leur jour. La base de développement ne doit pas être migrée avant sauvegarde restaurée et approbation humaine.

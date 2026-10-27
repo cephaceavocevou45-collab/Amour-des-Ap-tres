@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS "RecoveryCode";
+ALTER TABLE "User" DROP COLUMN IF EXISTS "totpSecret";

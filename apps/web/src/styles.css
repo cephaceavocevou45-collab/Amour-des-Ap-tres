@@ -373,3 +373,4 @@ body{background:var(--surface-page);color:var(--text-main);font-family:var(--fon
 .admin-screen .quick-links{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 .faithful-page nav .logout-button{padding:0;border:0;background:none;color:#314964;font:inherit;font-size:12px;cursor:pointer}
 @media(max-width:600px){.faithful-page nav .logout-button{font-size:10px}}
+.password-field{position:relative;display:block}.password-field input{padding-right:48px}.password-toggle{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:grid;place-items:center;width:34px;height:34px;padding:7px;border:0;border-radius:3px;background:transparent;color:#657286;cursor:pointer}.password-toggle:hover{background:#f0eee9;color:var(--navy)}.password-toggle:focus-visible{outline:2px solid #b48b49;outline-offset:1px}.password-toggle svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}

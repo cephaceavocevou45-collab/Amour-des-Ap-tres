@@ -8,7 +8,7 @@ describe('security-sensitive authentication flows',()=>{
   });
 
   it('rejects a reused or expired email recovery code before changing the account',async()=>{
-    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',role:'SECRETAIRE_PRESENCE',totpSecret:null,active:true})},passwordResetToken:{findMany:jest.fn().mockResolvedValue([])},$transaction:jest.fn()} as unknown as PrismaService;
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'u1',role:'SECRETAIRE_PRESENCE',active:true})},passwordResetToken:{findMany:jest.fn().mockResolvedValue([])},$transaction:jest.fn()} as unknown as PrismaService;
     await expect(new AuthService(prisma).resetPassword({email:'member@example.invalid',code:'123456',password:'motDePasseNouveauTresFort2026!',confirmPassword:'motDePasseNouveauTresFort2026!'})).rejects.toMatchObject({status:400});
     expect(prisma.passwordResetToken.findMany).toHaveBeenCalledWith({where:expect.objectContaining({userId:'u1',usedAt:null,expiresAt:{gt:expect.any(Date)},failedAttempts:{lt:5}}),select:{id:true,tokenHash:true,failedAttempts:true}});
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -30,10 +30,11 @@ describe('security-sensitive authentication flows',()=>{
     }finally{jest.restoreAllMocks();}
   });
 
-  it('does not expose HTTP 2FA enrollment endpoints',()=>{
+  it('does not expose two-factor authentication endpoints',()=>{
     expect(AuthController.prototype).not.toHaveProperty('setup');
     expect(AuthController.prototype).not.toHaveProperty('newSecret');
-    expect(AuthController.prototype).toHaveProperty('recoveryCodes');
+    expect(AuthController.prototype).not.toHaveProperty('recoveryCodes');
+    expect(AuthController.prototype).not.toHaveProperty('registerTotp');
   });
 
   it('creates responsible accounts with a one-time temporary password and an audit record',async()=>{

@@ -13,7 +13,7 @@ const detectors = [
   { name: 'clé AWS', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
   { name: 'jeton Slack', pattern: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/ },
   { name: 'JWT signé', pattern: /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/ },
-  { name: 'valeur de secret affectée en clair', pattern: /\b(?:JWT_ACCESS_SECRET|TOTP_ENCRYPTION_KEY|RESEND_API_KEY|BACKUP_KEY_HEX|S3_SECRET_KEY|(?:APP|POSTGRES|PAROISSE)_?(?:DB|DATABASE|MIGRATION|APP)?_?PASSWORD)[ \t]*[:=][ \t]*["']?([A-Za-z0-9/+_.=-]{24,})/i },
+  { name: 'valeur de secret affectée en clair', pattern: /\b(?:JWT_ACCESS_SECRET|RESEND_API_KEY|BACKUP_KEY_HEX|S3_SECRET_KEY|(?:APP|POSTGRES|PAROISSE)_?(?:DB|DATABASE|MIGRATION|APP)?_?PASSWORD)[ \t]*[:=][ \t]*["']?([A-Za-z0-9/+_.=-]{24,})/i },
 ];
 const detected = [];
 

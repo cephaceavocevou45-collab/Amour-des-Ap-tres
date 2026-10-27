@@ -56,11 +56,11 @@ Les noms ci-dessous sont les seuls à configurer pour ce déploiement. Les valeu
 | `NODE_ENV` | Service API production et service API de test, avec environnements distincts |
 | `DATABASE_URL` | API production (connexion privée, rôle applicatif); job migrate (connexion privée, rôle migrateur distinct) |
 | `TEST_DATABASE_URL` | Runner e2e de test uniquement; base isolée avec données fictives |
-| `JWT_ACCESS_SECRET` | Secret aléatoire d’au moins 32 octets, propre à chaque environnement. La clé TOTP est dérivée séparément par HKDF-SHA256; cette variable n’est pas configurée. |
+| `JWT_ACCESS_SECRET` | Secret aléatoire d’au moins 32 octets, propre à chaque environnement. |
 | `RESEND_API_KEY`, `MAIL_FROM` | API production; service/valeurs de test séparés sans adresse réelle de fidèle |
 | `APP_PUBLIC_URL`, `TRUST_PROXY_DEPTH`, `PORT` | API production; variable proxy requise seulement en production |
 | `API_PRIVATE_HOST` | Service web seulement, référence au DNS privé du service API |
-| `SESSION_IDLE_MINUTES`, `SESSION_ABSOLUTE_DAYS`, `2FA_REQUIS_RESPONSABLES` | API production et environnement de test séparé |
+| `SESSION_IDLE_MINUTES`, `SESSION_ABSOLUTE_DAYS` | API production et environnement de test séparé |
 | `RESEND_DAILY_LIMIT`, `RESEND_ALERT_AT` | API production et valeurs de test isolées |
 | `ATTENDANCE_GRACE_MINUTES`, `DATA_RETENTION_MONTHS`, `AUDIT_RETENTION_MONTHS` | API production et valeurs de test isolées |
 | `PG_ADMIN_URL` | Provisionnement ponctuel de rôles sur une base vide; jamais dans les services runtime |
@@ -106,14 +106,13 @@ Exemples de commandes à lancer depuis un terminal local connecté au bon projet
 
 ```powershell
 railway ssh --environment production --service ops -- npm run admin:bootstrap --workspace @paroisse/api -- --email=adresse-du-responsable@domaine-paroissial.example
-railway ssh --environment production --service ops -- npm run admin:enroll-2fa --workspace @paroisse/api -- --email=adresse-du-responsable@domaine-paroissial.example
 railway ssh --environment production --service ops -- node scripts/db-least-privilege.cjs
 railway ssh --environment production --service ops -- npm run prisma:deploy --workspace @paroisse/api
 ```
 
-Pour `admin:bootstrap`, le terminal distant demande deux fois le mot de passe sans l'afficher. Le script ne produit aucun mot de passe, ne change rien s'il existe déjà un SUPER_ADMIN et marque le compte `mustChangePassword`; aucune donnée de compte existant n'est réinitialisée. Cette première connexion doit être suivie immédiatement du changement demandé et de l'enrôlement 2FA par la seconde commande. Exécuter le bootstrap une seule fois avec une adresse de responsable vérifiée. La commande est sérialisée par verrou consultatif et recontrôle le compte dans la transaction.
+Pour `admin:bootstrap`, le terminal distant demande deux fois le mot de passe sans l'afficher. Le script ne produit aucun mot de passe, ne change rien s'il existe déjà un SUPER_ADMIN et marque le compte `mustChangePassword`; aucune donnée de compte existant n'est réinitialisée. À la première connexion, le titulaire doit immédiatement remplacer le mot de passe temporaire. Exécuter le bootstrap une seule fois avec une adresse de responsable vérifiée. La commande est sérialisée par verrou consultatif et recontrôle le compte dans la transaction.
 
-La commande 2FA demande le mot de passe actuel, puis le facteur si déjà enrôlé, et affiche le secret TOTP et les codes de secours une seule fois dans la session SSH interactive. Ne copiez pas cette sortie dans un ticket ou un journal. Aucun secret ne doit figurer dans les arguments de commande ou l'historique du shell.
+La connexion à l’application utilise uniquement l’adresse e-mail et le mot de passe. Aucun code de double vérification n’est demandé.
 
 Pour les rôles PostgreSQL, fournir temporairement au seul service `ops` `PG_ADMIN_URL` (URL Railway privée d'administration), `PAROISSE_APP_DATABASE`, `PAROISSE_APP_USER`, `PAROISSE_APP_PASSWORD`, `PAROISSE_MIGRATION_USER` et `PAROISSE_MIGRATION_PASSWORD`. Les deux mots de passe sont générés indépendamment dans le coffre Railway. Lancer `node scripts/db-least-privilege.cjs` sur une base vierge; le script refuse un schéma public non vide. Il crée/modifie les attributs de moindre privilège sans remplacer les mots de passe de rôles déjà créés; il accorde à l'app les opérations CRUD et les séquences, et au migrateur la création d'objets. Il ne rend aucun rôle superutilisateur et ne transfère pas la propriété de la base. Une fois les URL de connexion app et migration créées, retirer immédiatement `PG_ADMIN_URL` et les variables temporaires de mots de passe du job, puis vérifier les droits par connexion. Ne jamais activer le TCP Proxy.
 
@@ -139,9 +138,9 @@ Le script `scripts/seed-staging-fake.cjs` ne lit pas `DATABASE_URL`; il se conne
 railway ssh --environment staging --service ops -- node scripts/seed-staging-fake.cjs
 ```
 
-Variables requises de staging : `APP_ENVIRONMENT`, `STAGING_DATABASE_URL`, ainsi que des secrets indépendants `JWT_ACCESS_SECRET` (au moins 32 octets), `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL`, `TRUST_PROXY_DEPTH`. La clé de chiffrement TOTP est dérivée de façon dédiée depuis `JWT_ACCESS_SECRET` avec HKDF-SHA256; aucune variable TOTP séparée n’est requise. La base de staging et ses secrets doivent être inventoriés distinctement des valeurs production. `TEST_DATABASE_URL` reste réservée au runner de tests locaux/CI et ne doit pointer ni sur staging ni sur production.
+Variables requises de staging : `APP_ENVIRONMENT`, `STAGING_DATABASE_URL`, ainsi que des secrets indépendants `JWT_ACCESS_SECRET` (au moins 32 octets), `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL`, `TRUST_PROXY_DEPTH`. La base de staging et ses secrets doivent être inventoriés distinctement des valeurs production. `TEST_DATABASE_URL` reste réservée au runner de tests locaux/CI et ne doit pointer ni sur staging ni sur production.
 
-La rotation de `JWT_ACCESS_SECRET` invalide les secrets TOTP chiffrés avec la clé dérivée ainsi que les anciens jetons d’accès. Les sessions persistantes peuvent toutefois rester valides jusqu'à leur révocation ou leur expiration. Avant une rotation planifiée, vérifier que chaque administrateur possède des codes de secours inutilisés. Après la rotation et le redéploiement, chaque administrateur utilise un code de secours à usage unique dans la procédure CLI `admin:enroll-2fa`, puis se connecte avec le nouveau facteur; ne pas désactiver le 2FA. Si un compte ne possède plus de code de secours, un autre SUPER_ADMIN vérifie son identité et utilise la procédure auditée `admin:reset-2fa`. Pour les anciennes lignes chiffrées avec l’ancienne configuration TOTP, déployer d’abord la version compatible avec l’ancienne variable encore présente, laisser chaque compte valider un TOTP afin que son secret soit migré, puis retirer l’ancienne variable. Si la clé historique est déjà absente, ces comptes se ré-enrôlent avec un code de secours.
+La rotation de `JWT_ACCESS_SECRET` invalide les anciens jetons d’accès. Après la rotation et le redéploiement, vérifier `/ready` et effectuer une connexion normale par adresse e-mail et mot de passe.
 
 ## Calibration sûre de l'adresse IP
 
@@ -170,7 +169,7 @@ docker build -f infra/Dockerfile.web.railway.staging -t paroisse-web:staging .
 
 ## Domaine, retour arrière et sortie de Railway
 
-Attacher le domaine détenu par la paroisse uniquement à `web`, vérifier le certificat HTTPS, la redirection sécurisée, HSTS, CSP, cookies HttpOnly/Secure/SameSite=Strict, CORS limité à `APP_PUBLIC_URL` et les réponses `/api/*` en `Cache-Control: no-store` et `Pragma: no-cache`. Ajouter des règles edge de limitation pour login, récupération du mot de passe et 2FA sans remplacer le contrôle API. Vérifier que seule l’API et PostgreSQL n’ont pas de domaine public.
+Attacher le domaine détenu par la paroisse uniquement à `web`, vérifier le certificat HTTPS, la redirection sécurisée, HSTS, CSP, cookies HttpOnly/Secure/SameSite=Strict, CORS limité à `APP_PUBLIC_URL` et les réponses `/api/*` en `Cache-Control: no-store` et `Pragma: no-cache`. Ajouter des règles edge de limitation pour la connexion et la récupération du mot de passe sans remplacer le contrôle API. Vérifier que seule l’API et PostgreSQL n’ont pas de domaine public.
 
 Pour revenir à la version précédente, redéployer l’image immuable précédente de `web` et `api`. Ne pas restaurer automatiquement la base ni annuler une migration : les migrations peuvent être irréversibles. Si une migration doit être compensée, arrêter l’écriture, prendre une sauvegarde, appliquer une migration corrective explicitement conçue, ou restaurer dans une nouvelle base isolée puis basculer après comparaison approuvée. Conserver l’ancien déploiement tant que santé, connexion et feuilles de présence sont vérifiées.
 

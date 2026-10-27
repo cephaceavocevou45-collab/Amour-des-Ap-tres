@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { createCipheriv, createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { AddressInfo } from 'node:net';
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
@@ -13,9 +13,7 @@ import { LoginBackoffPolicy } from '../src/login-backoff.policy';
 import { PrismaService } from '../src/prisma.service';
 import { CsrfGuard } from '../src/csrf.guard';
 import { noStoreResponses } from '../src/http-security';
-import { decryptTotpSecretWithMigration, encryptTotpSecret } from '../src/totp';
 import * as attendanceModule from '../src/attendance';
-import { completeAdminTwoFactorEnrollment, prepareAdminTwoFactorEnrollment, resetAdminTwoFactor } from '../scripts/admin-2fa-operations';
 
 jest.setTimeout(120_000);
 let app:any,prisma:PrismaService,baseUrl:string;
@@ -30,9 +28,8 @@ const testEmail=()=>`${randomUUID()}@security-test.invalid`;
 function localDate(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function weekday(date:string){const value=new Date(`${date}T00:00:00Z`).getUTCDay();return value===0?7:value;}
 function median(values:number[]){const sorted=[...values].sort((left,right)=>left-right);return sorted[Math.floor(sorted.length/2)];}
-function encryptLegacyTotpSecret(secret:string,key:string){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',createHash('sha256').update(key).digest(),iv),data=Buffer.concat([cipher.update(secret,'utf8'),cipher.final()]);return [iv.toString('base64url'),cipher.getAuthTag().toString('base64url'),data.toString('base64url')].join('.');}
 function monday(date:string){const value=new Date(`${date}T00:00:00Z`),day=value.getUTCDay();value.setUTCDate(value.getUTCDate()-(day===0?6:day-1));return value.toISOString().slice(0,10);}
-async function addUser(role:UserRole,options:{active?:boolean;day?:number;secret?:string;email?:string;createdAt?:Date}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,totpSecret:options.secret?encryptTotpSecret(options.secret):null,...(options.createdAt?{createdAt:options.createdAt}:{})}});userIds.push(row.id);return row;}
+async function addUser(role:UserRole,options:{active?:boolean;day?:number;email?:string;createdAt?:Date}={}){const row=await prisma.user.create({data:{email:options.email??testEmail(),fullName:'E2E account',phone:'+2290100000000',passwordHash:await argon2.hash(password,{type:argon2.argon2id}),role,active:options.active??true,assignedDayOfWeek:options.day,...(options.createdAt?{createdAt:options.createdAt}:{})}});userIds.push(row.id);return row;}
 function jwt(user:{id:string;role:UserRole;sessionVersion:number},family?:string){const enc=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url'),now=Math.floor(Date.now()/1000),unsigned=`${enc({alg:'HS256',typ:'JWT'})}.${enc({sub:user.id,role:user.role,ver:user.sessionVersion,...(family?{fam:family}:{}),iat:now,exp:now+600})}`,token=`${unsigned}.${createHmac('sha256',process.env.JWT_ACCESS_SECRET!).update(unsigned).digest('base64url')}`;sensitiveCanaries.add(token);return token;}
 async function call(path:string,options:{method?:string;token?:string;body?:unknown;headers?:Record<string,string>}={}){const sensitiveAction=/\/admin\/members(?:\/[^/]+)?(?:\/permissions)?$/.test(path)&&['POST','PATCH'].includes(options.method??'GET')||path.endsWith('/names/access');let requestBody=options.body;if(sensitiveAction&&options.token&&requestBody&&typeof requestBody==='object')requestBody={...(requestBody as any),reauthPassword:password};const address=`198.18.${Math.floor(requestAddress/256)%256}.${requestAddress%256}`;requestAddress++;const headers:Record<string,string>={...(requestBody?{'Content-Type':'application/json'}:{}),'X-Forwarded-For':address,...(options.token?{Authorization:`Bearer ${options.token}`} : {}),...options.headers};if(options.token)sensitiveCanaries.add(options.token);for(const value of Object.values(headers))if(/paroisse_(?:access|refresh)=/.test(value))sensitiveCanaries.add(value.split('=').slice(1).join('=').split(';')[0]);if(requestBody&&typeof requestBody==='object'){for(const [key,value]of Object.entries(requestBody as any))if(typeof value==='string'&&/(?:password|token|fullName|code)/i.test(key))sensitiveCanaries.add(value);}const response=await fetch(`${baseUrl}/api/v1${path}`,{method:options.method??'GET',headers,...(requestBody?{body:JSON.stringify(requestBody)}:{})});const raw=await response.text();return {status:response.status,body:raw?JSON.parse(raw):null,headers:response.headers};}
 async function addSheet(type:SheetType,date=localDate()){const existing=await prisma.attendanceSheet.findUnique({where:{type_date:{type,date:new Date(`${date}T00:00:00.000Z`)}}});if(existing){sheetIds.push(existing.id);return existing;}const row=await prisma.attendanceSheet.create({data:{id:`e2e-${randomUUID()}`,type,date:new Date(`${date}T00:00:00.000Z`),status:SheetStatus.OUVERTE}});sheetIds.push(row.id);return row;}
@@ -41,7 +38,6 @@ beforeAll(async()=>{
   if(!process.env.TEST_DATABASE_URL||!new URL(process.env.TEST_DATABASE_URL).pathname.toLowerCase().includes('test'))throw new Error('Les e2e exigent TEST_DATABASE_URL pointant vers une base dédiée dont le nom contient test.');
   process.env.NODE_ENV='test';
   process.env.JWT_ACCESS_SECRET??='security-e2e-only-jwt-secret-not-for-deployment';
-  delete process.env.TOTP_ENCRYPTION_KEY;
   const capture=(...args:any[])=>{if(observedLogs.length>=maxObservedLogEntries)observedLogs.splice(0,maxObservedLogEntries/2);observedLogs.push(args.map(value=>typeof value==='string'?value:JSON.stringify(value)).join(' '));};
   const logger={log:capture,error:capture,warn:capture,debug:capture,verbose:capture,fatal:capture};
   for(const method of ['log','info','warn','error','debug'] as const)jest.spyOn(console,method).mockImplementation((...args:any[])=>capture(...args));
@@ -128,7 +124,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call('/auth/admin/members',{token:adminToken})).body.some((item:any)=>item.id===row.id)).toBe(true);
     expect(await prisma.auditLog.count({where:{action:'COMPTE_RESPONSABLE_CREE',entityId:row.id}})).toBe(1);
   });
-  it('requires a fresh password or current 2FA proof for sensitive administrator actions and revokes every device session',async()=>{
+  it('requires a fresh password for sensitive administrator actions and revokes every device session',async()=>{
     const admin=await addUser(UserRole.ADMIN),token=jwt(admin),sheet=await addSheet(SheetType.GROUPE_SEMAINE),accountEmail=testEmail();
     const unproved=await fetch(`${baseUrl}/api/v1/auth/admin/members`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({fullName:'Compte contrôlé E2E',email:accountEmail,role:'EDITEUR',reason:'Création autorisée par un administrateur.'})});
     expect(unproved.status).toBe(401);
@@ -304,8 +300,8 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
 
   it('lets only the administrator grant scoped sub-admin permissions',async()=>{
     const admin=await addUser(UserRole.ADMIN),secret='JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',editor=await addUser(UserRole.EDITEUR,{secret}),adminToken=jwt(admin),editorToken=jwt(editor);
-    expect((await call('/auth/admin/login',{method:'POST',body:{email:editor.email,password,totp:totp(secret)}})).status).toBe(401);
-    const subLogin=await call('/auth/subadmin/login',{method:'POST',body:{email:editor.email,password,totp:totp(secret)}});expect(subLogin.status).toBe(201);expect(subLogin.body).not.toHaveProperty('accessToken');
+    expect((await call('/auth/admin/login',{method:'POST',body:{email:editor.email,password}})).status).toBe(401);
+    const subLogin=await call('/auth/subadmin/login',{method:'POST',body:{email:editor.email,password}});expect(subLogin.status).toBe(201);expect(subLogin.body).not.toHaveProperty('accessToken');
     expect((await call('/auth/admin/members',{token:editorToken})).status).toBe(403);
     expect((await call('/attendance/course/2026-10-05',{token:editorToken})).status).toBe(403);
     expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:editorToken,body:{permissions:['GESTION_COMPTES'],reason:'Motif non autorisé'}})).status).toBe(403);
@@ -329,79 +325,16 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call('/attendance/today',{token})).status).toBe(401);
   });
 
-  it('requires 2FA, accepts each recovery code only once, and has no public enrollment routes',async()=>{
-    const secret='JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',admin=await addUser(UserRole.ADMIN,{secret});
-    expect((await call('/auth/admin/2fa/setup',{method:'POST',body:{email:admin.email,password,code:'000000',secret}})).status).toBe(404);
+  it('authenticates administrators with email and password only and exposes no 2FA routes',async()=>{
+    const admin=await addUser(UserRole.ADMIN);
+    const login=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password}});
+    expect(login.status).toBe(201);expect(login.headers.get('set-cookie')).toMatch(/HttpOnly/i);
+    expect((await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:'123456'}})).status).toBe(400);
+    expect((await call('/auth/admin/2fa/setup',{method:'POST',body:{email:admin.email,password}})).status).toBe(404);
     expect((await call('/auth/admin/2fa/new-secret',{method:'POST',body:{email:admin.email,password}})).status).toBe(404);
-    const noCode=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password}});expect(noCode.status).toBe(401);expect(noCode.headers.get('set-cookie')).toBeNull();
-    const totpLogin=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:totp(secret)}});expect(totpLogin.status).toBe(201);expect(totpLogin.headers.get('set-cookie')).toMatch(/HttpOnly/i);
-    const token=jwt(admin);
-    const codes=await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,body:{code:totp(secret)}});
-    expect(codes.status).toBe(201);expect(codes.body.codes).toHaveLength(10);
-    const stored=await (prisma as any).recoveryCode.findMany({where:{userId:admin.id}});expect(stored).toHaveLength(10);expect(stored.some((row:any)=>codes.body.codes.includes(row.codeHash))).toBe(false);
-    const login=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:codes.body.codes[0]}});expect(login.status).toBe(201);expect(login.body).not.toHaveProperty('accessToken');expect(login.headers.get('set-cookie')).toMatch(/HttpOnly/i);
-    expect((await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:codes.body.codes[0]}})).status).toBe(401);
-    const bruteForceIp='198.18.210.1';for(let i=0;i<5;i++)expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,headers:{'X-Forwarded-For':bruteForceIp},body:{code:'000000'}})).status).toBe(401);
-    expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token,headers:{'X-Forwarded-For':bruteForceIp},body:{code:'000000'}})).status).toBe(429);
+    expect((await call('/auth/admin/2fa/recovery-codes',{method:'POST',token:jwt(admin),body:{}})).status).toBe(404);
     expect((await call('/auth/admin/members')).status).toBe(401);
   });
-
-  it('migrates a legacy encrypted TOTP secret during login and keeps login working after removing the legacy key',async()=>{
-    const legacyKey='e2e-legacy-totp-key-that-must-never-be-logged',secret='JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',admin=await addUser(UserRole.ADMIN);
-    sensitiveCanaries.add(legacyKey);sensitiveCanaries.add(secret);
-    await prisma.user.update({where:{id:admin.id},data:{totpSecret:encryptLegacyTotpSecret(secret,legacyKey)}});
-    process.env.TOTP_ENCRYPTION_KEY=legacyKey;
-    const first=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:totp(secret)}});expect(first.status).toBe(201);
-    const migrated=await prisma.user.findUniqueOrThrow({where:{id:admin.id}});expect(migrated.totpSecret).toMatch(/^v2\./);expect(migrated.totpSecret).not.toContain(secret);
-    delete process.env.TOTP_ENCRYPTION_KEY;
-    const next=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:totp(secret)}});expect(next.status).toBe(201);
-  });
-
-  it('rejects an unreadable legacy TOTP without leaking its secret or key',async()=>{
-    const legacyKey='e2e-private-legacy-key-never-in-logs',secret='JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',admin=await addUser(UserRole.ADMIN);
-    sensitiveCanaries.add(legacyKey);sensitiveCanaries.add(secret);
-    await prisma.user.update({where:{id:admin.id},data:{totpSecret:encryptLegacyTotpSecret(secret,legacyKey)}});
-    const recoveryCode='A1B2C-D3E4F-56789-ABCDF',enrollmentCode='12345-6789A-BCDEF-01234',argon2=require('argon2');await (prisma as any).recoveryCode.createMany({data:await Promise.all([recoveryCode,enrollmentCode].map(async code=>({userId:admin.id,codeHash:await argon2.hash(code)})))});
-    delete process.env.TOTP_ENCRYPTION_KEY;
-    const response=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:totp(secret)}});
-    expect(response.status).toBe(401);expect(response.body.message).toBe('Adresse e-mail ou mot de passe invalide.');
-    const persisted=await prisma.user.findUniqueOrThrow({where:{id:admin.id}});expect(persisted.totpSecret).not.toMatch(/^v2\./);
-    const recoveryLogin=await call('/auth/admin/login',{method:'POST',body:{email:admin.email,password,totp:recoveryCode}});expect(recoveryLogin.status).toBe(201);
-    const enrollment=await prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password,enrollmentCode);
-    await completeAdminTwoFactorEnrollment(prisma as any,enrollment.userId,enrollment.secret,totp(enrollment.secret));
-    expect((await prisma.user.findUniqueOrThrow({where:{id:admin.id}})).totpSecret).toMatch(/^v2\./);
-    expect(observedLogs.join('\n')).not.toContain(legacyKey);expect(observedLogs.join('\n')).not.toContain(secret);
-  });
-
-  it('runs the CLI 2FA enrollment, protected replacement, one-time recovery and confirmed reset against TEST_DATABASE_URL',async()=>{
-    const admin=await addUser(UserRole.ADMIN),superAdminSecret='JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',superAdmin=await addUser(UserRole.SUPER_ADMIN,{secret:superAdminSecret});
-    const initial=await prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password);
-    await expect(prepareAdminTwoFactorEnrollment(prisma as any,admin.email,'wrong-password')).rejects.toThrow();
-    const firstCodes=await completeAdminTwoFactorEnrollment(prisma as any,initial.userId,initial.secret,totp(initial.secret));
-    expect(firstCodes).toHaveLength(10);
-    let enrolled=await prisma.user.findUniqueOrThrow({where:{id:admin.id}});expect(enrolled.totpSecret).toBeDefined();expect(enrolled.totpSecret).not.toBe(initial.secret);expect(enrolled.totpSecret).toMatch(/^v2\./);expect(decryptTotpSecretWithMigration(enrolled.totpSecret!).secret).toBe(initial.secret);
-    expect(await (prisma as any).recoveryCode.count({where:{userId:admin.id,usedAt:null}})).toBe(10);
-    expect(await prisma.auditLog.count({where:{userId:admin.id,action:'2FA_ENROLLED_CLI'}})).toBe(1);
-    await expect(prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password)).rejects.toThrow();
-    await expect(prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password,'000000')).rejects.toThrow();
-    const replacement=await prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password,totp(initial.secret));
-    const secondCodes=await completeAdminTwoFactorEnrollment(prisma as any,replacement.userId,replacement.secret,totp(replacement.secret));
-    expect(await prisma.auditLog.count({where:{userId:admin.id,action:'2FA_CHANGED_CLI'}})).toBe(1);
-    const codeBasedReplacement=await prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password,secondCodes[0]);
-    await expect(prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password,secondCodes[0])).rejects.toThrow();
-    expect(codeBasedReplacement.userId).toBe(admin.id);
-    const refreshValue=randomBytes(32).toString('base64url'),family=randomUUID();await prisma.refreshToken.create({data:{userId:admin.id,hashedToken:createHash('sha256').update(refreshValue).digest('hex'),family,expiresAt:new Date(Date.now()+60_000)}});
-    await expect(resetAdminTwoFactor(prisma as any,{targetEmail:admin.email,actorEmail:superAdmin.email,confirmation:'',password,factor:totp(superAdminSecret)})).rejects.toThrow();
-    await expect(resetAdminTwoFactor(prisma as any,{targetEmail:admin.email,actorEmail:superAdmin.email,confirmation:'RESET-2FA',password,factor:'000000'})).rejects.toThrow();
-    await resetAdminTwoFactor(prisma as any,{targetEmail:admin.email,actorEmail:superAdmin.email,confirmation:'RESET-2FA',password,factor:totp(superAdminSecret)});
-    const reset=await prisma.user.findUniqueOrThrow({where:{id:admin.id}});expect(reset.totpSecret).toBeNull();expect(reset.sessionVersion).toBeGreaterThan(admin.sessionVersion);
-    expect(await prisma.refreshToken.count({where:{family,revokedAt:null}})).toBe(0);
-    expect(await prisma.auditLog.count({where:{userId:superAdmin.id,action:'2FA_RECOVERY_CLI',entityId:admin.id}})).toBe(1);
-    const reEnrolled=await prepareAdminTwoFactorEnrollment(prisma as any,admin.email,password);
-    await completeAdminTwoFactorEnrollment(prisma as any,reEnrolled.userId,reEnrolled.secret,totp(reEnrolled.secret));
-    expect(await prisma.auditLog.count({where:{userId:admin.id,action:'2FA_ENROLLED_CLI'}})).toBe(2);
-  });
-
   it('allows only one concurrent password reset and rejects replay and expiration',async()=>{
     const argon2=require('argon2'),user=await addUser(UserRole.SECRETAIRE_PRESENCE),code='481206',hash=await argon2.hash(code);
     await prisma.passwordResetToken.create({data:{userId:user.id,tokenHash:hash,expiresAt:new Date(Date.now()+60_000)}});
@@ -459,5 +392,3 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     const dump=observedLogs.join('\n');for(const secret of sensitiveCanaries)if(secret.length>=8)expect(dump).not.toContain(secret);
   });
 });
-
-function totp(secret:string){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits='';for(const char of secret)bits+=alphabet.indexOf(char).toString(2).padStart(5,'0');const bytes:number[]=[];for(let i=0;i+8<=bits.length;i+=8)bytes.push(parseInt(bits.slice(i,i+8),2));const secretBytes=Buffer.from(bytes);const counter=Buffer.alloc(8);counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const digest=createHmac('sha1',secretBytes).update(counter).digest(),offset=digest[digest.length-1]&15,n=(digest.readUInt32BE(offset)&0x7fffffff)%1000000;return String(n).padStart(6,'0');}

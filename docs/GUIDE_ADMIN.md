@@ -14,7 +14,7 @@ La création de comptes est réservée à ADMIN/SUPER_ADMIN. Le mot de passe tem
 
 ### Premier compte SUPER_ADMIN
 
-Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma/seed.ts` peut créer le premier `SUPER_ADMIN` si `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` sont fournies dans l’environnement serveur. Le script ne met plus à jour un SUPER_ADMIN existant et refuse une configuration partielle ou une collision d’adresse sans administrateur. `npm run test:bootstrap` vérifie le parcours dans un schéma temporaire supprimé à la fin, à l’intérieur de `TEST_DATABASE_URL` : migrations, seed, refus sans 2FA, connexion TOTP, réexécution sans altérer le compte et absence du mot de passe dans les sorties. Avant le premier usage de production, injecter les secrets hors ligne, amorcer le compte puis retirer les variables de l’environnement.
+Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma/seed.ts` peut créer le premier `SUPER_ADMIN` si `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` sont fournies dans l’environnement serveur. Le script ne met plus à jour un SUPER_ADMIN existant et refuse une configuration partielle ou une collision d’adresse sans administrateur. `npm run test:bootstrap` vérifie les migrations, le seed, la connexion par e-mail et mot de passe ainsi que la réexécution sans altérer le compte dans un schéma temporaire de `TEST_DATABASE_URL`, supprimé à la fin. Avant le premier usage de production, injecter les secrets hors ligne, amorcer le compte puis retirer les variables de l’environnement.
 
 ## Présences
 
@@ -24,13 +24,9 @@ Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma
 - L'administrateur peut examiner les feuilles et les totaux. Les noms sont cachés par défaut; sélectionnez un motif valable avant la consultation nominative, qui est journalisée. Ne téléchargez ni ne partagez des listes nominatives sans nécessité.
 - Les totaux sont conservés après anonymisation des noms à `DATA_RETENTION_MONTHS` (12 par défaut). La conservation des journaux d'audit est configurée à au moins 36 mois.
 
-## Récupération 2FA
+## Connexion et récupération du compte
 
-Les comptes ADMIN/SUPER_ADMIN doivent avoir une application TOTP. Conservez les codes de secours hors ligne et séparément du mot de passe. L'enrôlement ou la récupération s'effectue par les scripts serveur `admin:enroll-2fa` / `admin:reset-2fa`, jamais depuis une route publique. La récupération de compte exige une intervention d'un autre administrateur déjà protégé et révoque les sessions. Ne transmettez pas les clés ou codes au support par courriel.
-
-La clé protégeant les secrets TOTP est dérivée de `JWT_ACCESS_SECRET` avec HKDF-SHA256 et un contexte réservé à cet usage. Une rotation de `JWT_ACCESS_SECRET` invalide donc les secrets TOTP enregistrés et les anciens jetons d’accès; les sessions persistantes peuvent rester valides jusqu'à leur révocation ou leur expiration. Avant une rotation planifiée, vérifier que chaque administrateur possède des codes de secours non utilisés, conservés hors ligne. Après la rotation, lancer `admin:enroll-2fa` sur le service API et utiliser un code de secours à usage unique lorsqu'il est demandé pour remplacer le facteur; ensuite, se connecter avec la nouvelle application TOTP. Ne pas désactiver la 2FA. En cas de rotation urgente sans codes disponibles, un autre SUPER_ADMIN actif doit utiliser la procédure auditée `admin:reset-2fa`, après vérification de l'identité, puis l'intéressé doit immédiatement ré-enrôler son facteur. Les codes de secours sont hachés indépendamment et ne sont pas invalidés par la rotation JWT.
-
-`2FA_REQUIS_RESPONSABLES` contrôle l'exigence pour les secrétaires et présidents; la valeur par défaut demeure désactivée jusqu'à décision et test par la paroisse.
+La connexion utilise uniquement l’adresse e-mail et le mot de passe. La récupération du mot de passe utilise un code temporaire envoyé par e-mail; ce code ne fait pas partie de la connexion normale. Les anciennes clés et données de double vérification sont supprimées par la migration de base de données.
 
 ## Sauvegarde et incidents
 
@@ -41,4 +37,4 @@ Les outils de fil communautaire, messagerie, groupes, stories, directs, médias,
 
 Les sessions expirent après 30 minutes d'inactivité et au plus tard après 30 jours (réglables par `SESSION_IDLE_MINUTES` et `SESSION_ABSOLUTE_DAYS`). Dans l'espace de présence, **Déconnecter tous les appareils** révoque l'ensemble des sessions du compte et déconnecte aussi l'appareil actuel.
 
-La consultation nominative, la création/désactivation d'un compte et les changements de rôle ou permissions demandent une nouvelle confirmation du mot de passe actuel ou du code TOTP actuel. Cette confirmation est contrôlée par l'API; elle ne se limite pas à une invite de l'interface. Les changements restent soumis aux autorisations et au motif d'audit requis.
+La consultation nominative, la création/désactivation d'un compte et les changements de rôle ou permissions demandent une nouvelle confirmation du mot de passe actuel. Cette confirmation est contrôlée par l'API; elle ne se limite pas à une invite de l'interface. Les changements restent soumis aux autorisations et au motif d'audit requis.

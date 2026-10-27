@@ -29,18 +29,9 @@ import { ParishFooterComponent } from './parish-footer.component';
             <label for="phone">Téléphone (facultatif)</label><input id="phone" name="phone" [(ngModel)]="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="+229…">
             @if(!faithfulRegister){
               <label for="requestedRole">Responsabilité demandée</label>
-              <select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole" (ngModelChange)="onRegistrationRoleChange($event)" required><option value="SECRETAIRE_PRESENCE">Secrétaire de présence</option><option value="RESPONSABLE_SEMAINE">Président d’un jour</option><option value="EDITEUR">Sous-administrateur</option></select>
+              <select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole"  required><option value="SECRETAIRE_PRESENCE">Secrétaire de présence</option><option value="RESPONSABLE_SEMAINE">Président d’un jour</option><option value="EDITEUR">Sous-administrateur</option></select>
               @if(requestedRole==='RESPONSABLE_SEMAINE'){
                 <label for="assignedDay">Jour demandé</label><select id="assignedDay" name="assignedDay" [(ngModel)]="assignedDay" required><option [ngValue]="1">Lundi</option><option [ngValue]="2">Mardi</option><option [ngValue]="3">Mercredi</option><option [ngValue]="4">Jeudi</option><option [ngValue]="5">Vendredi</option><option [ngValue]="6">Samedi</option><option [ngValue]="7">Dimanche</option></select>
-              }
-              @if(requestedRole==='EDITEUR'){
-                <div class="auth-message">La double vérification est obligatoire pour un sous-administrateur.
-                  @if(!registrationTotpSecret()){
-                    <button type="button" class="text-button" [disabled]="totpSetupBusy()" (click)="beginTotpEnrollment()">{{totpSetupBusy()?'Préparation…':'Configurer la double vérification'}}</button>
-                  }@else{
-                    <p>Ajoutez cette clé dans votre application d’authentification, puis saisissez le code à 6 chiffres affiché.</p><code class="setup-key">{{registrationTotpSecret()}}</code><label for="registrationTotp">Code de confirmation</label><input id="registrationTotp" name="registrationTotp" [(ngModel)]="registrationTotpCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
-                  }
-                </div>
               }
             }
             <label for="password">Mot de passe (12 caractères minimum)</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
@@ -49,18 +40,16 @@ import { ParishFooterComponent } from './parish-footer.component';
           @else{
           @if(!firstLogin){<label for="email">Adresse e-mail</label><input id="email" name="email" [(ngModel)]="email" type="email" autocomplete="username" required placeholder="vous@exemple.com" [readonly]="forgot&&recoveryRequested()">}
           @if(firstLogin){<label for="password">Mot de passe temporaire</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="current-password" required placeholder="Mot de passe remis par l’administration">}
-          @if(!forgot&&!firstLogin){<label for="password">Mot de passe</label><input id="password" name="password" [(ngModel)]="password" type="password" autocomplete="current-password" required placeholder="Votre mot de passe">}
+          @if(!forgot&&!firstLogin){<label for="password">Mot de passe</label><span class="password-field"><input id="password" name="password" [(ngModel)]="password" [type]="passwordVisible()?'text':'password'" autocomplete="current-password" required placeholder="Votre mot de passe"><button class="password-toggle" type="button" (mousedown)="$event.preventDefault()" (click)="togglePassword()" [attr.aria-label]="passwordVisible()?'Masquer le mot de passe':'Afficher le mot de passe'" [attr.aria-pressed]="passwordVisible()"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></span>}
           @if(forgot&&recoveryRequested()){
             <label for="recoveryCode">Code reçu par e-mail</label><input id="recoveryCode" name="recoveryCode" [(ngModel)]="recoveryCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="Code à 6 chiffres">
             <label for="newPassword">Nouveau mot de passe</label><input id="newPassword" name="newPassword" [(ngModel)]="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="12 caractères minimum">
             <label for="confirmPassword">Confirmer le nouveau mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Saisissez-le une seconde fois">
-            <label for="factor">Code 2FA (si activé)</label><input id="factor" name="factor" [(ngModel)]="factor" autocomplete="one-time-code" placeholder="Code TOTP ou code de secours" maxlength="23">
           }
           @if(firstLogin){
             <label for="newPassword">Nouveau mot de passe</label><input id="newPassword" name="newPassword" [(ngModel)]="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="12 caractères minimum">
             <label for="confirmPassword">Confirmer le nouveau mot de passe</label><input id="confirmPassword" name="confirmPassword" [(ngModel)]="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Saisissez-le une seconde fois">
           }
-          @if(!forgot&&!firstLogin){<label for="totp">Code de vérification (si activé pour votre compte)</label><input id="totp" name="totp" [(ngModel)]="totp" autocomplete="one-time-code" placeholder="Code à 6 chiffres ou code de secours" maxlength="23" pattern="([0-9]{6}|[A-F0-9]{5}(-[A-F0-9]{5}){3})"><small class="form-hint">Il est obligatoire pour l’administration et peut être exigé pour les responsables.</small>}
           }
           <button class="auth-submit" [disabled]="busy()">{{busy()?'Veuillez patienter…':faithfulRegister?'Créer mon compte':register?'Envoyer la demande':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Envoyer le code'):firstLogin?'Enregistrer le nouveau mot de passe':'Se connecter'}} <span>→</span></button>
           @if(register){<div class="auth-switch">Déjà un compte ? <a [routerLink]="faithfulRegister?'/connexion-fidele':'/connexion'">Se connecter</a></div>}
@@ -83,11 +72,13 @@ export class AuthComponent {
   readonly admin=this.route.snapshot.data['mode']==='admin'||this.subadmin;
   readonly forgot=['forgot','faithful-forgot'].includes(this.route.snapshot.data['mode']);
   readonly firstLogin=this.route.snapshot.data['mode']==='first-password-change';
-  email='';password='';newPassword='';confirmPassword='';totp='';recoveryCode='';factor='';
-  fullName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;registrationTotpCode='';registrationTotpSecret=signal('');totpSetupBusy=signal(false);
-  recoveryRequested=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);
+  email='';password='';newPassword='';confirmPassword='';recoveryCode='';
+  fullName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;
+  recoveryRequested=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);passwordVisible=signal(false);
 
   constructor(){if(this.route.snapshot.queryParamMap.get('expired')){this.message.set('Votre session administrateur a expiré. Reconnectez-vous pour continuer.');this.messageIsError.set(true);}if(this.route.snapshot.queryParamMap.get('passwordChanged'))this.message.set('Votre mot de passe a été modifié. Connectez-vous avec le nouveau mot de passe.');}
+
+  togglePassword(){this.passwordVisible.update(visible=>!visible);}
 
   async submit(){
     this.busy.set(true);this.message.set('');this.messageIsError.set(false);
@@ -99,15 +90,14 @@ export class AuthComponent {
           const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register/faithful',{fullName:this.fullName.trim(),email,phone:this.phone.trim()||undefined,password:this.password,confirmPassword:this.confirmPassword}).toPromise();
           this.message.set(result?.message??'Votre compte fidèle est créé et actif. Vous pouvez vous connecter dès maintenant.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.fullName='';this.phone='';return;
         }
-        if(this.requestedRole==='EDITEUR'&&(!this.registrationTotpSecret()||!/^\d{6}$/.test(this.registrationTotpCode)))throw new Error('Configurez puis confirmez la double vérification avant d’envoyer la demande.');
-        const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register',{fullName:this.fullName.trim(),email,phone:this.phone.trim()||undefined,role:this.requestedRole,...(this.requestedRole==='RESPONSABLE_SEMAINE'?{assignedDayOfWeek:this.assignedDay}:{}),...(this.requestedRole==='EDITEUR'?{totpSecret:this.registrationTotpSecret(),totpCode:this.registrationTotpCode}:{}),password:this.password,confirmPassword:this.confirmPassword}).toPromise();
-        this.message.set(result?.message??'Votre demande a été reçue. Elle sera examinée par l’administration.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.fullName='';this.phone='';this.registrationTotpSecret.set('');this.registrationTotpCode='';return;
+        const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register',{fullName:this.fullName.trim(),email,phone:this.phone.trim()||undefined,role:this.requestedRole,...(this.requestedRole==='RESPONSABLE_SEMAINE'?{assignedDayOfWeek:this.assignedDay}:{}),password:this.password,confirmPassword:this.confirmPassword}).toPromise();
+        this.message.set(result?.message??'Votre demande a été reçue. Elle sera examinée par l’administration.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.fullName='';this.phone='';return;
       }
       if(this.forgot&&!this.recoveryRequested()){await this.http.post(environment.apiUrl+'/auth/password/forgot',{email}).toPromise();this.recoveryRequested.set(true);this.message.set('Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes.');return;}
-      if(this.forgot){const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/password/reset',{email,code:this.recoveryCode,password:this.newPassword,confirmPassword:this.confirmPassword,...(this.factor.trim()?{factor:this.factor.trim()}:{})}).toPromise();this.message.set(result?.message??'Mot de passe modifié. Vous pouvez vous connecter.');this.messageIsError.set(false);this.recoveryRequested.set(false);this.password='';this.newPassword='';this.confirmPassword='';this.recoveryCode='';this.factor='';return;}
+      if(this.forgot){const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/password/reset',{email,code:this.recoveryCode,password:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();this.message.set(result?.message??'Mot de passe modifié. Vous pouvez vous connecter.');this.messageIsError.set(false);this.recoveryRequested.set(false);this.password='';this.newPassword='';this.confirmPassword='';this.recoveryCode='';return;}
       if(this.firstLogin){await this.http.post(environment.apiUrl+'/auth/account/password/first-login',{currentPassword:this.password,newPassword:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();sessionStorage.clear();await this.router.navigate([this.subadmin?'/sous-admin/connexion':this.admin?'/admin/connexion':'/connexion'],{queryParams:{passwordChanged:'1'}});return;}
       const endpoint=this.subadmin?'/auth/subadmin/login':this.admin?'/auth/admin/login':this.faithful?'/auth/faithful/login':'/auth/login';
-      const response=await this.http.post<{user:{id:string;role:string;permissions?:string[];mustChangePassword?:boolean}}>(environment.apiUrl+endpoint,{email,password:this.password,totp:this.totp}).toPromise();
+      const response=await this.http.post<{user:{id:string;role:string;permissions?:string[];mustChangePassword?:boolean}}>(environment.apiUrl+endpoint,{email,password:this.password}).toPromise();
       if(!response?.user)throw new Error('Réponse de connexion invalide.');
       if(this.subadmin&&response.user.role!=='EDITEUR')throw new Error('Ce compte n’est pas un sous-administrateur.');
       sessionStorage.removeItem('paroisse_access_token');sessionStorage.setItem('paroisse_user_id',response.user.id);sessionStorage.setItem('paroisse_role',response.user.role);sessionStorage.setItem('paroisse_permissions',JSON.stringify(response.user.permissions??[]));
@@ -121,6 +111,5 @@ export class AuthComponent {
       this.message.set(error?.status===429?`Trop de demandes ont été effectuées depuis ce compte ou cette connexion réseau.${retryText}`:apiUnavailable?'Le serveur API est injoignable. Vérifiez son démarrage et sa connexion à PostgreSQL.':error?.status===503?detail||'Le service demandé est temporairement indisponible.':error?.status===500?'L’API a rencontré une erreur interne. Consultez les journaux du serveur API et sa connexion PostgreSQL.':detail||(error instanceof Error?error.message:'')||'Connexion impossible. Vérifiez vos informations et réessayez.');this.messageIsError.set(true);
     }finally{this.busy.set(false);}
   }
-  onRegistrationRoleChange(role:string){this.requestedRole=role;this.registrationTotpSecret.set('');this.registrationTotpCode='';}
-  async beginTotpEnrollment(){if(!/^\S+@\S+\.\S+$/.test(this.email.trim())){this.message.set('Saisissez votre adresse e-mail avant de configurer la double vérification.');this.messageIsError.set(true);return;}this.totpSetupBusy.set(true);this.message.set('');try{const setup=await this.http.post<{secret:string}>(environment.apiUrl+'/auth/register/2fa',{email:this.email.trim().toLowerCase()}).toPromise();if(!setup?.secret)throw new Error('La configuration n’a pas pu être préparée.');this.registrationTotpSecret.set(setup.secret)}catch(error:any){this.message.set(error?.error?.message??'La configuration de la double vérification a échoué.');this.messageIsError.set(true)}finally{this.totpSetupBusy.set(false)}}
+  onRegistrationRoleChange(role:string){this.requestedRole=role;}
 }

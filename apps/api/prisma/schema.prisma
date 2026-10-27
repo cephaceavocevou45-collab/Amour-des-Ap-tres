@@ -134,9 +134,7 @@ model User {
   failedAttempts Int @default(0)
   lockedUntil DateTime?
   sessionVersion Int @default(0)
-  totpSecret String?
   permissions String[] @default([])
-  recoveryCodes RecoveryCode[]
   refreshTokens RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   parishAnnouncements Announcement[]
@@ -205,15 +203,6 @@ model RefreshToken {
   ip String?
   userAgent String?
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-model RecoveryCode {
-  id String @id @default(cuid())
-  userId String
-  codeHash String
-  usedAt DateTime?
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([userId, usedAt])
 }
 model AuditLog {
   id String @id @default(cuid())

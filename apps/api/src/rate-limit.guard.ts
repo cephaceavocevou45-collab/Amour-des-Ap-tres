@@ -21,7 +21,6 @@ export class RateLimitGuard implements CanActivate {
     const forgotPassword = path.endsWith('/password/forgot');
     const limit = register ? 3
       : path.endsWith('/login') ? 20
-      : path.endsWith('/2fa/setup') || path.endsWith('/2fa/new-secret') || path.endsWith('/2fa/recovery-codes') ? 5
       : forgotPassword ? 4
       : path.endsWith('/password/reset') ? 10
       : path.endsWith('/names/access') || path.endsWith('/export') ? 5

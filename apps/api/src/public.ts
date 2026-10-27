@@ -11,13 +11,11 @@ class AnnouncementDto implements ReauthProof {
   @IsString() @Length(8,5000) body!:string;
   @IsString() @Length(8,1000) reason!:string;
   @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string;
-  @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string;
 }
 class AnnouncementVisibilityDto implements ReauthProof {
   @IsBoolean() published!:boolean;
   @IsString() @Length(8,1000) reason!:string;
   @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string;
-  @IsOptional() @IsString() @Matches(/^\d{6}$/) reauthFactor?:string;
 }
 
 @UseGuards(RateLimitGuard)

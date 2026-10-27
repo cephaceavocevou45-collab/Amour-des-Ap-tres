@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { randomBytes, createHmac } = require('node:crypto');
+const { randomBytes } = require('node:crypto');
 const { spawnSync, spawn } = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
@@ -35,19 +35,6 @@ function assertSafeTarget(testValue, developmentValue) {
     }
   }
   return testUrl;
-}
-
-function totpAt(secret, timestamp = Date.now()) {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-  for (const character of secret) bits += alphabet.indexOf(character).toString(2).padStart(5, '0');
-  const bytes = [];
-  for (let offset = 0; offset + 8 <= bits.length; offset += 8) bytes.push(parseInt(bits.slice(offset, offset + 8), 2));
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(timestamp / 30_000)));
-  const digest = createHmac('sha1', Buffer.from(bytes)).update(counter).digest();
-  const offset = digest[digest.length - 1] & 15;
-  return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
 
 function runNode(args, env) {
@@ -145,8 +132,6 @@ async function run() {
     phase = 'chargement de l’application Nest';
     const { createServer } = net;
     require('ts-node/register/transpile-only');
-    const { verifyTotp } = require('../apps/api/src/totp');
-    const { prepareAdminTwoFactorEnrollment, completeAdminTwoFactorEnrollment } = require('../apps/api/scripts/admin-2fa-operations');
     const apiEntry = path.join(root, 'apps/api/dist/apps/api/src/main.js');
     if (!require('node:fs').existsSync(apiEntry)) throw new Error('Le build API doit être exécuté avant le test bootstrap.');
     const portProbe = createServer();
@@ -177,22 +162,14 @@ async function run() {
       await new Promise(resolve => setTimeout(resolve, 250));
     }
     if (!listening) throw new Error('L’API isolée n’a pas répondu dans le délai prévu.');
-    const login = async totp => fetch(loginUrl, {
+    const login = async () => fetch(loginUrl, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password, ...(totp ? { totp } : {}) }),
+      body: JSON.stringify({ email, password }),
     });
 
-    phase = 'vérification de la connexion et du second facteur';
-    const beforeEnrollment = await login();
-    if (beforeEnrollment.status !== 401) throw new Error(`La connexion avant enrôlement a retourné HTTP ${beforeEnrollment.status}.`);
-    const setup = await prepareAdminTwoFactorEnrollment(scoped, email, password);
-    const enrollmentCode = totpAt(setup.secret);
-    if (!verifyTotp(setup.secret, enrollmentCode)) throw new Error('Le code de test TOTP n’a pas été accepté par le vérificateur.');
-    await completeAdminTwoFactorEnrollment(scoped, setup.userId, setup.secret, enrollmentCode);
-    const withoutFactor = await login();
-    if (withoutFactor.status !== 401) throw new Error(`La connexion sans code 2FA a retourné HTTP ${withoutFactor.status}.`);
-    const authenticated = await login(totpAt(setup.secret));
-    if (authenticated.status !== 201) throw new Error('La connexion avec le second facteur valide a échoué.');
+    phase = 'vérification de la connexion par adresse e-mail et mot de passe';
+    const authenticated = await login();
+    if (authenticated.status !== 201) throw new Error('La connexion par adresse e-mail et mot de passe a échoué.');
     const authResponse = await authenticated.json();
     if (authResponse.user?.role !== 'SUPER_ADMIN') throw new Error('La session ne correspond pas au rôle SUPER_ADMIN attendu.');
 
@@ -203,11 +180,11 @@ async function run() {
     commandOutputs.push(secondSeed.stdout ?? '', secondSeed.stderr ?? '');
     if (secondSeed.error || secondSeed.status !== 0) throw new Error('La seconde exécution du seed a échoué. Sa sortie est masquée.');
     const after = await scoped.user.findUniqueOrThrow({ where: { id: initial.id } });
-    if (after.passwordHash !== seededHash || after.role !== beforeRerun.role || after.active !== beforeRerun.active || after.mustChangePassword !== beforeRerun.mustChangePassword || after.totpSecret !== beforeRerun.totpSecret || after.sessionVersion !== beforeRerun.sessionVersion) {
+    if (after.passwordHash !== seededHash || after.role !== beforeRerun.role || after.active !== beforeRerun.active || after.mustChangePassword !== beforeRerun.mustChangePassword || after.sessionVersion !== beforeRerun.sessionVersion) {
       throw new Error('La seconde exécution a modifié le mot de passe, le rôle ou l’état du compte initial.');
     }
     if (!await argon2.verify(after.passwordHash, password) || await argon2.verify(after.passwordHash, rerunPassword)) throw new Error('Le mot de passe initial n’a pas été préservé après réexécution.');
-    if ((await login()).status !== 401 || (await login(totpAt(setup.secret))).status !== 201) throw new Error('L’authentification avec le compte initial n’est plus valide après réexécution.');
+    if ((await login()).status !== 201) throw new Error('L’authentification avec le compte initial n’est plus valide après réexécution.');
 
     phase = 'vérification des journaux';
     const allLogs = [...commandOutputs, ...applicationLogs].join('\n');
@@ -251,7 +228,7 @@ async function run() {
     commandOutputs.length = 0;
     sensitiveValues.length = 0;
   }
-  if (exitCode === 0 && checksPassed && schemaRemoved) console.log('Bootstrap vérifié et nettoyé : migrations dans un schéma jetable supprimé, création SUPER_ADMIN, 2FA obligatoire, connexion avec facteur valide, seconde exécution sans changement du mot de passe/rôle/état, aucun mot de passe dans les sorties capturées.');
+  if (exitCode === 0 && checksPassed && schemaRemoved) console.log('Bootstrap vérifié et nettoyé : migrations dans un schéma jetable supprimé, création SUPER_ADMIN, connexion par e-mail et mot de passe, seconde exécution sans changement du mot de passe/rôle/état, aucun mot de passe dans les sorties capturées.');
   return exitCode;
 }
 
@@ -260,4 +237,4 @@ if (require.main === module) run().then(code => { process.exitCode = code; }).ca
   process.exitCode = 1;
 });
 
-module.exports = { assertSafeTarget, databaseIdentity, totpAt };
+module.exports = { assertSafeTarget, databaseIdentity };
