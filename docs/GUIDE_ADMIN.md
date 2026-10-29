@@ -5,10 +5,20 @@
 Les comptes responsables sont créés par ADMIN/SUPER_ADMIN dans **Comptes responsables**. L’auto-inscription publique est désactivée : la route historique `/auth/register` renvoie 404 et l’ancien lien redirige vers la connexion. Le téléphone ne vérifie pas qu’un numéro est actif sur WhatsApp.
 
 1. Connectez-vous à l'espace administrateur sur un appareil de confiance.
-2. Depuis **Comptes responsables**, saisissez le nom, l'adresse e-mail, le rôle et un motif précis. Choisissez un jour (lundi à dimanche) pour un président.
+2. Depuis **Comptes responsables**, saisissez le nom, l'adresse e-mail, le rôle et un motif précis. Les rôles comprennent secrétaire de présence, secrétaire de programme, trésorier, président d’un jour et sous-administrateur. Choisissez un jour (lundi à dimanche) pour un président.
 3. Pour un sous-administrateur, cochez uniquement les accès nécessaires. `GESTION_COMPTES` permet de gérer les comptes selon les restrictions du serveur; `PROGRAMME_BIBLIQUE` autorise la préparation du cours.
 4. Transmettez le mot de passe temporaire affiché une seule fois par un canal privé sûr. Le titulaire doit le remplacer à sa première connexion. Ne le copiez pas dans un e-mail ou une conversation non protégée.
 5. Toute désactivation, réactivation, modification de rôle/jour ou permission demande un motif; elle est auditée et révoque les sessions de l'utilisateur.
+
+Les demandes d’inscription secrétaire de programme ou trésorier restent inactives jusqu’à leur validation dans cette même liste. Après approbation, ces personnes se connectent par e-mail et mot de passe et accèdent uniquement à leur espace dédié.
+
+## Programmes paroissiaux
+
+Le secrétaire de programme prépare plusieurs activités datées dans un brouillon, avec horaires, rubrique, intervenants, consignes et fêtes à venir. Il peut ajouter ou retirer des éléments, puis enregistrer et relire le récapitulatif. Les photos sont actuellement ajoutées par lien HTTPS et s’ouvrent dans un nouvel onglet; les fichiers ne sont pas téléversés dans l’application. Après publication, les programmes à venir apparaissent à l’espace des fidèles. Le bouton « Télécharger / imprimer » ouvre le récapitulatif destiné à l’impression ou à l’enregistrement en PDF depuis le navigateur. Un programme publié est modifiable pendant sept jours après publication; passé ce délai, la modification est refusée par l’API.
+
+## Trésorerie
+
+Le trésorier peut enregistrer les recettes et dépenses en XOF, avec date, catégorie, description, référence facultative et lien HTTPS vers un justificatif. L’espace est limité au trésorier et à l’administration. Chaque création et modification est auditée; les modifications sont bloquées après sept jours. Le solde affiché porte sur les 500 dernières écritures retournées par l’espace, pas sur un état comptable certifié. Il faut rapprocher les écritures des pièces justificatives et relevés officiels.
 
 La création de comptes est réservée à ADMIN/SUPER_ADMIN. Le mot de passe temporaire aléatoire est montré une seule fois par l’interface et doit être transmis par un canal privé sûr; l’utilisateur doit le changer au premier accès. Les changements de rôle, jour, activation ou permission exigent un motif, une nouvelle authentification et invalident les sessions. `EDITEUR` est le nom technique conservé pour le sous-administrateur.
 

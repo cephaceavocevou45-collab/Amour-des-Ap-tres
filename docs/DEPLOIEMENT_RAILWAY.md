@@ -69,6 +69,8 @@ Les noms ci-dessous sont les seuls à configurer pour ce déploiement. Les valeu
 
 Ne definir aucune URL de base production sur le service web. Garder les environnements Railway et les secrets separes. Definir DATABASE_URL independamment sur API et job migrate, par references privees vers la meme base, mais avec leurs roles PostgreSQL propres. Aucun secret admin ou migration dans le conteneur API.
 
+La migration `20261029000000_week_program_and_treasury` ajoute les rôles secrétaire de programme et trésorier ainsi que leurs tables. Avant déploiement, effectuer et vérifier une sauvegarde restaurable, puis déployer l’API avec les migrations. Les utilisateurs ne peuvent se connecter à ces espaces qu’après validation administrative. Les liens photo/justificatif doivent être HTTPS; aucun stockage de fichiers n’est configuré.
+
 ## Adresse IP, limiteur et capacité
 
 `infra/nginx-main.railway.conf` calcule également ses limites Nginx avec la valeur Railway `X-Real-IP`; la configuration refuse les écritures `/api/` si ce champ d’entrée est absent. `infra/railway-web.conf.template` transmet cette adresse en `X-Forwarded-For`; Express n’accepte qu’un saut proxy et `RateLimitGuard` utilise `request.ip`. Le client ne peut pas contacter l’API directement si son service n’a aucun domaine public et reste dans le réseau privé. **La garantie que Railway remplace un en-tête client du même nom doit être confirmée lors d’un déploiement réel**; la vérification locale prouve le rejet de l’usurpation directe sur l’API, pas le comportement du proxy distant.

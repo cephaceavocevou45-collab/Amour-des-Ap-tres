@@ -11,6 +11,7 @@ import { HealthController, HealthService } from './health';
 import { EmailQuotaService } from './email-quota.service';
 import { ReauthService } from './reauth';
 import { LoginBackoffPolicy } from './login-backoff.policy';
+import { ParishProgramController, TreasuryController } from './parish-operations';
 
-@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService, LoginBackoffPolicy] })
+@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController, ParishProgramController, TreasuryController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService, LoginBackoffPolicy] })
 export class AppModule {}

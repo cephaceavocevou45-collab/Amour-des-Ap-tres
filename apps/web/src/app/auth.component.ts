@@ -29,7 +29,7 @@ import { ParishFooterComponent } from './parish-footer.component';
             <label for="phone">Téléphone (facultatif)</label><input id="phone" name="phone" [(ngModel)]="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="+229…">
             @if(!faithfulRegister){
               <label for="requestedRole">Responsabilité demandée</label>
-              <select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole"  required><option value="SECRETAIRE_PRESENCE">Secrétaire de présence</option><option value="RESPONSABLE_SEMAINE">Président d’un jour</option><option value="EDITEUR">Sous-administrateur</option></select>
+              <select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole"  required><option value="SECRETAIRE_PRESENCE">Secrétaire de présence</option><option value="SECRETAIRE_PROGRAMME">Secrétaire de programme</option><option value="TRESORIER">Trésorier</option><option value="RESPONSABLE_SEMAINE">Président d’un jour</option><option value="EDITEUR">Sous-administrateur</option></select>
               @if(requestedRole==='RESPONSABLE_SEMAINE'){
                 <label for="assignedDay">Jour demandé</label><select id="assignedDay" name="assignedDay" [(ngModel)]="assignedDay" required><option [ngValue]="1">Lundi</option><option [ngValue]="2">Mardi</option><option [ngValue]="3">Mercredi</option><option [ngValue]="4">Jeudi</option><option [ngValue]="5">Vendredi</option><option [ngValue]="6">Samedi</option><option [ngValue]="7">Dimanche</option></select>
               }
@@ -102,7 +102,7 @@ export class AuthComponent {
       if(this.subadmin&&response.user.role!=='EDITEUR')throw new Error('Ce compte n’est pas un sous-administrateur.');
       sessionStorage.removeItem('paroisse_access_token');sessionStorage.setItem('paroisse_user_id',response.user.id);sessionStorage.setItem('paroisse_role',response.user.role);sessionStorage.setItem('paroisse_permissions',JSON.stringify(response.user.permissions??[]));
       if(response.user.mustChangePassword){await this.router.navigate(['/premiere-connexion']);return;}
-      const destination=this.faithful?'/fideles':this.admin?'/admin':['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(response.user.role)?'/presence':'/connexion';await this.router.navigate([destination]);
+      const destination=this.faithful?'/fideles':this.admin?'/admin':response.user.role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':response.user.role==='TRESORIER'?'/tresorerie':['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(response.user.role)?'/presence':'/connexion';await this.router.navigate([destination]);
     }catch(error:any){
       const backend=error?.error?.message,detail=Array.isArray(backend)?backend.join(' '):typeof backend==='string'?backend:'';
       const proxyError=error?.status===500&&error?.headers?.get('content-type')?.includes('text/plain');

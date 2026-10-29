@@ -26,6 +26,8 @@ const routes: Routes = [
   {path:'admin',loadComponent:()=>import('./app/admin.component').then(m=>m.AdminComponent),canActivate:[authGuard],data:{admin:true}},
   {path:'admin/informations',loadComponent:()=>import('./app/admin-announcements.component').then(m=>m.AdminAnnouncementsComponent),canActivate:[authGuard],data:{announcements:true}},
   {path:'presence', loadComponent:()=>import('./app/attendance.component').then(m=>m.AttendanceComponent),canActivate:[authGuard]},
+  {path:'programmes-responsable',loadComponent:()=>import('./app/parish-program.component').then(m=>m.ParishProgramComponent),canActivate:[authGuard],data:{parishPrograms:true}},
+  {path:'tresorerie',loadComponent:()=>import('./app/treasury.component').then(m=>m.TreasuryComponent),canActivate:[authGuard],data:{treasury:true}},
   {path:'**', redirectTo:''}
 ];
 bootstrapApplication(AppComponent, {providers:[provideRouter(routes),provideHttpClient(withInterceptors([authInterceptor])),provideServiceWorker('ngsw-worker.js',{enabled:environment.production,registrationStrategy:'registerWhenStable:30000'})]}).catch(console.error);

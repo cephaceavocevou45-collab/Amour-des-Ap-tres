@@ -12,6 +12,8 @@ enum UserRole {
   ADMIN
   EDITEUR
   SECRETAIRE_PRESENCE
+  SECRETAIRE_PROGRAMME
+  TRESORIER
   RESPONSABLE_SEMAINE
   FIDELE
 }
@@ -31,6 +33,15 @@ enum SheetStatus {
 enum Sex {
   M
   F
+}
+enum WeekProgramStatus {
+  BROUILLON
+  PUBLIE
+  ARCHIVE
+}
+enum TreasuryKind {
+  RECETTE
+  DEPENSE
 }
 enum Zone {
   FIDELES
@@ -138,6 +149,8 @@ model User {
   refreshTokens RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   parishAnnouncements Announcement[]
+  weekPrograms WeekProgram[]
+  treasuryEntries TreasuryEntry[]
 }
 
 model Announcement {
@@ -150,6 +163,56 @@ model Announcement {
   authorId String
   author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
   @@index([published, createdAt])
+}
+
+model WeekProgram {
+  id String @id @default(cuid())
+  title String @db.VarChar(160)
+  weekStart DateTime @db.Date
+  weekEnd DateTime @db.Date
+  theme String? @db.VarChar(300)
+  status WeekProgramStatus @default(BROUILLON)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  publishedAt DateTime?
+  authorId String
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  entries WeekProgramEntry[]
+  @@index([status, weekStart])
+  @@index([authorId, createdAt])
+}
+
+model WeekProgramEntry {
+  id String @id @default(cuid())
+  programId String
+  date DateTime @db.Date
+  startTime String? @db.VarChar(5)
+  endTime String? @db.VarChar(5)
+  category String @db.VarChar(80)
+  title String @db.VarChar(180)
+  people String[] @default([])
+  details String? @db.VarChar(3000)
+  imageUrl String? @db.VarChar(1000)
+  displayOrder Int @default(0)
+  program WeekProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  @@index([programId, date, displayOrder])
+}
+
+model TreasuryEntry {
+  id String @id @default(cuid())
+  kind TreasuryKind
+  amountXof Int
+  occurredAt DateTime @db.Date
+  category String @db.VarChar(100)
+  description String @db.VarChar(1000)
+  reference String? @db.VarChar(160)
+  receiptUrl String? @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  authorId String
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  @@index([occurredAt, kind])
+  @@index([authorId, createdAt])
 }
 
 
