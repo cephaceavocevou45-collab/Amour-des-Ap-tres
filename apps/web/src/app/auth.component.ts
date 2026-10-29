@@ -17,11 +17,23 @@ import { ParishFooterComponent } from './parish-footer.component';
         <h2>Amour des Apôtres</h2><p>Sainte-Cécile · Cotonou</p>
       </aside>
       <section class="auth-form-panel"><form class="auth-form" (ngSubmit)="submit()">
-        <span class="auth-kicker">{{admin?'ESPACE D’ADMINISTRATION':faithful||faithfulRegister?'ESPACE FIDÈLES':register?'DEMANDE D’ACCÈS RESPONSABLE':'ESPACE RESPONSABLES'}}</span>
+        <span class="auth-kicker">{{unifiedLogin?'ESPACE DE CONNEXION':admin?'ESPACE D’ADMINISTRATION':faithful||faithfulRegister?'ESPACE FIDÈLES':register?'DEMANDE D’ACCÈS RESPONSABLE':'ESPACE RESPONSABLES'}}</span>
         @if(admin){<span class="auth-admin-tag">{{subadmin?'ACCÈS SOUS-ADMINISTRATEUR':'ACCÈS ADMINISTRATEUR'}}</span>}
-        <h1>{{faithfulRegister?'Créer mon compte fidèle':register?'Demander un compte responsable':firstLogin?'Sécuriser votre compte':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Mot de passe oublié'):subadmin?'Connexion sous-administrateur':admin?'Connexion administrateur':faithful?'Connexion fidèle':'Connexion responsables'}}</h1>
-        <p>{{faithfulRegister?'Créez votre compte vous-même. Il sera actif immédiatement, sans demande ni validation de l’administration.':register?'Les responsables et sous-administrateurs peuvent soumettre une demande. L’accès reste désactivé jusqu’à sa validation par l’administration.':firstLogin?'Votre administrateur vous a remis un mot de passe temporaire. Remplacez-le pour activer votre accès.':forgot?(recoveryRequested()?'Saisissez le code reçu par e-mail, puis choisissez un nouveau mot de passe.':'Saisissez l’adresse e-mail de votre compte. Si elle correspond à un compte, un code de récupération sera envoyé.'):subadmin?'Connectez-vous avec le compte et les autorisations attribués par l’administrateur.':admin?'Connectez-vous à votre espace d’administration sécurisé.':faithful?'Connectez-vous pour consulter le programme et les informations réservés aux fidèles inscrits.':'Connectez-vous pour accéder au suivi des présences qui vous est attribué.'}}</p>
+        <h1>{{faithfulRegister?'Créer mon compte fidèle':register?'Demander un compte responsable':firstLogin?'Sécuriser votre compte':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Mot de passe oublié'):unifiedLogin?'Se connecter':subadmin?'Connexion sous-administrateur':admin?'Connexion administrateur':faithful?'Connexion fidèle':'Connexion responsables'}}</h1>
+        <p>{{faithfulRegister?'Créez votre compte vous-même. Il sera actif immédiatement, sans demande ni validation de l’administration.':register?'Les responsables et sous-administrateurs peuvent soumettre une demande. L’accès reste désactivé jusqu’à sa validation par l’administration.':firstLogin?'Votre administrateur vous a remis un mot de passe temporaire. Remplacez-le pour activer votre accès.':forgot?(recoveryRequested()?'Saisissez le code reçu par e-mail, puis choisissez un nouveau mot de passe.':'Saisissez l’adresse e-mail de votre compte. Si elle correspond à un compte, un code de récupération sera envoyé.'):unifiedLogin?'Choisissez votre type de compte, puis saisissez l’adresse e-mail et le mot de passe associés.':subadmin?'Connectez-vous avec le compte et les autorisations attribués par l’administrateur.':admin?'Connectez-vous à votre espace d’administration sécurisé.':faithful?'Connectez-vous pour consulter le programme et les informations réservés aux fidèles inscrits.':'Connectez-vous pour accéder au suivi des présences qui vous est attribué.'}}</p>
         @if(message()){<div class="auth-message" [class.success-message]="!messageIsError()" [attr.role]="messageIsError()?'alert':'status'">{{message()}}</div>}
+
+          @if(unifiedLogin){
+            <label for="profile">Type de compte</label>
+            <select id="profile" name="profile" [(ngModel)]="profile" required>
+              <option value="faithful">Fidèle</option>
+              <option value="presence">Secrétaire de présence ou président d’un jour</option>
+              <option value="program">Secrétaire de programme</option>
+              <option value="treasury">Trésorier</option>
+              <option value="admin">Administrateur</option>
+              <option value="subadmin">Sous-administrateur</option>
+            </select>
+          }
 
           @if(register){
             <label for="fullName">Nom complet</label><input id="fullName" name="fullName" [(ngModel)]="fullName" autocomplete="name" required minlength="3" maxlength="120" placeholder="Votre nom complet">
@@ -54,7 +66,8 @@ import { ParishFooterComponent } from './parish-footer.component';
           <button class="auth-submit" [disabled]="busy()">{{busy()?'Veuillez patienter…':faithfulRegister?'Créer mon compte':register?'Envoyer la demande':forgot?(recoveryRequested()?'Réinitialiser le mot de passe':'Envoyer le code'):firstLogin?'Enregistrer le nouveau mot de passe':'Se connecter'}} <span>→</span></button>
           @if(register){<div class="auth-switch">Déjà un compte ? <a [routerLink]="faithfulRegister?'/connexion-fidele':'/connexion'">Se connecter</a></div>}
           @if(forgot){<div class="auth-switch"><a [routerLink]="faithful?'/connexion-fidele':'/connexion'">Retour à la connexion</a>@if(recoveryRequested()){ · <button type="button" class="text-button" (click)="recoveryRequested.set(false)">Demander un autre code</button>}</div>}
-          @else if(subadmin){<div class="auth-switch">Administrateur ? <a routerLink="/admin/connexion">Connexion administrateur</a></div>}
+          @else if(unifiedLogin){<div class="auth-switch"><a routerLink="/inscription-fidele">Créer un compte fidèle</a> · <a routerLink="/inscription-responsable">Demander un compte responsable</a></div>}
+          @else if(subadmin){<div class="auth-switch">Administrateur ? <a routerLink="/connexion">Connexion</a></div>}
           @else if(admin){<div class="auth-switch"><a routerLink="/sous-admin/connexion">Connexion sous-administrateur</a></div>}
           @else if(faithful){<div class="auth-switch">Pas encore de compte fidèle ? <a routerLink="/inscription-fidele">Créer mon compte</a></div>}
           @else if(!register){<div class="auth-switch">Besoin d’un compte responsable ? <a routerLink="/inscription-responsable">Envoyer une demande</a></div>}
@@ -72,6 +85,8 @@ export class AuthComponent {
   readonly admin=this.route.snapshot.data['mode']==='admin'||this.subadmin;
   readonly forgot=['forgot','faithful-forgot'].includes(this.route.snapshot.data['mode']);
   readonly firstLogin=this.route.snapshot.data['mode']==='first-password-change';
+  readonly unifiedLogin=this.route.snapshot.data['mode']==='login';
+  profile='faithful';
   email='';password='';newPassword='';confirmPassword='';recoveryCode='';
   fullName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;
   recoveryRequested=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);passwordVisible=signal(false);
@@ -96,9 +111,12 @@ export class AuthComponent {
       if(this.forgot&&!this.recoveryRequested()){await this.http.post(environment.apiUrl+'/auth/password/forgot',{email}).toPromise();this.recoveryRequested.set(true);this.message.set('Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes.');return;}
       if(this.forgot){const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/password/reset',{email,code:this.recoveryCode,password:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();this.message.set(result?.message??'Mot de passe modifié. Vous pouvez vous connecter.');this.messageIsError.set(false);this.recoveryRequested.set(false);this.password='';this.newPassword='';this.confirmPassword='';this.recoveryCode='';return;}
       if(this.firstLogin){await this.http.post(environment.apiUrl+'/auth/account/password/first-login',{currentPassword:this.password,newPassword:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();sessionStorage.clear();await this.router.navigate([this.subadmin?'/sous-admin/connexion':this.admin?'/admin/connexion':'/connexion'],{queryParams:{passwordChanged:'1'}});return;}
-      const endpoint=this.subadmin?'/auth/subadmin/login':this.admin?'/auth/admin/login':this.faithful?'/auth/faithful/login':'/auth/login';
+      const selectedProfile=this.unifiedLogin?this.profile:this.subadmin?'subadmin':this.admin?'admin':this.faithful?'faithful':'presence';
+      const endpoint=selectedProfile==='subadmin'?'/auth/subadmin/login':selectedProfile==='admin'?'/auth/admin/login':selectedProfile==='faithful'?'/auth/faithful/login':'/auth/login';
       const response=await this.http.post<{user:{id:string;role:string;permissions?:string[];mustChangePassword?:boolean}}>(environment.apiUrl+endpoint,{email,password:this.password}).toPromise();
       if(!response?.user)throw new Error('Réponse de connexion invalide.');
+      const expectedRoles:Record<string,string[]>={faithful:['FIDELE'],presence:['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'],program:['SECRETAIRE_PROGRAMME'],treasury:['TRESORIER'],admin:['ADMIN','SUPER_ADMIN'],subadmin:['EDITEUR']};
+      if(this.unifiedLogin&&!expectedRoles[selectedProfile]?.includes(response.user.role))throw new Error('Ce compte ne correspond pas au type sélectionné. Choisissez le bon type de compte.');
       if(this.subadmin&&response.user.role!=='EDITEUR')throw new Error('Ce compte n’est pas un sous-administrateur.');
       sessionStorage.removeItem('paroisse_access_token');sessionStorage.setItem('paroisse_user_id',response.user.id);sessionStorage.setItem('paroisse_role',response.user.role);sessionStorage.setItem('paroisse_permissions',JSON.stringify(response.user.permissions??[]));
       if(response.user.mustChangePassword){await this.router.navigate(['/premiere-connexion']);return;}
