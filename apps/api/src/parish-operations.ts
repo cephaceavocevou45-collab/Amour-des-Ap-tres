@@ -62,14 +62,14 @@ export class ParishProgramController {
   @Get() async list(@Req() req: any) {
     if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat programme et à l’administration.');
     const where = req.user.role === 'SECRETAIRE_PROGRAMME' ? { authorId: req.user.sub } : {};
-    return this.prisma.weekProgram.findMany({ where, orderBy: [{ weekStart: 'desc' }, { updatedAt: 'desc' }], take: 100, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
+    return this.prisma.weekProgram.findMany({ where, orderBy: [{ weekStart: 'desc' }, { updatedAt: 'desc' }], take: 100, include: { author: { select: { id: true, fullName: true, email: true } }, entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
   }
 
   @Post() async create(@Body() body: ProgramDto, @Req() req: any) {
     if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat programme et à l’administration.');
     this.validateProgram(body);
     const program = await this.prisma.weekProgram.create({ data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null, authorId: req.user.sub, entries: { create: body.entries.map((entry, displayOrder) => this.entryData(entry, displayOrder)) } }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
-    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_CREE', program.id, { title: program.title, entries: program.entries.length }, req.ip);
+    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_CREE', program.id, { title: program.title, weekStart: program.weekStart.toISOString().slice(0,10), weekEnd: program.weekEnd.toISOString().slice(0,10), theme: program.theme, entries: program.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
     return { ...program, recap: summarize(program) };
   }
 
@@ -87,7 +87,7 @@ export class ParishProgramController {
       if (body.entries.length) await tx.weekProgramEntry.createMany({ data: body.entries.map((entry, displayOrder) => ({ ...this.entryData(entry, displayOrder), programId: id })) });
       return tx.weekProgram.findUniqueOrThrow({ where: { id }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
     });
-    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_MODIFIE', id, { status: updated.status, entries: updated.entries.length }, req.ip);
+    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_MODIFIE', id, { title: updated.title, weekStart: updated.weekStart.toISOString().slice(0,10), weekEnd: updated.weekEnd.toISOString().slice(0,10), theme: updated.theme, status: updated.status, entries: updated.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
     return { ...updated, recap: summarize(updated) };
   }
 
@@ -98,7 +98,7 @@ export class ParishProgramController {
     if (current.status !== 'BROUILLON') throw new HttpException('Seul un brouillon peut être publié.', 409);
     if (!current.entries.length) throw new BadRequestException('Ajoutez au moins une activité avant la publication.');
     const published = await this.prisma.weekProgram.update({ where: { id }, data: { status: 'PUBLIE', publishedAt: new Date() }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
-    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_PUBLIE', id, { title: published.title, entries: published.entries.length }, req.ip);
+    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_PUBLIE', id, { title: published.title, weekStart: published.weekStart.toISOString().slice(0,10), weekEnd: published.weekEnd.toISOString().slice(0,10), theme: published.theme, entries: published.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
     return { ...published, recap: summarize(published) };
   }
 
@@ -119,7 +119,7 @@ export class TreasuryController {
 
   @Get() async list(@Req() req: any) {
     if (!treasuryOrAdmin(req.user.role)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier et à l’administration.');
-    const entries = await this.prisma.treasuryEntry.findMany({ orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }], take: 500 });
+    const entries = await this.prisma.treasuryEntry.findMany({ orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }], take: 500, include: { author: { select: { id: true, fullName: true, email: true } } } });
     const total = entries.reduce((sum, entry) => sum + (entry.kind === 'RECETTE' ? entry.amountXof : -entry.amountXof), 0);
     return { entries, totalXof: total };
   }
@@ -127,8 +127,8 @@ export class TreasuryController {
   @Post() async create(@Body() body: TreasuryDto, @Req() req: any) {
     if (!treasuryOrAdmin(req.user.role)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier et à l’administration.');
     if (!isoDate(body.occurredAt)) throw new BadRequestException('La date n’est pas valide.');
-    const entry = await this.prisma.treasuryEntry.create({ data: { kind: body.kind as any, amountXof: body.amountXof, occurredAt: startOfDate(body.occurredAt), category: body.category.trim(), description: body.description.trim(), reference: body.reference?.trim() || null, receiptUrl: body.receiptUrl?.trim() || null, authorId: req.user.sub } });
-    await this.prisma.auditLog.create({ data: { userId: req.user.sub, action: 'TRESORERIE_ECRITURE_CREEE', entity: 'TreasuryEntry', entityId: entry.id, after: { kind: entry.kind, amountXof: entry.amountXof, occurredAt: entry.occurredAt.toISOString().slice(0,10), category: entry.category }, ip: req.ip ?? 'unknown' } });
+    const entry = await this.prisma.treasuryEntry.create({ data: { kind: body.kind as any, amountXof: body.amountXof, occurredAt: startOfDate(body.occurredAt), category: body.category.trim(), description: body.description.trim(), reference: body.reference?.trim() || null, receiptUrl: body.receiptUrl?.trim() || null, authorId: req.user.sub }, include: { author: { select: { id: true, fullName: true, email: true } } } });
+    await this.prisma.auditLog.create({ data: { userId: req.user.sub, action: 'TRESORERIE_ECRITURE_CREEE', entity: 'TreasuryEntry', entityId: entry.id, after: { kind: entry.kind, amountXof: entry.amountXof, occurredAt: entry.occurredAt.toISOString().slice(0,10), category: entry.category, description: entry.description, reference: entry.reference, receiptUrl: entry.receiptUrl }, ip: req.ip ?? 'unknown' } });
     return entry;
   }
 
@@ -137,10 +137,10 @@ export class TreasuryController {
     if (!isoDate(body.occurredAt)) throw new BadRequestException('La date n’est pas valide.');
     const current = await this.prisma.treasuryEntry.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Écriture introuvable.');
-    if (new Date() > sevenDaysAfter(current.createdAt)) throw new HttpException('Une écriture ne peut plus être modifiée après sept jours.', 403);
+    if (Date.now() > current.createdAt.getTime() + 24 * 60 * 60 * 1000) throw new HttpException('Une recette ou une dépense ne peut plus être modifiée après 24 heures.', 403);
     const entry = await this.prisma.$transaction(async tx => {
       const updated = await tx.treasuryEntry.update({ where: { id }, data: { kind: body.kind as any, amountXof: body.amountXof, occurredAt: startOfDate(body.occurredAt), category: body.category.trim(), description: body.description.trim(), reference: body.reference?.trim() || null, receiptUrl: body.receiptUrl?.trim() || null } });
-      await tx.auditLog.create({ data: { userId: req.user.sub, action: 'TRESORERIE_ECRITURE_MODIFIEE', entity: 'TreasuryEntry', entityId: id, before: { kind: current.kind, amountXof: current.amountXof, category: current.category, description: current.description }, after: { kind: updated.kind, amountXof: updated.amountXof, category: updated.category, description: updated.description }, ip: req.ip ?? 'unknown' } });
+      await tx.auditLog.create({ data: { userId: req.user.sub, action: 'TRESORERIE_ECRITURE_MODIFIEE', entity: 'TreasuryEntry', entityId: id, before: { kind: current.kind, amountXof: current.amountXof, occurredAt: current.occurredAt.toISOString().slice(0,10), category: current.category, description: current.description, reference: current.reference, receiptUrl: current.receiptUrl }, after: { kind: updated.kind, amountXof: updated.amountXof, occurredAt: updated.occurredAt.toISOString().slice(0,10), category: updated.category, description: updated.description, reference: updated.reference, receiptUrl: updated.receiptUrl }, ip: req.ip ?? 'unknown' } });
       return updated;
     });
     return entry;
