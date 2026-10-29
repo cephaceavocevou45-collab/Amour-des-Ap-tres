@@ -299,7 +299,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   });
 
   it('lets only the administrator grant scoped sub-admin permissions',async()=>{
-    const admin=await addUser(UserRole.ADMIN),secret='JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',editor=await addUser(UserRole.EDITEUR,{secret}),adminToken=jwt(admin),editorToken=jwt(editor);
+    const admin=await addUser(UserRole.ADMIN),editor=await addUser(UserRole.EDITEUR),adminToken=jwt(admin),editorToken=jwt(editor);
     expect((await call('/auth/admin/login',{method:'POST',body:{email:editor.email,password}})).status).toBe(401);
     const subLogin=await call('/auth/subadmin/login',{method:'POST',body:{email:editor.email,password}});expect(subLogin.status).toBe(201);expect(subLogin.body).not.toHaveProperty('accessToken');
     expect((await call('/auth/admin/members',{token:editorToken})).status).toBe(403);
