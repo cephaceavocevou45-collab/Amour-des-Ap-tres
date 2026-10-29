@@ -14,7 +14,7 @@ export const authGuard: CanActivateFn = (route) => {
   if (route.data['announcements'] && !['ADMIN', 'SUPER_ADMIN'].includes(role)) return router.createUrlTree(['/admin']);
   if (route.data['parishPrograms'] && !['SECRETAIRE_PROGRAMME','ADMIN','SUPER_ADMIN'].includes(role)) return router.createUrlTree(['/connexion']);
   if (route.data['treasury'] && !['TRESORIER','ADMIN','SUPER_ADMIN'].includes(role)) return router.createUrlTree(['/connexion']);
-  if (!route.data['admin'] && !route.data['program'] && !route.data['faithful'] && !route.data['parishPrograms'] && !route.data['treasury'] && !['ADMIN', 'SUPER_ADMIN', 'SECRETAIRE_PRESENCE', 'RESPONSABLE_SEMAINE'].includes(role)) return router.createUrlTree([role==='FIDELE'?'/fideles':role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':role==='TRESORIER'?'/tresorerie':'/connexion']);
+  if (!route.data['admin'] && !route.data['program'] && !route.data['faithful'] && !route.data['parishPrograms'] && !route.data['treasury'] && !route.data['accountSettings'] && !['ADMIN', 'SUPER_ADMIN', 'SECRETAIRE_PRESENCE', 'RESPONSABLE_SEMAINE'].includes(role)) return router.createUrlTree([role==='FIDELE'?'/fideles':role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':role==='TRESORIER'?'/tresorerie':'/connexion']);
   if (route.routeConfig?.path === 'presence' && role === 'EDITEUR') return router.createUrlTree(['/admin']);
   return true;
 };

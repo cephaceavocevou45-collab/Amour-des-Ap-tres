@@ -146,11 +146,41 @@ model User {
   lockedUntil DateTime?
   sessionVersion Int @default(0)
   permissions String[] @default([])
+  canRespondMessages Boolean @default(false)
+  welcomeShownAt DateTime?
   refreshTokens RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   parishAnnouncements Announcement[]
   weekPrograms WeekProgram[]
   treasuryEntries TreasuryEntry[]
+  openedConversations Conversation[] @relation("ConversationRequester")
+  assignedConversations Conversation[] @relation("ConversationResponder")
+  sentMessages Message[]
+}
+
+model Conversation {
+  id String @id @default(cuid())
+  subject String @db.VarChar(160)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  requesterId String
+  assignedToId String?
+  requester User @relation("ConversationRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  assignedTo User? @relation("ConversationResponder", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages Message[]
+  @@index([requesterId, updatedAt])
+  @@index([assignedToId, updatedAt])
+}
+
+model Message {
+  id String @id @default(cuid())
+  body String @db.VarChar(4000)
+  createdAt DateTime @default(now())
+  conversationId String
+  senderId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  @@index([conversationId, createdAt])
 }
 
 model Announcement {
