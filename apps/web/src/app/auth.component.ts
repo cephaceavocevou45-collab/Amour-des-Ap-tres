@@ -26,6 +26,7 @@ import { ParishFooterComponent } from './parish-footer.component';
           @if(unifiedLogin){
             <label for="profile">Type de compte</label>
             <select id="profile" name="profile" [(ngModel)]="profile" required>
+              <option value="" disabled>Choisissez votre type de compte</option>
               <option value="faithful">Fidèle</option>
               <option value="presence">Secrétaire de présence ou président d’un jour</option>
               <option value="program">Secrétaire de programme</option>
@@ -86,7 +87,7 @@ export class AuthComponent {
   readonly forgot=['forgot','faithful-forgot'].includes(this.route.snapshot.data['mode']);
   readonly firstLogin=this.route.snapshot.data['mode']==='first-password-change';
   readonly unifiedLogin=this.route.snapshot.data['mode']==='login';
-  profile='faithful';
+  profile='';
   email='';password='';newPassword='';confirmPassword='';recoveryCode='';
   fullName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;
   recoveryRequested=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);passwordVisible=signal(false);
@@ -120,7 +121,8 @@ export class AuthComponent {
       if(this.subadmin&&response.user.role!=='EDITEUR')throw new Error('Ce compte n’est pas un sous-administrateur.');
       sessionStorage.removeItem('paroisse_access_token');sessionStorage.setItem('paroisse_user_id',response.user.id);sessionStorage.setItem('paroisse_role',response.user.role);sessionStorage.setItem('paroisse_permissions',JSON.stringify(response.user.permissions??[]));
       if(response.user.mustChangePassword){await this.router.navigate(['/premiere-connexion']);return;}
-      const destination=this.faithful?'/fideles':this.admin?'/admin':response.user.role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':response.user.role==='TRESORIER'?'/tresorerie':['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(response.user.role)?'/presence':'/connexion';await this.router.navigate([destination]);
+      const role=response.user.role;
+      const destination=role==='FIDELE'?'/fideles':['ADMIN','SUPER_ADMIN','EDITEUR'].includes(role)?'/admin':role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':role==='TRESORIER'?'/tresorerie':['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(role)?'/presence':'/connexion';await this.router.navigate([destination]);
     }catch(error:any){
       const backend=error?.error?.message,detail=Array.isArray(backend)?backend.join(' '):typeof backend==='string'?backend:'';
       const proxyError=error?.status===500&&error?.headers?.get('content-type')?.includes('text/plain');
