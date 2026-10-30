@@ -196,6 +196,7 @@ export class AuthService {
     await this.prisma.$transaction(async tx=>{
       await tx.user.update({where:{id},data:{canRespondMessages:enabled}});
       await tx.auditLog.create({data:{userId:actorId,action:enabled?'REPONDANT_MESSAGES_DESIGNE':'REPONDANT_MESSAGES_RETIRE',entity:'UserAccess',entityId:id,before:{canRespondMessages:member.canRespondMessages},after:{canRespondMessages:enabled}}});
+      if(enabled&&!member.canRespondMessages)await tx.notification.create({data:{userId:id,title:'Vous êtes désigné pour répondre',body:'Le chargé paroissial vous a désigné pour répondre aux préoccupations des fidèles. Consultez votre espace de messages.',href:'/messages'}});
     });
     return {id,canRespondMessages:enabled};
   }

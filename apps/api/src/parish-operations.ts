@@ -13,7 +13,6 @@ class ProgramEntryDto {
   @IsString() @Length(2, 180) title!: string;
   @IsOptional() @IsArray() @ArrayMaxSize(30) @IsString({ each: true }) @MaxLength(120, { each: true }) people?: string[];
   @IsOptional() @IsString() @MaxLength(3000) details?: string;
-  @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) @MaxLength(1000) imageUrl?: string;
 }
 class ProgramDto {
   @IsString() @Length(3, 160) title!: string;
@@ -60,7 +59,6 @@ const summarize = (program: any) => {
         return [];
       });
       if (!Object.keys(data).length && entry.details) lines.push(entry.details);
-      if (entry.imageUrl) lines.push(`Photo : ${entry.imageUrl}`);
       return [`${date}${time} — ${title}`, ...lines.map(line => `  ${line}`)].join('\n');
     });
     return [`${labels[program.templateType] ?? 'Programme paroissial'} — ${program.title}`, ...entries].join('\n\n');
@@ -87,8 +85,8 @@ export class ParishProgramController {
 
   @Get('public') async publicPrograms(@Req() req: any) {
     if (req.user.role !== 'FIDELE') throw new ForbiddenException('Cette rubrique est réservée aux comptes fidèles.');
-    const today = new Date(new Date().toISOString().slice(0,10));
-    const programs = await this.prisma.weekProgram.findMany({ where: { status: 'PUBLIE', weekEnd: { gte: today } }, orderBy: { weekStart: 'asc' }, take: 16, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
+    // Keep published programs visible as an archive after their week has passed.
+    const programs = await this.prisma.weekProgram.findMany({ where: { status: 'PUBLIE' }, orderBy: [{ publishedAt: 'desc' }, { weekStart: 'desc' }], take: 16, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
     return programs.map(program => ({ ...program, recap: summarize(program) }));
   }
 
@@ -103,7 +101,7 @@ export class ParishProgramController {
     this.validateProgram(body);
     const templateData = this.parseTemplateData(body);
     const program = await this.prisma.weekProgram.create({ data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null, templateType: body.templateType, templateData: templateData as any, authorId: req.user.sub, entries: { create: body.entries.map((entry, displayOrder) => this.entryData(entry, displayOrder)) } }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
-    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_CREE', program.id, { title: program.title, weekStart: program.weekStart.toISOString().slice(0,10), weekEnd: program.weekEnd.toISOString().slice(0,10), theme: program.theme, entries: program.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
+    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_CREE', program.id, { title: program.title, weekStart: program.weekStart.toISOString().slice(0,10), weekEnd: program.weekEnd.toISOString().slice(0,10), theme: program.theme, entries: program.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details })) }, req.ip);
     return { ...program, recap: summarize(program) };
   }
 
@@ -121,7 +119,7 @@ export class ParishProgramController {
       if (body.entries.length) await tx.weekProgramEntry.createMany({ data: body.entries.map((entry, displayOrder) => ({ ...this.entryData(entry, displayOrder), programId: id })) });
       return tx.weekProgram.findUniqueOrThrow({ where: { id }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
     });
-    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_MODIFIE', id, { title: updated.title, weekStart: updated.weekStart.toISOString().slice(0,10), weekEnd: updated.weekEnd.toISOString().slice(0,10), theme: updated.theme, status: updated.status, entries: updated.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
+    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_MODIFIE', id, { title: updated.title, weekStart: updated.weekStart.toISOString().slice(0,10), weekEnd: updated.weekEnd.toISOString().slice(0,10), theme: updated.theme, status: updated.status, entries: updated.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details })) }, req.ip);
     return { ...updated, recap: summarize(updated) };
   }
 
@@ -131,8 +129,13 @@ export class ParishProgramController {
     if (!current || (req.user.role === 'SECRETAIRE_PROGRAMME' && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
     if (current.status !== 'BROUILLON') throw new HttpException('Seul un brouillon peut être publié.', 409);
     if (!current.entries.length) throw new BadRequestException('Ajoutez au moins une activité avant la publication.');
-    const published = await this.prisma.weekProgram.update({ where: { id }, data: { status: 'PUBLIE', publishedAt: new Date() }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
-    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_PUBLIE', id, { title: published.title, weekStart: published.weekStart.toISOString().slice(0,10), weekEnd: published.weekEnd.toISOString().slice(0,10), theme: published.theme, entries: published.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
+    const published = await this.prisma.$transaction(async tx => {
+      const item = await tx.weekProgram.update({ where: { id }, data: { status: 'PUBLIE', publishedAt: new Date() }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
+      const users = await tx.user.findMany({ where: { active: true }, select: { id: true } });
+      if (users.length) await tx.notification.createMany({ data: users.map(user => ({ userId: user.id, title: 'Nouveau programme paroissial', body: `Le programme « ${item.title} » est disponible dans l’espace des fidèles.`, href: '/fideles' })) });
+      return item;
+    });
+    await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_PUBLIE', id, { title: published.title, weekStart: published.weekStart.toISOString().slice(0,10), weekEnd: published.weekEnd.toISOString().slice(0,10), theme: published.theme, entries: published.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details })) }, req.ip);
     return { ...published, recap: summarize(published) };
   }
 
@@ -151,7 +154,7 @@ export class ParishProgramController {
       return parsed;
     } catch { throw new BadRequestException('Les informations de la fiche sont invalides.'); }
   }
-  private entryData(entry: ProgramEntryDto, displayOrder: number) { return { date: startOfDate(entry.date), startTime: entry.startTime || null, endTime: entry.endTime || null, category: entry.category.trim(), title: entry.title.trim(), people: (entry.people ?? []).map(name => name.trim()).filter(Boolean), details: entry.details?.trim() || null, imageUrl: entry.imageUrl?.trim() || null, displayOrder }; }
+  private entryData(entry: ProgramEntryDto, displayOrder: number) { return { date: startOfDate(entry.date), startTime: entry.startTime || null, endTime: entry.endTime || null, category: entry.category.trim(), title: entry.title.trim(), people: (entry.people ?? []).map(name => name.trim()).filter(Boolean), details: entry.details?.trim() || null, displayOrder }; }
   private audit(userId: string, action: string, id: string, after: object, ip: string) { return this.prisma.auditLog.create({ data: { userId, action, entity: 'WeekProgram', entityId: id, after, ip: ip ?? 'unknown' } }); }
 }
 

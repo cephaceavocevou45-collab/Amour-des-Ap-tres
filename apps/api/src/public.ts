@@ -67,6 +67,8 @@ export class PublicController {
     return this.prisma.$transaction(async tx=>{
       const item=await tx.announcement.create({data:{title:body.title.trim(),body:body.body.trim(),authorId:req.user.sub}});
       await tx.auditLog.create({data:{userId:req.user.sub,action:'ANNONCE_PUBLIEE',entity:'Announcement',entityId:item.id,after:{title:item.title,published:item.published},reason,ip:req.ip??'unknown'}});
+      const users=await tx.user.findMany({where:{active:true},select:{id:true}});
+      if(users.length)await tx.notification.createMany({data:users.map(user=>({userId:user.id,title:'Nouvelle information paroissiale',body:`Une nouvelle information est publiée : « ${item.title} ».`,href:'/fideles'}))});
       return item;
     });
   }
