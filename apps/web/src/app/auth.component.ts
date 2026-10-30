@@ -37,7 +37,11 @@ import { ParishFooterComponent } from './parish-footer.component';
           }
 
           @if(register){
-            <label for="fullName">Nom complet</label><input id="fullName" name="fullName" [(ngModel)]="fullName" autocomplete="name" required minlength="3" maxlength="120" placeholder="Votre nom complet">
+            <label for="firstName">Prénom</label><input id="firstName" name="firstName" [(ngModel)]="firstName" autocomplete="given-name" required maxlength="80" placeholder="Votre prénom">
+            <label for="lastName">Nom</label><input id="lastName" name="lastName" [(ngModel)]="lastName" autocomplete="family-name" required maxlength="120" placeholder="Votre nom de famille">
+            <label for="grade">Grade</label><input id="grade" name="grade" [(ngModel)]="grade" required maxlength="80" placeholder="Votre grade dans l’Église">
+            <label for="parish">Paroisse</label><input id="parish" name="parish" [(ngModel)]="parish" required maxlength="160" placeholder="Nom de votre paroisse">
+            <label for="functionName">Fonction</label><input id="functionName" name="functionName" [(ngModel)]="functionName" required maxlength="120" placeholder="Votre fonction paroissiale">
             <label for="email">Adresse e-mail</label><input id="email" name="email" [(ngModel)]="email" type="email" autocomplete="email" required maxlength="254" placeholder="vous@exemple.com">
             <label for="phone">Téléphone (facultatif)</label><input id="phone" name="phone" [(ngModel)]="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="+229…">
             @if(!faithfulRegister){
@@ -89,7 +93,7 @@ export class AuthComponent {
   readonly unifiedLogin=this.route.snapshot.data['mode']==='login';
   profile='';
   email='';password='';newPassword='';confirmPassword='';recoveryCode='';
-  fullName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;
+  fullName='';firstName='';lastName='';grade='';parish='';functionName='';phone='';requestedRole='SECRETAIRE_PRESENCE';assignedDay=1;
   recoveryRequested=signal(false);busy=signal(false);message=signal('');messageIsError=signal(false);passwordVisible=signal(false);
 
   constructor(){if(this.route.snapshot.queryParamMap.get('expired')){this.message.set('Votre session administrateur a expiré. Reconnectez-vous pour continuer.');this.messageIsError.set(true);}if(this.route.snapshot.queryParamMap.get('passwordChanged'))this.message.set('Votre mot de passe a été modifié. Connectez-vous avec le nouveau mot de passe.');}
@@ -103,11 +107,13 @@ export class AuthComponent {
       if(this.register){
         if(this.password!==this.confirmPassword)throw new Error('La confirmation du mot de passe ne correspond pas.');
         if(this.faithfulRegister){
-          const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register/faithful',{fullName:this.fullName.trim(),email,phone:this.phone.trim()||undefined,password:this.password,confirmPassword:this.confirmPassword}).toPromise();
-          this.message.set(result?.message??'Votre compte fidèle est créé et actif. Vous pouvez vous connecter dès maintenant.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.fullName='';this.phone='';return;
+          const fullName=`${this.firstName.trim()} ${this.lastName.trim()}`;
+          const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register/faithful',{fullName,firstName:this.firstName.trim(),lastName:this.lastName.trim(),grade:this.grade.trim(),parish:this.parish.trim(),functionName:this.functionName.trim(),email,phone:this.phone.trim()||undefined,password:this.password,confirmPassword:this.confirmPassword}).toPromise();
+          this.message.set(result?.message??'Votre compte fidèle est créé et actif. Vous pouvez vous connecter dès maintenant.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.firstName='';this.lastName='';this.grade='';this.parish='';this.functionName='';this.phone='';return;
         }
-        const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register',{fullName:this.fullName.trim(),email,phone:this.phone.trim()||undefined,role:this.requestedRole,...(this.requestedRole==='RESPONSABLE_SEMAINE'?{assignedDayOfWeek:this.assignedDay}:{}),password:this.password,confirmPassword:this.confirmPassword}).toPromise();
-        this.message.set(result?.message??'Votre demande a été reçue. Elle sera examinée par l’administration.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.fullName='';this.phone='';return;
+        const fullName=`${this.firstName.trim()} ${this.lastName.trim()}`;
+        const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/register',{fullName,firstName:this.firstName.trim(),lastName:this.lastName.trim(),grade:this.grade.trim(),parish:this.parish.trim(),functionName:this.functionName.trim(),email,phone:this.phone.trim()||undefined,role:this.requestedRole,...(this.requestedRole==='RESPONSABLE_SEMAINE'?{assignedDayOfWeek:this.assignedDay}:{}),password:this.password,confirmPassword:this.confirmPassword}).toPromise();
+        this.message.set(result?.message??'Votre demande a été reçue. Elle sera examinée par l’administration.');this.messageIsError.set(false);this.password='';this.confirmPassword='';this.firstName='';this.lastName='';this.grade='';this.parish='';this.functionName='';this.phone='';return;
       }
       if(this.forgot&&!this.recoveryRequested()){await this.http.post(environment.apiUrl+'/auth/password/forgot',{email}).toPromise();this.recoveryRequested.set(true);this.message.set('Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes.');return;}
       if(this.forgot){const result=await this.http.post<{message:string}>(environment.apiUrl+'/auth/password/reset',{email,code:this.recoveryCode,password:this.newPassword,confirmPassword:this.confirmPassword}).toPromise();this.message.set(result?.message??'Mot de passe modifié. Vous pouvez vous connecter.');this.messageIsError.set(false);this.recoveryRequested.set(false);this.password='';this.newPassword='';this.confirmPassword='';this.recoveryCode='';return;}

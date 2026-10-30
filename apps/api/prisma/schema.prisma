@@ -135,6 +135,11 @@ model User {
   id String @id @default(cuid())
   createdAt DateTime @default(now())
   fullName String?
+  firstName String?
+  lastName String?
+  grade String?
+  parish String?
+  functionName String?
   phone String?
   email String @unique
   passwordHash String

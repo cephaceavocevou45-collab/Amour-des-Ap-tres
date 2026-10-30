@@ -19,7 +19,7 @@ class ProgramDto {
   @IsISO8601({ strict: true }) weekStart!: string;
   @IsISO8601({ strict: true }) weekEnd!: string;
   @IsOptional() @IsString() @MaxLength(300) theme?: string;
-  @IsIn(['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL']) templateType!: string;
+  @IsIn(['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL', 'PARISH_EVENT']) templateType!: string;
   @IsOptional() @IsString() @MaxLength(20000) templateData?: string;
   @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => ProgramEntryDto) entries!: ProgramEntryDto[];
 }
@@ -40,11 +40,12 @@ const treasuryOrAdmin = (role: string) => ['TRESORIER', 'ADMIN', 'SUPER_ADMIN'].
 const sevenDaysAfter = (date: Date) => new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
 const summarize = (program: any) => {
   if (program.templateType !== 'WEEKLY') {
-    const labels: Record<string, string> = { CHILD_OUTING: 'Sortie d’enfants', MEMORIAL_VIGIL: 'Veillée en mémoire' };
+    const labels: Record<string, string> = { CHILD_OUTING: 'Sortie d’enfants', MEMORIAL_VIGIL: 'Veillée en mémoire', PARISH_EVENT: 'Événement paroissial' };
     const fieldLabels: Record<string, string> = {
       family: 'Dans les familles', conductor: 'Conducteur', plateauCarrier: 'Porteur de plateau', childCarrier: 'Porteur d’enfant',
       prayers: 'Prière de trois personnes', exhortation: 'Exhortation', closingPrayer: 'Prière de clôture',
       requestedBy: 'Sollicitée par', singlePrayer: 'Prière d’une personne', reading: 'Lecture', reader: 'Lecteur', preacher: 'Prédicateur',
+      location: 'Lieu', organizer: 'Organisé par', description: 'Informations',
     };
     const entries = (program.entries ?? []).map((entry: any) => {
       let data: Record<string, any> = {};
@@ -140,7 +141,7 @@ export class ParishProgramController {
   }
 
   private validateProgram(body: ProgramDto) {
-    if (!['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL'].includes(body.templateType)) throw new BadRequestException('Choisissez un type de fiche valide.');
+    if (!['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL', 'PARISH_EVENT'].includes(body.templateType)) throw new BadRequestException('Choisissez un type de fiche valide.');
     if (!isoDate(body.weekStart) || !isoDate(body.weekEnd) || body.weekEnd < body.weekStart) throw new BadRequestException('Les dates de la semaine ne sont pas valides.');
     const days = (startOfDate(body.weekEnd).getTime() - startOfDate(body.weekStart).getTime()) / 86_400_000;
     if (days > 13) throw new BadRequestException('Un programme couvre au maximum quatorze jours.');
