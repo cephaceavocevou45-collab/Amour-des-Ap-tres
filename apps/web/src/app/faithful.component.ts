@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { environment } from '../environments/environment';
 import { ParishFooterComponent } from './parish-footer.component';
-import { downloadTextPdf } from './pdf-download';
+import { downloadParishProgramPdf } from './parish-program-pdf';
 
 type PublicSession={date:string;startTime:string;endTime:string;theme:string;bibleReference:string|null;bibleText:string|null;previousSummary:string|null;people:{role:string;name:string;grade:string|null}[]};
 type ParishAnnouncement={id:string;title:string;body:string;createdAt:string};
@@ -30,17 +30,5 @@ export class FaithfulComponent {
   formatAnnouncementDate(value:string){return new Intl.DateTimeFormat('fr-FR',{timeZone:'Africa/Porto-Novo',dateStyle:'long'}).format(new Date(value))}
   formatProgramDates(start:string,end:string){return `${this.formatProgramEntryDate(start)} – ${this.formatProgramEntryDate(end)}`}
   formatProgramEntryDate(value:string){return new Intl.DateTimeFormat('fr-FR',{timeZone:'UTC',dateStyle:'long'}).format(new Date(`${value.slice(0,10)}T12:00:00Z`))}
-  downloadProgram(program:ParishWeekProgram){
-    const date=(value:string)=>this.formatProgramEntryDate(value);
-    const lines=[`PAROISSE AMOUR DES APÔTRES · SAINTE-CÉCILE · COTONOU`,program.title,`${date(program.weekStart)} – ${date(program.weekEnd)}`,...(program.theme?[`Thème : ${program.theme}`]:[]),'',...program.entries.flatMap(entry=>{
-      let details:string[]=[];
-      try {
-        const parsed=JSON.parse(entry.details??'{}');
-        if(program.templateType==='WEEKLY') details=[`Conducteur : ${parsed.conductor||'—'}`,`Prière de 3 personnes : ${(parsed.prayers??[]).join(', ')||'—'}`,`Textes : ${[parsed.firstText,parsed.secondText].filter(Boolean).join(' / ')||'—'}`,`Lecteurs : ${parsed.readers||'—'}`,`Prédicateur : ${parsed.preacher||'—'}`,`Quête : ${parsed.offering||'—'}`,`Prière sur quête : ${parsed.offeringPrayer||'—'}`,`Prière de clôture : ${parsed.closingPrayer||'—'}`].filter(line=>!line.endsWith('—'));
-        else if(parsed&&typeof parsed==='object') details=Object.entries(parsed).filter(([,value])=>typeof value==='string'&&value.trim()).map(([key,value])=>`${key} : ${value}`);
-      } catch { if(entry.details) details=[entry.details]; }
-      return [`${date(entry.date)}${entry.startTime?` · ${entry.startTime}`:''}${entry.endTime?` – ${entry.endTime}`:''}`,`${entry.category} — ${entry.title}`,...(entry.people.length?[`Personnes : ${entry.people.join(', ')}`]:[]),...details,''];
-    })];
-    downloadTextPdf(program.title,lines.join('\n'));
-  }
+  downloadProgram(program:ParishWeekProgram){void downloadParishProgramPdf(program).catch(()=>this.error.set('Le téléchargement du PDF n’a pas abouti. Réessayez dans un instant.'))}
 }

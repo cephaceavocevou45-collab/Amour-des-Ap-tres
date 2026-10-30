@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { environment } from '../environments/environment';
-import { downloadTextPdf } from './pdf-download';
+import { downloadParishProgramPdf } from './parish-program-pdf';
 
 type Entry = { date:string; startTime:string; endTime:string; category:string; title:string; people:string; details:string; day:string; conductor:string; prayers:string; firstText:string; secondText:string; readers:string; preacher:string; offering:string; offeringPrayer:string; closingPrayer:string; family:string; plateauCarrier:string; childCarrier:string; exhortation:string };
 type Program = { id:string; title:string; weekStart:string; weekEnd:string; theme:string|null; templateType?:string; templateData?:Record<string,string>; status:'BROUILLON'|'PUBLIE'|'ARCHIVE'; publishedAt:string|null; updatedAt:string; createdAt:string; author?:{fullName:string|null;email:string}; recap:string; entries:Entry[] };
@@ -36,7 +36,7 @@ export class ParishProgramComponent {
   showRecap(program:Program){this.preview.set(program);window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})}
   isEditable(program:Program){return !program.publishedAt||Date.now()<=Date.parse(program.publishedAt)+7*86400000}
   statusLabel(status:string){return status==='PUBLIE'?'Publié':status==='ARCHIVE'?'Archivé':'Brouillon'}
-  downloadRecap(){const program=this.preview();if(!program)return;const text=`PAROISSE AMOUR DES APÔTRES · SAINTE-CÉCILE · COTONOU\n${program.title}\n${this.formatDates(program.weekStart,program.weekEnd)}${program.theme?`\nThème : ${program.theme}`:''}\n\n${program.recap}`;downloadTextPdf(program.title,text)}
+  downloadRecap(){const program=this.preview();if(program)void downloadParishProgramPdf({...program,entries:program.entries.map(e=>({...e,people:Array.isArray(e.people)?e.people as unknown as string[]:String(e.people||'').replaceAll(',',String.fromCharCode(10)).split(String.fromCharCode(10)).map(v=>v.trim()).filter(Boolean)}))}).catch(()=>{this.message.set('Le téléchargement du PDF n’a pas abouti. Réessayez dans un instant.');this.isError.set(true)})}
   private formatDates(start:string,end:string){const format=(value:string)=>new Intl.DateTimeFormat('fr-FR',{timeZone:'UTC',dateStyle:'long'}).format(new Date(`${value.slice(0,10)}T12:00:00Z`));return `${format(start)} – ${format(end)}`}
   resetForm(){this.editingId='';this.templateType='WEEKLY';this.title='Programme de la semaine';this.weekStart='';this.weekEnd='';this.theme='';this.entries=[blankEntry()]}
   logout(){this.http.post(`${environment.apiUrl}/auth/logout`,{}).subscribe({complete:()=>this.endSession(),error:()=>this.endSession()})}
