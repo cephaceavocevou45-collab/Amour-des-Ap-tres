@@ -92,10 +92,10 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   });
   it('allows faithful self-registration immediately but never self-assigns an administrative role',async()=>{
     const email=testEmail(),before=await prisma.user.count({where:{email}});
-    const created=await call('/auth/register/faithful',{method:'POST',body:{fullName:'Compte fidèle E2E',email,phone:'+2290150000000',password,confirmPassword:password}});
+    const created=await call('/auth/register/faithful',{method:'POST',body:{fullName:'Compte fidèle E2E',firstName:'Compte',lastName:'Fidèle E2E',grade:'Fidèle',parish:'Sainte-Cécile',functionName:'Membre',email,phone:'+2290150000000',password,confirmPassword:password}});
     expect(created.status).toBe(201);
     const faithful=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(faithful.id);
-    expect(faithful).toMatchObject({role:UserRole.FIDELE,active:true,mustChangePassword:false});
+    expect(faithful).toMatchObject({role:UserRole.FIDELE,active:true,mustChangePassword:false,firstName:'Compte',lastName:'Fidèle E2E',grade:'Fidèle',parish:'Sainte-Cécile',functionName:'Membre'});
     expect(await prisma.user.count({where:{email}})).toBe(before+1);
 
     const privilegedEmail=testEmail();
@@ -315,7 +315,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     editorFresh=await prisma.user.findUniqueOrThrow({where:{id:editor.id}});freshToken=jwt(editorFresh);
     const memberRows=await call('/auth/admin/members',{token:freshToken});expect(memberRows.status).toBe(403);
     expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:freshToken,body:{permissions:['PROGRAMME_BIBLIQUE'],reason:'Tentative non autorisée'}})).status).toBe(403);
-    const permissionAudit=await prisma.auditLog.findMany({where:{action:'PERMISSIONS_PRESENCES_MODIFIEES',entityId:editor.id}});expect(permissionAudit).toHaveLength(2);expect(permissionAudit.every(row=>!!row.reason&&row.reason.length>=8)).toBe(true);
+    const permissionAudit=await prisma.auditLog.findMany({where:{action:'PERMISSIONS_ANNUAIRE_MODIFIEES',entityId:editor.id}});expect(permissionAudit).toHaveLength(2);expect(permissionAudit.every(row=>!!row.reason&&row.reason.length>=8)).toBe(true);
   });
 
   it('invalidates a still-signed access token as soon as the account is disabled',async()=>{
