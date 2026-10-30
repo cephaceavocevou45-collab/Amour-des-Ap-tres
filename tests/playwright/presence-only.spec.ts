@@ -526,7 +526,11 @@ test('les responsables peuvent demander un compte soumis à validation administr
   await page.goto('/inscription-responsable');
   await expect(page.getByRole('heading', { name: 'Demander un compte responsable' })).toBeVisible();
   await expect(page.getByText(/L’accès reste désactivé jusqu’à sa validation par l’administration/)).toBeVisible();
-  await page.getByLabel('Nom complet').fill('Demande responsable E2E');
+  await page.getByLabel('Prénom').fill('Demande');
+  await page.getByLabel('Nom').fill('Responsable E2E');
+  await page.getByLabel('Grade').fill('Frère');
+  await page.getByLabel('Paroisse').fill('Amour des Apôtres');
+  await page.getByLabel('Fonction').fill('Secrétaire');
   await page.getByLabel('Adresse e-mail').fill('responsable-e2e@example.invalid');
   await page.getByLabel('Mot de passe (12 caractères minimum)').fill('ResponsableE2E_2026!');
   await page.getByLabel('Confirmer le mot de passe').fill('ResponsableE2E_2026!');
