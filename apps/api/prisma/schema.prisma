@@ -201,6 +201,8 @@ model WeekProgram {
   weekStart DateTime @db.Date
   weekEnd DateTime @db.Date
   theme String? @db.VarChar(300)
+  templateType String @default("WEEKLY") @db.VarChar(32)
+  templateData Json?
   status WeekProgramStatus @default(BROUILLON)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

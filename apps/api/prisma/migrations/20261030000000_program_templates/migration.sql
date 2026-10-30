@@ -1,0 +1,3 @@
+ALTER TABLE "WeekProgram"
+  ADD COLUMN "templateType" VARCHAR(32) NOT NULL DEFAULT 'WEEKLY',
+  ADD COLUMN "templateData" JSONB;

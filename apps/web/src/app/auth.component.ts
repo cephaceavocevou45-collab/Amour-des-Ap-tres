@@ -29,7 +29,7 @@ import { ParishFooterComponent } from './parish-footer.component';
               <option value="" disabled>Choisissez votre type de compte</option>
               <option value="faithful">Fidèle</option>
               <option value="presence">Secrétaire de présence ou président d’un jour</option>
-              <option value="program">Secrétaire de programme</option>
+              <option value="program">Secrétaire de la paroisse</option>
               <option value="treasury">Trésorier</option>
               <option value="admin">Administrateur</option>
               <option value="subadmin">Sous-administrateur</option>
@@ -42,7 +42,7 @@ import { ParishFooterComponent } from './parish-footer.component';
             <label for="phone">Téléphone (facultatif)</label><input id="phone" name="phone" [(ngModel)]="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="+229…">
             @if(!faithfulRegister){
               <label for="requestedRole">Responsabilité demandée</label>
-              <select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole"  required><option value="SECRETAIRE_PRESENCE">Secrétaire de présence</option><option value="SECRETAIRE_PROGRAMME">Secrétaire de programme</option><option value="TRESORIER">Trésorier</option><option value="RESPONSABLE_SEMAINE">Président d’un jour</option><option value="EDITEUR">Sous-administrateur</option></select>
+              <select id="requestedRole" name="requestedRole" [(ngModel)]="requestedRole"  required><option value="SECRETAIRE_PRESENCE">Secrétaire de présence</option><option value="SECRETAIRE_PROGRAMME">Secrétaire de la paroisse</option><option value="TRESORIER">Trésorier</option><option value="RESPONSABLE_SEMAINE">Président d’un jour</option><option value="EDITEUR">Sous-administrateur</option></select>
               @if(requestedRole==='RESPONSABLE_SEMAINE'){
                 <label for="assignedDay">Jour demandé</label><select id="assignedDay" name="assignedDay" [(ngModel)]="assignedDay" required><option [ngValue]="1">Lundi</option><option [ngValue]="2">Mardi</option><option [ngValue]="3">Mercredi</option><option [ngValue]="4">Jeudi</option><option [ngValue]="5">Vendredi</option><option [ngValue]="6">Samedi</option><option [ngValue]="7">Dimanche</option></select>
               }

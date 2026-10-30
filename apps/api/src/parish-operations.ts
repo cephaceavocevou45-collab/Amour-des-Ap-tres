@@ -20,6 +20,8 @@ class ProgramDto {
   @IsISO8601({ strict: true }) weekStart!: string;
   @IsISO8601({ strict: true }) weekEnd!: string;
   @IsOptional() @IsString() @MaxLength(300) theme?: string;
+  @IsIn(['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL']) templateType!: string;
+  @IsOptional() @IsString() @MaxLength(20000) templateData?: string;
   @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => ProgramEntryDto) entries!: ProgramEntryDto[];
 }
 class TreasuryDto {
@@ -38,8 +40,39 @@ const staffOrAdmin = (role: string) => ['SECRETAIRE_PROGRAMME', 'ADMIN', 'SUPER_
 const treasuryOrAdmin = (role: string) => ['TRESORIER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 const sevenDaysAfter = (date: Date) => new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
 const summarize = (program: any) => {
+  if (program.templateType !== 'WEEKLY') {
+    const labels: Record<string, string> = { CHILD_OUTING: 'Sortie d’enfants', MEMORIAL_VIGIL: 'Veillée en mémoire' };
+    const fieldLabels: Record<string, string> = {
+      family: 'Dans les familles', conductor: 'Conducteur', plateauCarrier: 'Porteur de plateau', childCarrier: 'Porteur d’enfant',
+      prayers: 'Prière de trois personnes', exhortation: 'Exhortation', closingPrayer: 'Prière de clôture',
+      requestedBy: 'Sollicitée par', singlePrayer: 'Prière d’une personne', reading: 'Lecture', reader: 'Lecteur', preacher: 'Prédicateur',
+    };
+    const entries = (program.entries ?? []).map((entry: any) => {
+      let data: Record<string, any> = {};
+      try { data = JSON.parse(entry.details ?? '{}'); } catch { /* Keep legacy free-form details below. */ }
+      const date = entry.date instanceof Date ? entry.date.toISOString().slice(0, 10) : String(entry.date).slice(0, 10);
+      const time = entry.startTime ? ` · ${entry.startTime}${entry.endTime ? `–${entry.endTime}` : ''}` : '';
+      const title = program.templateType === 'MEMORIAL_VIGIL' ? (data.memorial || entry.title) : entry.title;
+      const lines = Object.entries(fieldLabels).flatMap(([key, label]) => {
+        const value = data[key];
+        if (Array.isArray(value) && value.length) return [`${label} : ${value.filter(Boolean).join(' · ')}`];
+        if (typeof value === 'string' && value.trim()) return [`${label} : ${value.trim()}`];
+        return [];
+      });
+      if (!Object.keys(data).length && entry.details) lines.push(entry.details);
+      if (entry.imageUrl) lines.push(`Photo : ${entry.imageUrl}`);
+      return [`${date}${time} — ${title}`, ...lines.map(line => `  ${line}`)].join('\n');
+    });
+    return [`${labels[program.templateType] ?? 'Programme paroissial'} — ${program.title}`, ...entries].join('\n\n');
+  }
   const heading = `${program.title} — du ${program.weekStart.toISOString().slice(0,10)} au ${program.weekEnd.toISOString().slice(0,10)}${program.theme ? ` — Thème : ${program.theme}` : ''}`;
   const lines = program.entries.map((entry: any) => {
+    if (entry.category === 'Fiche hebdomadaire') {
+      try {
+        const data = JSON.parse(entry.details ?? '{}');
+        return `${entry.date.toISOString().slice(0,10)}${entry.startTime ? ` · ${entry.startTime}` : ''} — ${data.day ?? entry.title}\n  Conducteur : ${data.conductor || '—'} · Prières : ${(data.prayers ?? []).filter(Boolean).join(', ') || '—'}\n  Textes : ${[data.firstText,data.secondText].filter(Boolean).join(' / ') || '—'} · Lecteurs : ${data.readers || '—'} · Prédicateur : ${data.preacher || '—'}\n  Quête H/F : ${data.offering || '—'} · Prière sur quête : ${data.offeringPrayer || '—'} · Clôture : ${data.closingPrayer || '—'}`;
+      } catch { /* Older free-form programme entries remain printable. */ }
+    }
     const people = entry.people?.length ? ` (${entry.people.join(', ')})` : '';
     const time = entry.startTime ? ` à ${entry.startTime}${entry.endTime ? `–${entry.endTime}` : ''}` : '';
     return `• ${entry.date.toISOString().slice(0,10)}${time} — ${entry.category} : ${entry.title}${people}${entry.details ? `\n  ${entry.details}` : ''}`;
@@ -60,28 +93,29 @@ export class ParishProgramController {
   }
 
   @Get() async list(@Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat programme et à l’administration.');
+    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
     const where = req.user.role === 'SECRETAIRE_PROGRAMME' ? { authorId: req.user.sub } : {};
     return this.prisma.weekProgram.findMany({ where, orderBy: [{ weekStart: 'desc' }, { updatedAt: 'desc' }], take: 100, include: { author: { select: { id: true, fullName: true, email: true } }, entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
   }
 
   @Post() async create(@Body() body: ProgramDto, @Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat programme et à l’administration.');
+    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
     this.validateProgram(body);
-    const program = await this.prisma.weekProgram.create({ data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null, authorId: req.user.sub, entries: { create: body.entries.map((entry, displayOrder) => this.entryData(entry, displayOrder)) } }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
+    const templateData = this.parseTemplateData(body);
+    const program = await this.prisma.weekProgram.create({ data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null, templateType: body.templateType, templateData: templateData as any, authorId: req.user.sub, entries: { create: body.entries.map((entry, displayOrder) => this.entryData(entry, displayOrder)) } }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
     await this.audit(req.user.sub, 'PROGRAMME_HEBDOMADAIRE_CREE', program.id, { title: program.title, weekStart: program.weekStart.toISOString().slice(0,10), weekEnd: program.weekEnd.toISOString().slice(0,10), theme: program.theme, entries: program.entries.map(entry => ({ date: entry.date.toISOString().slice(0,10), startTime: entry.startTime, endTime: entry.endTime, category: entry.category, title: entry.title, people: entry.people, details: entry.details, imageUrl: entry.imageUrl })) }, req.ip);
     return { ...program, recap: summarize(program) };
   }
 
   @Patch(':id') async update(@Param('id') id: string, @Body() body: ProgramDto, @Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat programme et à l’administration.');
+    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
     this.validateProgram(body);
     const current = await this.prisma.weekProgram.findUnique({ where: { id }, include: { entries: true } });
     if (!current || (req.user.role === 'SECRETAIRE_PROGRAMME' && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
     if (current.status === 'ARCHIVE') throw new HttpException('Ce programme est archivé et ne peut plus être modifié.', 409);
     if (current.status === 'PUBLIE' && (!current.publishedAt || new Date() > sevenDaysAfter(current.publishedAt))) throw new HttpException('La période de modification de sept jours est terminée.', 403);
     const updated = await this.prisma.$transaction(async tx => {
-      const claimed = await tx.weekProgram.updateMany({ where: { id, updatedAt: current.updatedAt }, data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null } });
+      const claimed = await tx.weekProgram.updateMany({ where: { id, updatedAt: current.updatedAt }, data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null, templateType: body.templateType, templateData: this.parseTemplateData(body) as any } });
       if (claimed.count !== 1) throw new HttpException('Le programme vient d’être modifié par une autre session. Rechargez la page.', 409);
       await tx.weekProgramEntry.deleteMany({ where: { programId: id } });
       if (body.entries.length) await tx.weekProgramEntry.createMany({ data: body.entries.map((entry, displayOrder) => ({ ...this.entryData(entry, displayOrder), programId: id })) });
@@ -92,7 +126,7 @@ export class ParishProgramController {
   }
 
   @Post(':id/publish') async publish(@Param('id') id: string, @Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat programme et à l’administration.');
+    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
     const current = await this.prisma.weekProgram.findUnique({ where: { id }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
     if (!current || (req.user.role === 'SECRETAIRE_PROGRAMME' && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
     if (current.status !== 'BROUILLON') throw new HttpException('Seul un brouillon peut être publié.', 409);
@@ -103,10 +137,19 @@ export class ParishProgramController {
   }
 
   private validateProgram(body: ProgramDto) {
+    if (!['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL'].includes(body.templateType)) throw new BadRequestException('Choisissez un type de fiche valide.');
     if (!isoDate(body.weekStart) || !isoDate(body.weekEnd) || body.weekEnd < body.weekStart) throw new BadRequestException('Les dates de la semaine ne sont pas valides.');
     const days = (startOfDate(body.weekEnd).getTime() - startOfDate(body.weekStart).getTime()) / 86_400_000;
     if (days > 13) throw new BadRequestException('Un programme couvre au maximum quatorze jours.');
     for (const entry of body.entries) if (!isoDate(entry.date) || entry.date < body.weekStart || entry.date > body.weekEnd) throw new BadRequestException('Chaque activité doit être datée dans la période du programme.');
+  }
+  private parseTemplateData(body: ProgramDto): Record<string, unknown> | null {
+    if (!body.templateData) return null;
+    try {
+      const parsed = JSON.parse(body.templateData);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid');
+      return parsed;
+    } catch { throw new BadRequestException('Les informations de la fiche sont invalides.'); }
   }
   private entryData(entry: ProgramEntryDto, displayOrder: number) { return { date: startOfDate(entry.date), startTime: entry.startTime || null, endTime: entry.endTime || null, category: entry.category.trim(), title: entry.title.trim(), people: (entry.people ?? []).map(name => name.trim()).filter(Boolean), details: entry.details?.trim() || null, imageUrl: entry.imageUrl?.trim() || null, displayOrder }; }
   private audit(userId: string, action: string, id: string, after: object, ip: string) { return this.prisma.auditLog.create({ data: { userId, action, entity: 'WeekProgram', entityId: id, after, ip: ip ?? 'unknown' } }); }
