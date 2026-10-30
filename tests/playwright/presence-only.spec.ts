@@ -527,7 +527,7 @@ test('les responsables peuvent demander un compte soumis à validation administr
   await expect(page.getByRole('heading', { name: 'Demander un compte responsable' })).toBeVisible();
   await expect(page.getByText(/L’accès reste désactivé jusqu’à sa validation par l’administration/)).toBeVisible();
   await page.getByLabel('Prénom').fill('Demande');
-  await page.getByLabel('Nom').fill('Responsable E2E');
+  await page.getByLabel('Nom', { exact: true }).fill('Responsable E2E');
   await page.getByLabel('Grade').fill('Frère');
   await page.getByLabel('Paroisse').fill('Amour des Apôtres');
   await page.getByLabel('Fonction').fill('Secrétaire');
