@@ -144,7 +144,7 @@ export class ParishProgramController {
     if (!['WEEKLY', 'CHILD_OUTING', 'MEMORIAL_VIGIL', 'PARISH_EVENT', 'COMMUNIQUE'].includes(body.templateType)) throw new BadRequestException('Choisissez un type de fiche valide.');
     if (!isoDate(body.weekStart) || !isoDate(body.weekEnd) || body.weekEnd < body.weekStart) throw new BadRequestException('Les dates de la semaine ne sont pas valides.');
     const days = (startOfDate(body.weekEnd).getTime() - startOfDate(body.weekStart).getTime()) / 86_400_000;
-    if (days > 13) throw new BadRequestException('Un programme couvre au maximum quatorze jours.');
+    if (body.templateType === 'WEEKLY' && days > 13) throw new BadRequestException('Un programme couvre au maximum quatorze jours.');
     for (const entry of body.entries) if (!isoDate(entry.date) || entry.date < body.weekStart || entry.date > body.weekEnd) throw new BadRequestException('Chaque activité doit être datée dans la période du programme.');
   }
   private parseTemplateData(body: ProgramDto): Record<string, unknown> | null {

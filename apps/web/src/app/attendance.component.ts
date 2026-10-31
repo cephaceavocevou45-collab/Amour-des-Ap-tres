@@ -13,8 +13,8 @@ type SheetOption={id:string;type:'COURS_BIBLIQUE'|'GROUPE_SEMAINE';date?:string;
 @Component({selector:'app-attendance',standalone:true,imports:[FormsModule,RouterLink,ParishFooterComponent],template:`
 <main class="attendance-page">
   <header class="attendance-top">
-    @if(isAdmin){<a routerLink="/admin" class="back-home">← <span>Administration</span></a>}@else{<a routerLink="/" class="back-home">← <span>Accueil</span></a>}
-    <a routerLink="/" class="attendance-brand"><img src="ecc-emblem.webp" alt=""><span>AMOUR DES APÔTRES<small>ESPACE DE PRÉSENCE</small></span></a>
+    @if(isAdmin){<a routerLink="/admin" class="back-home">← <span>Administration</span></a>}@else{<a routerLink="/fideles" class="back-home">← <span>Mon espace</span></a>}
+    <a [routerLink]="isAdmin?'/admin':'/presence'" class="attendance-brand"><img src="ecc-emblem.webp" alt=""><span>AMOUR DES APÔTRES<small>ESPACE DE PRÉSENCE</small></span></a>
     <div class="attendance-actions"><span class="connection" [class.offline]="!online()"><i></i>{{online()?'En ligne':'Hors ligne'}}</span>@if(isSignedIn){<button class="logout-button" type="button" (click)="logoutAllDevices()">Déconnecter tous les appareils</button><button class="logout-button" type="button" (click)="logout()">Se déconnecter</button>}</div>
   </header>
 

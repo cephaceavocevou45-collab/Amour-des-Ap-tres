@@ -1,6 +1,18 @@
 import { CanActivateFn, Router } from '@angular/router';
 import { inject } from '@angular/core';
 
+export const authenticatedHomeGuard: CanActivateFn = () => {
+  const role = sessionStorage.getItem('paroisse_role');
+  if (!role) return true;
+  const destination = role === 'FIDELE' ? '/fideles'
+    : ['ADMIN', 'SUPER_ADMIN', 'EDITEUR'].includes(role) ? '/admin'
+    : role === 'SECRETAIRE_PROGRAMME' ? '/programmes-responsable'
+    : role === 'TRESORIER' ? '/tresorerie'
+    : ['SECRETAIRE_PRESENCE', 'RESPONSABLE_SEMAINE'].includes(role) ? '/presence'
+    : '/connexion';
+  return inject(Router).parseUrl(destination);
+};
+
 export const authGuard: CanActivateFn = (route) => {
   const router = inject(Router);
   const role = sessionStorage.getItem('paroisse_role');

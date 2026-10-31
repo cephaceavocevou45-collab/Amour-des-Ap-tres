@@ -10,7 +10,7 @@ type Appointment = { id: string; preferredAt: string; subject: string; message: 
 @Component({
   selector: 'app-appointments', standalone: true, imports: [FormsModule, RouterLink, DatePipe],
   template: `
-  <main class="page"><header><a routerLink="/">AMOUR DES APÔTRES <small>{{isAdmin?'ESPACE ADMINISTRATION':'ESPACE FIDÈLES'}}</small></a><a [routerLink]="isAdmin?'/admin':'/fideles'">← Retour</a></header>
+  <main class="page"><header><a [routerLink]="isAdmin?'/admin':'/fideles'">AMOUR DES APÔTRES <small>{{isAdmin?'ESPACE ADMINISTRATION':'ESPACE FIDÈLES'}}</small></a><a [routerLink]="isAdmin?'/admin':'/fideles'">← Retour</a></header>
   <section class="content"><span class="kicker">RENCONTRE PAROISSIALE</span><h1>{{isAdmin?'Demandes de rendez-vous':'Rencontrer le chargé paroissial'}}</h1>
   @if(feedback()){<p class="notice" [class.error]="failed()" role="status">{{feedback()}}</p>}
   @if(isAdmin){@if(loading()){<p class="card">Chargement des demandes…</p>}@else if(items().length){@for(item of items();track item.id){<article class="card"><div class="row"><h2>{{item.subject}}</h2><span class="status">{{statusLabel(item.status)}}</span></div><p><strong>{{item.requester.fullName||'Fidèle'}}</strong> · {{item.requester.email}}{{item.requester.phone?' · '+item.requester.phone:''}}</p><p><strong>Date souhaitée :</strong> {{item.preferredAt|date:'full'}}</p><p class="message">{{item.message}}</p>@if(item.status==='EN_ATTENTE'){<div class="actions"><button type="button" (click)="setStatus(item,'CONFIRME')" [disabled]="busy()">Confirmer le rendez-vous</button><button class="secondary" type="button" (click)="setStatus(item,'REFUSE')" [disabled]="busy()">Refuser</button></div>}</article>}}@else{<p class="card">Aucune demande de rendez-vous pour le moment.</p>}}
@@ -24,7 +24,7 @@ export class AppointmentsComponent {
   subject = ''; message = ''; preferredAt = this.defaultDateTime();
   constructor(private readonly http: HttpClient, private readonly router: Router) {
     if (this.isAdmin) this.load();
-    else if (sessionStorage.getItem('paroisse_role') !== 'FIDELE') void this.router.navigate(['/']);
+    else if (sessionStorage.getItem('paroisse_role') !== 'FIDELE') void this.router.navigate(['/connexion']);
   }
   private defaultDateTime() { const date = new Date(Date.now() + 86_400_000); date.setMinutes(0,0,0); return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`; }
   submit() { if (this.subject.trim().length < 3 || this.message.trim().length < 8 || !this.preferredAt) return; this.busy.set(true); this.failed.set(false); this.feedback.set(''); this.http.post(`${environment.apiUrl}/appointments`, { subject: this.subject.trim(), message: this.message.trim(), preferredAt: new Date(this.preferredAt).toISOString() }).subscribe({ next: () => { this.busy.set(false); this.subject=''; this.message=''; this.feedback.set('Votre demande a été envoyée à l’administration. Vous recevrez une notification lorsqu’elle sera traitée.'); }, error: response => { this.busy.set(false); this.failed.set(true); this.feedback.set(response?.error?.message ?? 'La demande n’a pas pu être envoyée. Réessayez.'); } }); }

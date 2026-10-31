@@ -5,12 +5,12 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideServiceWorker } from '@angular/service-worker';
 import { AppComponent } from './app/app.component';
 import { HomeComponent } from './app/home.component';
-import { authGuard } from './app/auth.guard';
+import { authGuard, authenticatedHomeGuard } from './app/auth.guard';
 import { authInterceptor } from './app/auth.interceptor';
 import { environment } from './environments/environment';
 
 const routes: Routes = [
-  {path:'', component:HomeComponent},
+  {path:'', component:HomeComponent,canActivate:[authenticatedHomeGuard]},
   {path:'fideles',loadComponent:()=>import('./app/faithful.component').then(m=>m.FaithfulComponent),canActivate:[authGuard],data:{faithful:true}},
   {path:'annuaire-fideles',loadComponent:()=>import('./app/faithful-directory.component').then(m=>m.FaithfulDirectoryComponent),canActivate:[authGuard],data:{directory:true}},
   {path:'rendez-vous',loadComponent:()=>import('./app/appointments.component').then(m=>m.AppointmentsComponent),canActivate:[authGuard],data:{faithful:true}},
