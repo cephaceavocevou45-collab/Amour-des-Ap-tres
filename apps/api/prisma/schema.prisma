@@ -141,6 +141,7 @@ model User {
   parish String?
   functionName String?
   phone String?
+  photoUrl String?
   email String @unique
   passwordHash String
   mustChangePassword Boolean @default(false)

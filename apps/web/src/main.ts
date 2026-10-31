@@ -16,6 +16,7 @@ const routes: Routes = [
   {path:'rendez-vous',loadComponent:()=>import('./app/appointments.component').then(m=>m.AppointmentsComponent),canActivate:[authGuard],data:{faithful:true}},
   {path:'admin/rendez-vous',loadComponent:()=>import('./app/appointments.component').then(m=>m.AppointmentsComponent),canActivate:[authGuard],data:{admin:true}},
   {path:'parametres',loadComponent:()=>import('./app/account-settings.component').then(m=>m.AccountSettingsComponent),canActivate:[authGuard],data:{accountSettings:true}},
+  {path:'profil',loadComponent:()=>import('./app/profile.component').then(m=>m.ProfileComponent),canActivate:[authGuard],data:{accountSettings:true}},
   {path:'connexion',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'login'}},
   {path:'connexion-fidele',redirectTo:'connexion'},
   {path:'inscription-responsable',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'register'}},
