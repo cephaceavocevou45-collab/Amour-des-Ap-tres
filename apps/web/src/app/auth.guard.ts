@@ -25,7 +25,7 @@ export const authGuard: CanActivateFn = (route) => {
   if (route.data['program'] && !['ADMIN', 'SUPER_ADMIN', 'EDITEUR', 'SECRETAIRE_PRESENCE'].includes(role)) return router.createUrlTree(['/connexion']);
   if (route.data['program'] && role === 'EDITEUR' && !permissions.includes('PROGRAMME_BIBLIQUE')) return router.createUrlTree(['/admin']);
   if (route.data['admin'] && !['ADMIN', 'SUPER_ADMIN', 'EDITEUR'].includes(role)) return router.createUrlTree(['/connexion']);
-  if (route.data['announcements'] && !['ADMIN', 'SUPER_ADMIN'].includes(role)) return router.createUrlTree(['/admin']);
+  if (route.data['announcements'] && !(['ADMIN', 'SUPER_ADMIN'].includes(role)||permissions.includes('PUBLICATION_ACTUALITES'))) return router.createUrlTree(['/admin']);
   if (route.data['parishPrograms'] && !['SECRETAIRE_PROGRAMME','ADMIN','SUPER_ADMIN'].includes(role)) return router.createUrlTree(['/connexion']);
   if (route.data['treasury'] && !['TRESORIER','ADMIN','SUPER_ADMIN'].includes(role)) return router.createUrlTree(['/connexion']);
   if (!route.data['admin'] && !route.data['program'] && !route.data['faithful'] && !route.data['directory'] && !route.data['faithfulRegister'] && !route.data['parishPrograms'] && !route.data['treasury'] && !route.data['accountSettings'] && !['ADMIN', 'SUPER_ADMIN', 'SECRETAIRE_PRESENCE', 'RESPONSABLE_SEMAINE'].includes(role)) return router.createUrlTree([role==='FIDELE'?'/fideles':role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':role==='TRESORIER'?'/tresorerie':'/connexion']);

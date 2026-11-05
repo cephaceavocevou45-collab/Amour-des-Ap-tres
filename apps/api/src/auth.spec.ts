@@ -1,5 +1,6 @@
 import { AuthController, AuthService } from './auth';
 import { PrismaService } from './prisma.service';
+import { createHash } from 'node:crypto';
 
 describe('security-sensitive authentication flows',()=>{
   it('exposes controlled registration for responsible accounts',()=>{
@@ -48,6 +49,37 @@ describe('security-sensitive authentication flows',()=>{
     expect(tx.user.create).toHaveBeenCalledWith({data:expect.objectContaining({role:'SECRETAIRE_PRESENCE',mustChangePassword:true,active:true})});
     expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'admin-1',action:'COMPTE_RESPONSABLE_CREE',reason:'Désignation confirmée par le chargé paroissial.'})});
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(result.temporaryPassword);
+  });
+
+  it('stores the photo from a one-time responsible profile token and audits completion',async()=>{
+    const tx={user:{updateMany:jest.fn().mockResolvedValue({count:1})},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={
+      user:{findUnique:jest.fn().mockResolvedValue({id:'pending-1'})},
+      $transaction:jest.fn((work:(transaction:typeof tx)=>unknown)=>work(tx))
+    } as unknown as PrismaService;
+    const service=new AuthService(prisma);
+
+    await expect(service.completeResponsibleProfile({token:'a'.repeat(43),photoUrl:'data:image/png;base64,abc'} as any)).resolves.toEqual({saved:true});
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({where:{profileSetupTokenHash:createHash('sha256').update('a'.repeat(43)).digest('hex')},select:{id:true}});
+    expect(tx.user.updateMany).toHaveBeenCalledWith({
+      where:expect.objectContaining({id:'pending-1',profileSetupTokenHash:expect.any(String),profileSetupExpiresAt:{gt:expect.any(Date)},active:false}),
+      data:{photoUrl:'data:image/png;base64,abc',profileSetupTokenHash:null,profileSetupExpiresAt:null,profileSetupRequired:false}
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({entityId:'pending-1',action:'PROFIL_DEMANDE_RESPONSABLE_COMPLETE'})});
+  });
+
+  it('does not approve a responsible account before its profile photo is saved',async()=>{
+    const prisma={
+      user:{
+        findUnique:jest.fn().mockResolvedValue({id:'pending-1',role:'SECRETAIRE_PRESENCE',active:false,permissions:[],assignedDayOfWeek:null,sessionVersion:0,photoUrl:null,profileSetupRequired:true})
+      },
+      auditLog:{findFirst:jest.fn().mockResolvedValue({action:'DEMANDE_ACCES_PRESENCES'})},
+      $transaction:jest.fn()
+    } as unknown as PrismaService;
+
+    await expect(new AuthService(prisma).updateManagedAccount('pending-1',{active:true,role:'SECRETAIRE_PRESENCE'} as any,'admin-1'))
+      .rejects.toMatchObject({status:400});
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('lets only administrators manage the point 06 presenters',async()=>{

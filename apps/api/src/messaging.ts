@@ -20,7 +20,12 @@ export class MessagingService {
   async list(userId:string,role:string){
     const responder=await this.prisma.user.findUnique({where:{id:userId},select:{canRespondMessages:true}});
     const where=['ADMIN','SUPER_ADMIN'].includes(role)?{}:responder?.canRespondMessages?{assignedToId:userId}:{requesterId:userId};
-    return this.prisma.conversation.findMany({where,orderBy:{updatedAt:'desc'},take:100,include:{requester:{select:{id:true,fullName:true,role:true}},assignedTo:{select:{id:true,fullName:true}},messages:{orderBy:{createdAt:'asc'},take:100,include:{sender:{select:{id:true,fullName:true,role:true}}}}}});
+    return this.prisma.conversation.findMany({where,orderBy:{updatedAt:'desc'},take:100,include:{requester:{select:{id:true,fullName:true,role:true,photoUrl:true}},assignedTo:{select:{id:true,fullName:true,photoUrl:true}},messages:{orderBy:{createdAt:'asc'},take:100,include:{sender:{select:{id:true,fullName:true,role:true,photoUrl:true}}}}}});
+  }
+  async faithfulRecipients(userId:string,role:string){
+    const user=await this.prisma.user.findUnique({where:{id:userId},select:{canRespondMessages:true}});
+    if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!user?.canRespondMessages)throw new ForbiddenException('Seuls les répondants désignés peuvent contacter les fidèles.');
+    return this.prisma.user.findMany({where:{role:'FIDELE',active:true},select:{id:true,fullName:true,photoUrl:true,grade:true},orderBy:[{fullName:'asc'}]});
   }
   async open(userId:string,dto:OpenConversationDto){
     const subject=dto.subject.trim(),message=dto.message.trim();
@@ -36,6 +41,20 @@ export class MessagingService {
       return created;
     });
     return {id:conv.id};
+  }
+  async openForFaithful(userId:string,role:string,faithfulId:string,dto:OpenConversationDto){
+    const user=await this.prisma.user.findUnique({where:{id:userId},select:{canRespondMessages:true}});
+    if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!user?.canRespondMessages)throw new ForbiddenException('Seuls les répondants désignés peuvent contacter les fidèles.');
+    const faithful=await this.prisma.user.findUnique({where:{id:faithfulId},select:{id:true,role:true,active:true}});
+    if(!faithful||faithful.role!=='FIDELE'||!faithful.active)throw new NotFoundException('Ce compte fidèle est introuvable ou inactif.');
+    const subject=dto.subject.trim(),message=dto.message.trim();
+    if(subject.length<3||message.length<2)throw new BadRequestException('Indiquez un objet et un message avant l’envoi.');
+    const conversation=await this.prisma.$transaction(async tx=>{
+      const created=await tx.conversation.create({data:{subject,requesterId:faithfulId,assignedToId:userId,messages:{create:{body:message,senderId:userId}}}});
+      await tx.notification.create({data:{userId:faithfulId,title:'Nouveau message de la paroisse',body:'Un responsable de la paroisse vous a envoyé un message.',href:'/messages'}});
+      return created;
+    });
+    return {id:conversation.id};
   }
   async reply(userId:string,role:string,id:string,dto:ReplyDto){
     const conversation=await this.access(userId,role,id),content=dto.message.trim();
@@ -57,6 +76,8 @@ export class MessagingService {
 export class MessagingController {
   constructor(private readonly messaging:MessagingService){}
   @Get() list(@Req() req:any){return this.messaging.list(req.user.sub,req.user.role)}
+  @Get('faithful') faithfulRecipients(@Req() req:any){return this.messaging.faithfulRecipients(req.user.sub,req.user.role)}
   @Post() open(@Req() req:any,@Body() body:OpenConversationDto){return this.messaging.open(req.user.sub,body)}
+  @Post('to/:faithfulId') openForFaithful(@Req() req:any,@Param('faithfulId') faithfulId:string,@Body() body:OpenConversationDto){return this.messaging.openForFaithful(req.user.sub,req.user.role,faithfulId,body)}
   @Post(':id/reply') reply(@Req() req:any,@Param('id') id:string,@Body() body:ReplyDto){return this.messaging.reply(req.user.sub,req.user.role,id,body)}
 }

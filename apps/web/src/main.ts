@@ -22,6 +22,7 @@ const routes: Routes = [
   {path:'connexion',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'login'}},
   {path:'connexion-fidele',redirectTo:'connexion'},
   {path:'inscription-responsable',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'register'}},
+  {path:'demande-responsable-envoyee',loadComponent:()=>import('./app/responsible-request.component').then(m=>m.ResponsibleRequestComponent)},
   {path:'inscription-fidele',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'faithful-register'}},
   {path:'mot-de-passe-oublie',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'forgot'}},
   {path:'mot-de-passe-oublie-fidele',loadComponent:()=>import('./app/auth.component').then(m=>m.AuthComponent),data:{mode:'faithful-forgot'}},

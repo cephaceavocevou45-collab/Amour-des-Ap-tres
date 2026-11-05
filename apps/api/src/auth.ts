@@ -3,7 +3,7 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsS
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from './prisma.service';
 import { JwtAuthGuard } from './auth.guard';
-import { PersonRoleName, UserRole } from './generated/prisma';
+import { PersonRoleName, Sex, UserRole } from './generated/prisma';
 import * as argon2 from 'argon2';
 import { RateLimitGuard } from './rate-limit.guard';
 import { EmailQuotaService } from './email-quota.service';
@@ -24,6 +24,7 @@ class RegisterAccountDto {
   @IsString() @Length(1,80) grade!:string;
   @IsString() @Length(2,160) parish!:string;
   @IsString() @Length(1,120) functionName!:string;
+  @IsIn(['M','F']) sex!:Sex;
   @IsEmail() @MaxLength(254) email!:string;
   @IsOptional() @IsString() @MaxLength(32) phone?:string;
   @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role!:string;
@@ -38,12 +39,13 @@ class RegisterFaithfulDto {
   @IsString() @Length(1,80) grade!:string;
   @IsString() @Length(2,160) parish!:string;
   @IsString() @Length(1,120) functionName!:string;
+  @IsIn(['M','F']) sex!:Sex;
   @IsEmail() @MaxLength(254) email!:string;
   @IsOptional() @IsString() @MaxLength(32) phone?:string;
   @IsString() @MinLength(12) @MaxLength(128) password!:string;
   @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string;
 }
-class SubAdminPermissionsDto implements ReauthProof { @IsArray() @ArrayMaxSize(3) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES'],{each:true}) permissions!:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class SubAdminPermissionsDto implements ReauthProof { @IsArray() @ArrayMaxSize(4) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],{each:true}) permissions!:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 class ChangePasswordDto { @IsString() @MaxLength(128) currentPassword!:string; @IsString() @MinLength(12) @MaxLength(128) newPassword!:string; @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string; }
 class ChangeEmailDto { @IsEmail() @MaxLength(254) email!:string; @IsString() @MaxLength(128) currentPassword!:string; }
 class UpdateProfileDto {
@@ -53,12 +55,14 @@ class UpdateProfileDto {
   @IsOptional() @IsString() @MaxLength(80) grade?:string;
   @IsOptional() @IsString() @MaxLength(160) parish?:string;
   @IsOptional() @IsString() @MaxLength(120) functionName?:string;
+  @IsOptional() @IsIn(['M','F']) sex?:Sex|null;
   @IsOptional() @IsString() @MaxLength(32) phone?:string;
   @IsOptional() @IsString() @MaxLength(80000) @Matches(/^(?:https:\/\/[^\s]{1,1000}|data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2})$/) photoUrl?:string|null;
 }
 class MessageResponderDto { @IsBoolean() enabled!:boolean; }
-class CreateManagedAccountDto implements ReauthProof { @IsString() @Length(3,120) fullName!:string; @IsEmail() @MaxLength(254) email!:string; @IsOptional() @IsString() @MaxLength(32) phone?:string; @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role!:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(3) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES'],{each:true}) permissions?:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
-class UpdateManagedAccountDto implements ReauthProof { @IsOptional() @IsBoolean() active?:boolean; @IsOptional() @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role?:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(3) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES'],{each:true}) permissions?:string[]; @IsOptional() @IsString() @Length(8,1000) reason?:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class CreateManagedAccountDto implements ReauthProof { @IsString() @Length(3,120) fullName!:string; @IsEmail() @MaxLength(254) email!:string; @IsOptional() @IsString() @MaxLength(32) phone?:string; @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role!:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(4) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],{each:true}) permissions?:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class UpdateManagedAccountDto implements ReauthProof { @IsOptional() @IsBoolean() active?:boolean; @IsOptional() @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role?:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(4) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],{each:true}) permissions?:string[]; @IsOptional() @IsString() @Length(8,1000) reason?:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class CompleteResponsibleProfileDto { @IsString() @Length(40,64) token!:string; @IsString() @MaxLength(80000) @Matches(/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/) photoUrl!:string; }
 class ManagePresenterDto implements ReauthProof { @IsString() @Length(1,80) firstName!:string; @IsString() @Length(1,120) lastName!:string; @IsOptional() @IsString() @MaxLength(80) grade?:string|null; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 class RemovePresenterDto implements ReauthProof { @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 
@@ -90,13 +94,30 @@ export class AuthService {
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(dto.assignedDayOfWeek);
     else if(dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
     const passwordHash=await argon2.hash(dto.password,{type:argon2.argon2id});
+    const profileSetupToken=randomBytes(32).toString('base64url');
+    const profileSetupTokenHash=createHash('sha256').update(profileSetupToken).digest('hex');
+    const profileSetupExpiresAt=new Date(Date.now()+24*60*60_000);
     try{
       await this.prisma.$transaction(async tx=>{
-        const user=await tx.user.create({data:{fullName:dto.fullName.trim(),firstName:dto.firstName?.trim()||null,lastName:dto.lastName?.trim()||null,grade:dto.grade?.trim()||null,parish:dto.parish?.trim()||null,functionName:dto.functionName?.trim()||null,email,phone:dto.phone?.trim()||null,role,assignedDayOfWeek:role===UserRole.RESPONSABLE_SEMAINE?dto.assignedDayOfWeek:null,permissions:[],passwordHash,active:false,mustChangePassword:false}});
-        await tx.auditLog.create({data:{action:'DEMANDE_ACCES_PRESENCES',entity:'UserAccess',entityId:user.id,after:{role,assignedDayOfWeek:user.assignedDayOfWeek},reason:'Inscription en attente de validation administrative.',ip}});
+        const user=await tx.user.create({data:{fullName:dto.fullName.trim(),firstName:dto.firstName?.trim()||null,lastName:dto.lastName?.trim()||null,grade:dto.grade?.trim()||null,parish:dto.parish?.trim()||null,functionName:dto.functionName?.trim()||null,sex:dto.sex,email,phone:dto.phone?.trim()||null,role,assignedDayOfWeek:role===UserRole.RESPONSABLE_SEMAINE?dto.assignedDayOfWeek:null,permissions:[],passwordHash,active:false,mustChangePassword:false,profileSetupTokenHash,profileSetupExpiresAt,profileSetupRequired:true}});
+        await tx.auditLog.create({data:{action:'DEMANDE_ACCES_PRESENCES',entity:'UserAccess',entityId:user.id,after:{role,assignedDayOfWeek:user.assignedDayOfWeek,sex:dto.sex},reason:'Inscription en attente de validation administrative.',ip}});
       });
-      return {message:'Votre demande a été reçue. L’administration paroissiale doit valider votre compte avant votre première connexion.'};
+      return {message:'Votre demande a été reçue. Le chargé paroissial vous répondra dans les meilleurs délais.',profileSetupToken};
     }catch(error:any){if(error?.code==='P2002')throw new BadRequestException('Cette adresse e-mail est déjà utilisée.');throw error;}
+  }
+  async completeResponsibleProfile(dto:CompleteResponsibleProfileDto){
+    const tokenHash=createHash('sha256').update(dto.token).digest('hex');
+    const user=await this.prisma.user.findUnique({where:{profileSetupTokenHash:tokenHash},select:{id:true}});
+    if(!user)throw new BadRequestException('Le lien de profil a expiré ou a déjà été utilisé. Soumettez une nouvelle demande à la paroisse.');
+    await this.prisma.$transaction(async tx=>{
+      const result=await tx.user.updateMany({
+        where:{id:user.id,profileSetupTokenHash:tokenHash,profileSetupExpiresAt:{gt:new Date()},active:false,role:{in:[UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER,UserRole.EDITEUR]}},
+        data:{photoUrl:dto.photoUrl,profileSetupTokenHash:null,profileSetupExpiresAt:null,profileSetupRequired:false}
+      });
+      if(result.count!==1)throw new BadRequestException('Le lien de profil a expiré ou a déjà été utilisé. Soumettez une nouvelle demande à la paroisse.');
+      await tx.auditLog.create({data:{action:'PROFIL_DEMANDE_RESPONSABLE_COMPLETE',entity:'UserAccess',entityId:user.id,after:{photoAdded:true}}});
+    });
+    return {saved:true};
   }
   async registerFaithful(dto:RegisterFaithfulDto,ip:string){
     if(dto.password!==dto.confirmPassword)throw new BadRequestException('La confirmation du mot de passe ne correspond pas.');
@@ -104,14 +125,14 @@ export class AuthService {
     const email=dto.email.trim().toLowerCase(),passwordHash=await argon2.hash(dto.password,{type:argon2.argon2id});
     try{
       await this.prisma.$transaction(async tx=>{
-        const user=await tx.user.create({data:{fullName:dto.fullName.trim(),firstName:dto.firstName?.trim()||null,lastName:dto.lastName?.trim()||null,grade:dto.grade?.trim()||null,parish:dto.parish?.trim()||null,functionName:dto.functionName?.trim()||null,email,phone:dto.phone?.trim()||null,role:UserRole.FIDELE,passwordHash,active:true,mustChangePassword:false,permissions:[]}});
+        const user=await tx.user.create({data:{fullName:dto.fullName.trim(),firstName:dto.firstName?.trim()||null,lastName:dto.lastName?.trim()||null,grade:dto.grade?.trim()||null,parish:dto.parish?.trim()||null,functionName:dto.functionName?.trim()||null,sex:dto.sex,email,phone:dto.phone?.trim()||null,role:UserRole.FIDELE,passwordHash,active:true,mustChangePassword:false,permissions:[]}});
         await tx.auditLog.create({data:{userId:user.id,action:'COMPTE_FIDELE_CREE',entity:'UserAccess',entityId:user.id,after:{role:UserRole.FIDELE},ip}});
       });
       return {message:'Votre compte fidèle est créé et actif. Vous pouvez vous connecter dès maintenant.'};
     }catch(error:any){if(error?.code==='P2002')throw new BadRequestException('Cette adresse e-mail possède déjà un compte. Connectez-vous ou utilisez la récupération de mot de passe.');throw error;}
   }
   async listManagedAccounts(){
-    const accounts=await this.prisma.user.findMany({where:{role:{in:[UserRole.FIDELE,UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER,UserRole.EDITEUR]}},select:{id:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,email:true,phone:true,role:true,active:true,permissions:true,assignedDayOfWeek:true,canRespondMessages:true},orderBy:[{role:'asc'},{fullName:'asc'}]});
+    const accounts=await this.prisma.user.findMany({where:{role:{in:[UserRole.FIDELE,UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER,UserRole.EDITEUR]}},select:{id:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,sex:true,photoUrl:true,profileSetupRequired:true,email:true,phone:true,role:true,active:true,permissions:true,assignedDayOfWeek:true,canRespondMessages:true},orderBy:[{role:'asc'},{fullName:'asc'}]});
     if(!accounts.length)return [];
     const events=await this.prisma.auditLog.findMany({where:{entity:'UserAccess',entityId:{in:accounts.map(account=>account.id)},action:{in:['DEMANDE_ACCES_PRESENCES','DEMANDE_ACCES_PRESENCES_VALIDEE','DEMANDE_ACCES_PRESENCES_REFUSEE']}},select:{entityId:true,action:true},orderBy:{createdAt:'desc'}});
     const lastEvent=new Map<string,string>();for(const event of events)if(!lastEvent.has(event.entityId))lastEvent.set(event.entityId,event.action);
@@ -124,7 +145,7 @@ export class AuthService {
     if(reason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(dto.assignedDayOfWeek);
     else if(dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
-    const permissions=role===UserRole.EDITEUR?[...new Set(dto.permissions??[])]:[];
+    const permissions=[...new Set(dto.permissions??[])].filter(permission=>role===UserRole.EDITEUR||['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission));
     const temporaryPassword=randomBytes(24).toString('base64url'),passwordHash=await argon2.hash(temporaryPassword,{type:argon2.argon2id});
     try{
       const user=await this.prisma.$transaction(async tx=>{
@@ -137,18 +158,20 @@ export class AuthService {
   }
   async updateManagedAccount(id:string,dto:UpdateManagedAccountDto,actorId:string){
     if(id===actorId)throw new ForbiddenException('Vous ne pouvez pas modifier votre propre accès depuis cette page.');
-    const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true,assignedDayOfWeek:true,sessionVersion:true}});
+    const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true,assignedDayOfWeek:true,sessionVersion:true,photoUrl:true,profileSetupRequired:true}});
     const managedRoles:string[]=[UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER,UserRole.EDITEUR];
     if(!member||!managedRoles.includes(member.role))throw new NotFoundException('Compte responsable introuvable.');
     const requestEvent=await this.prisma.auditLog.findFirst({where:{entity:'UserAccess',entityId:id,action:{in:['DEMANDE_ACCES_PRESENCES','DEMANDE_ACCES_PRESENCES_VALIDEE','DEMANDE_ACCES_PRESENCES_REFUSEE']}},select:{action:true},orderBy:{createdAt:'desc'}});
     const approvalPending=requestEvent?.action==='DEMANDE_ACCES_PRESENCES'&&!member.active;
-    const approvalOnly=approvalPending&&dto.active===true&&dto.role===undefined&&dto.assignedDayOfWeek===undefined&&dto.permissions===undefined;
+    const approvalOnly=approvalPending&&dto.active===true&&dto.permissions===undefined&&dto.reason===undefined;
     if(!approvalOnly){if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');await this.reauth.requireRecentProof(actorId,dto);}
     const reason=dto.reason?.trim()??'';if(!approvalOnly&&reason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
     const role=(dto.role??member.role) as UserRole,assignedDayOfWeek=role===UserRole.RESPONSABLE_SEMAINE?(dto.assignedDayOfWeek??member.assignedDayOfWeek):null;
+    if(approvalPending&&dto.active===true&&member.profileSetupRequired&&!member.photoUrl)throw new BadRequestException('Le demandeur doit ajouter sa photo de profil avant la validation de son compte.');
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(assignedDayOfWeek);
     if(role!==UserRole.RESPONSABLE_SEMAINE&&dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
-    const permissions=role===UserRole.EDITEUR?(dto.permissions??member.permissions):[];
+    const requestedPermissions=dto.permissions??member.permissions;
+    const permissions=requestedPermissions.filter(permission=>role===UserRole.EDITEUR||['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission));
     const nextActive=dto.active??member.active;
     return this.prisma.$transaction(async tx=>{
       const updated=await tx.user.update({where:{id},data:{role,assignedDayOfWeek,permissions,active:nextActive,sessionVersion:{increment:1}}});
@@ -206,14 +229,14 @@ export class AuthService {
     return {id,removed:true};
   }
   async sessions(userId:string,currentToken?:string){const rows=await this.prisma.refreshToken.findMany({where:{userId},orderBy:{createdAt:'desc'},select:{id:true,createdAt:true,expiresAt:true,revokedAt:true,hashedToken:true,userAgent:true}});const currentHash=currentToken?createHash('sha256').update(currentToken).digest('hex'):'';return rows.map(({hashedToken,userAgent,...row})=>({...row,isCurrent:!!currentHash&&hashedToken===currentHash,device:userAgent?userAgent.slice(0,180):'Appareil non identifié'}));}
-  async accountProfile(userId:string){const user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,email:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,phone:true,role:true,photoUrl:true}});if(!user)throw new UnauthorizedException('Compte introuvable.');return user;}
+  async accountProfile(userId:string){const user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,email:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,sex:true,phone:true,role:true,photoUrl:true}});if(!user)throw new UnauthorizedException('Compte introuvable.');return user;}
   async updateAccountProfile(userId:string,dto:UpdateProfileDto){
     const clean=(value:string|undefined)=>value===undefined?undefined:value.trim()||null;
     const firstName=clean(dto.firstName),lastName=clean(dto.lastName);
     const fullName=dto.fullName!==undefined?clean(dto.fullName):firstName!==undefined||lastName!==undefined?[firstName,lastName].filter(Boolean).join(' ')||null:undefined;
-    return this.prisma.user.update({where:{id:userId},data:{...(fullName!==undefined?{fullName}:{}),...(firstName!==undefined?{firstName}:{}),...(lastName!==undefined?{lastName}:{}),...(dto.grade!==undefined?{grade:clean(dto.grade)}:{}),...(dto.parish!==undefined?{parish:clean(dto.parish)}:{}),...(dto.functionName!==undefined?{functionName:clean(dto.functionName)}:{}),...(dto.phone!==undefined?{phone:clean(dto.phone)}:{}),...(dto.photoUrl!==undefined?{photoUrl:dto.photoUrl?.trim()||null}:{})},select:{id:true,email:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,phone:true,role:true,photoUrl:true}});
+    return this.prisma.user.update({where:{id:userId},data:{...(fullName!==undefined?{fullName}:{}),...(firstName!==undefined?{firstName}:{}),...(lastName!==undefined?{lastName}:{}),...(dto.grade!==undefined?{grade:clean(dto.grade)}:{}),...(dto.parish!==undefined?{parish:clean(dto.parish)}:{}),...(dto.functionName!==undefined?{functionName:clean(dto.functionName)}:{}),...(dto.sex!==undefined?{sex:dto.sex}:{}),...(dto.phone!==undefined?{phone:clean(dto.phone)}:{}),...(dto.photoUrl!==undefined?{photoUrl:dto.photoUrl?.trim()||null}:{})},select:{id:true,email:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,sex:true,phone:true,role:true,photoUrl:true}});
   }
-  async faithfulDirectory(){return this.prisma.user.findMany({where:{role:UserRole.FIDELE,active:true},select:{id:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,photoUrl:true,createdAt:true},orderBy:[{grade:'asc'},{lastName:'asc'},{firstName:'asc'}]});}
+  async faithfulDirectory(){return this.prisma.user.findMany({where:{role:UserRole.FIDELE,active:true},select:{id:true,fullName:true,firstName:true,lastName:true,grade:true,parish:true,functionName:true,sex:true,photoUrl:true,createdAt:true},orderBy:[{grade:'asc'},{lastName:'asc'},{firstName:'asc'}]});}
   async revokeSession(userId:string,id:string){const result=await this.prisma.refreshToken.updateMany({where:{id,userId,revokedAt:null},data:{revokedAt:new Date()}});if(!result.count)throw new ForbiddenException('Cette session ne vous appartient pas ou est déjà fermée.');await this.prisma.auditLog.create({data:{userId,action:'SESSION_REVOQUEE',entity:'RefreshToken',entityId:id}});return {id,revoked:true};}
   async changePassword(userId:string,dto:ChangePasswordDto,currentToken?:string){if(dto.newPassword!==dto.confirmPassword)throw new BadRequestException('La confirmation du nouveau mot de passe ne correspond pas.');if(forbiddenPasswords.has(dto.newPassword.toLowerCase()))throw new BadRequestException('Choisissez un mot de passe moins courant.');const user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,passwordHash:true}});if(!user||!await argon2.verify(user.passwordHash,dto.currentPassword).catch(()=>false))throw new ForbiddenException('Le mot de passe actuel est incorrect.');const passwordHash=await argon2.hash(dto.newPassword,{type:argon2.argon2id}),currentHash=currentToken?createHash('sha256').update(currentToken).digest('hex'):'';await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{passwordHash}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null,...(currentHash?{hashedToken:{not:currentHash}}:{})},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId,action:'MOT_DE_PASSE_MODIFIE',entity:'UserSecurity',entityId:userId}});});return {updated:true,sessionsRevoked:true};}
   async changeEmail(userId:string,dto:ChangeEmailDto){const email=dto.email.trim().toLowerCase(),user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,email:true,passwordHash:true}});if(!user||!await argon2.verify(user.passwordHash,dto.currentPassword).catch(()=>false))throw new ForbiddenException('Le mot de passe actuel est incorrect.');if(email===user.email)return {updated:true,changed:false,email};try{await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{email}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId,action:'ADRESSE_E_MAIL_MODIFIEE',entity:'UserSecurity',entityId:userId,before:{email:user.email},after:{email}}});});return {updated:true,changed:true,email};}catch(error:any){if(error?.code==='P2002')throw new BadRequestException('Cette adresse e-mail est déjà utilisée.');throw error;}}
@@ -237,7 +260,7 @@ export class AuthService {
     await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{passwordHash,mustChangePassword:false,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:now}});await tx.auditLog.create({data:{userId,action:'MOT_DE_PASSE_INITIAL_MODIFIE',entity:'UserSecurity',entityId:userId}});});
     return {message:'Mot de passe modifié. Reconnectez-vous avec votre nouveau mot de passe.'};
   }
-  async setSubAdminPermissions(id:string,permissions:string[],actorId:string,reason:string,proof:ReauthProof){if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');await this.reauth.requireRecentProof(actorId,proof);const allowed=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES']);const normalized=[...new Set(permissions)];if(normalized.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Autorisation inconnue.');const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true}});if(!member||!member.active||!['EDITEUR','SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME'].includes(member.role))throw new ForbiddenException('Le compte sélectionné ne peut pas recevoir ces autorisations.');const auditReason=reason.trim();if(auditReason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');const effective=member.role==='EDITEUR'?normalized:[...new Set([...member.permissions.filter(permission=>permission!=='ANNUAIRE_FIDELES'),...(normalized.includes('ANNUAIRE_FIDELES')?['ANNUAIRE_FIDELES']:[])])];await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id},data:{permissions:effective,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId:actorId,action:'PERMISSIONS_ANNUAIRE_MODIFIEES',entity:'UserAccess',entityId:id,before:{permissions:member.permissions},after:{permissions:effective},reason:auditReason}});});return {id,role:member.role,permissions:effective};}
+  async setSubAdminPermissions(id:string,permissions:string[],actorId:string,reason:string,proof:ReauthProof){if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');await this.reauth.requireRecentProof(actorId,proof);const allowed=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES']);const normalized=[...new Set(permissions)];if(normalized.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Autorisation inconnue.');const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true}});if(!member||!member.active||!new Set<UserRole>([UserRole.EDITEUR,UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER]).has(member.role))throw new ForbiddenException('Le compte sélectionné ne peut pas recevoir ces autorisations.');const auditReason=reason.trim();if(auditReason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');const effective=member.role===UserRole.EDITEUR?normalized:[...new Set([...member.permissions.filter(permission=>!['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission)),...normalized.filter(permission=>['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission))])];await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id},data:{permissions:effective,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId:actorId,action:'AUTORISATIONS_COMPTE_MODIFIEES',entity:'UserAccess',entityId:id,before:{permissions:member.permissions},after:{permissions:effective},reason:auditReason}});});return {id,role:member.role,permissions:effective};}
   async requestPasswordReset(emailInput:string){
     const started=Date.now(),message='Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes. Le plafond quotidien d’envoi peut retarder le message ; si aucun e-mail n’arrive, contactez la paroisse.';
     const reply=async()=>{await new Promise(resolve=>setTimeout(resolve,Math.max(0,1_000-(Date.now()-started))));return {message};};
@@ -289,6 +312,7 @@ export class AuthController {
   private setSessionCookies(response:any,session:{accessToken:string;refreshToken:string}){const secure=process.env.NODE_ENV==='production';response.cookie('paroisse_access',session.accessToken,sessionCookieOptions(secure,600_000));response.cookie('paroisse_refresh',session.refreshToken,sessionCookieOptions(secure,7*24*60*60_000));response.cookie('paroisse_csrf',randomBytes(32).toString('base64url'),{httpOnly:false,secure,sameSite:'strict',path:'/',maxAge:7*24*60*60_000});}
   private publicSession(session:any){return {expiresIn:session.expiresIn,user:session.user};}
   @Post('register') register(@Body() dto:RegisterAccountDto,@Req() req:any){return this.auth.registerManagedAccount(dto,req.ip??'unknown');}
+  @Post('register/profile') completeResponsibleProfile(@Body() dto:CompleteResponsibleProfileDto){return this.auth.completeResponsibleProfile(dto);}
   @Post('register/faithful') registerFaithful(@Body() dto:RegisterFaithfulDto,@Req() req:any){return this.auth.registerFaithful(dto,req.ip??'unknown');}
   @Post('password/forgot') async forgotPassword(@Body() dto:ForgotPasswordDto,@Req() req:any){await this.auth.logPasswordResetRequest(dto.email,req.ip);return this.auth.requestPasswordReset(dto.email);}
   @Post('password/reset') resetPassword(@Body() dto:ResetPasswordDto){return this.auth.resetPassword(dto);}

@@ -57,12 +57,12 @@ export class PublicController {
   }
 
   @UseGuards(JwtAuthGuard) @Get('admin/announcements') async adminAnnouncements(@Req() req:any){
-    this.requireAdmin(req.user.role);
+    this.requireAdmin(req.user.role,req.user.permissions);
     return this.prisma.announcement.findMany({orderBy:{createdAt:'desc'},take:100,select:{id:true,title:true,body:true,published:true,createdAt:true}});
   }
 
   @UseGuards(JwtAuthGuard) @Post('admin/announcements') async createAnnouncement(@Body() body:AnnouncementDto,@Req() req:any){
-    this.requireAdmin(req.user.role);await this.reauth.requireRecentProof(req.user.sub,body);
+    this.requireAdmin(req.user.role,req.user.permissions);await this.reauth.requireRecentProof(req.user.sub,body);
     const reason=body.reason.trim();if(reason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
     return this.prisma.$transaction(async tx=>{
       const item=await tx.announcement.create({data:{title:body.title.trim(),body:body.body.trim(),authorId:req.user.sub}});
@@ -74,7 +74,7 @@ export class PublicController {
   }
 
   @UseGuards(JwtAuthGuard) @Patch('admin/announcements/:id') async setAnnouncementVisibility(@Param('id') id:string,@Body() body:AnnouncementVisibilityDto,@Req() req:any){
-    this.requireAdmin(req.user.role);await this.reauth.requireRecentProof(req.user.sub,body);
+    this.requireAdmin(req.user.role,req.user.permissions);await this.reauth.requireRecentProof(req.user.sub,body);
     const reason=body.reason.trim();if(reason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
     return this.prisma.$transaction(async tx=>{
       const previous=await tx.announcement.findUnique({where:{id},select:{id:true,published:true,title:true}});
@@ -85,6 +85,6 @@ export class PublicController {
     });
   }
 
-  private requireAdmin(role:string){if(!['ADMIN','SUPER_ADMIN'].includes(role))throw new ForbiddenException('Action réservée à l’administration paroissiale.');}
+  private requireAdmin(role:string,permissions:string[]=[]){if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!permissions.includes('PUBLICATION_ACTUALITES'))throw new ForbiddenException('La publication est réservée à l’administration et aux personnes désignées.');}
   private requireFaithful(role:string){if(role!=='FIDELE')throw new ForbiddenException('Cette rubrique est réservée aux comptes fidèles.');}
 }

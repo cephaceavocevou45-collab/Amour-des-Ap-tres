@@ -92,10 +92,10 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
   });
   it('allows faithful self-registration immediately but never self-assigns an administrative role',async()=>{
     const email=testEmail(),before=await prisma.user.count({where:{email}});
-    const created=await call('/auth/register/faithful',{method:'POST',body:{fullName:'Compte fidèle E2E',firstName:'Compte',lastName:'Fidèle E2E',grade:'Fidèle',parish:'Sainte-Cécile',functionName:'Membre',email,phone:'+2290150000000',password,confirmPassword:password}});
+    const created=await call('/auth/register/faithful',{method:'POST',body:{fullName:'Compte fidèle E2E',firstName:'Compte',lastName:'Fidèle E2E',grade:'Fidèle',parish:'Sainte-Cécile',functionName:'Membre',sex:'F',email,phone:'+2290150000000',password,confirmPassword:password}});
     expect(created.status).toBe(201);
     const faithful=await prisma.user.findUniqueOrThrow({where:{email}});userIds.push(faithful.id);
-    expect(faithful).toMatchObject({role:UserRole.FIDELE,active:true,mustChangePassword:false,firstName:'Compte',lastName:'Fidèle E2E',grade:'Fidèle',parish:'Sainte-Cécile',functionName:'Membre'});
+    expect(faithful).toMatchObject({role:UserRole.FIDELE,active:true,mustChangePassword:false,firstName:'Compte',lastName:'Fidèle E2E',grade:'Fidèle',parish:'Sainte-Cécile',functionName:'Membre',sex:'F'});
     expect(await prisma.user.count({where:{email}})).toBe(before+1);
 
     const privilegedEmail=testEmail();
