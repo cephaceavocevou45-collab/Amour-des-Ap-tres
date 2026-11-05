@@ -110,20 +110,20 @@ export class AttendanceController {
     this.requireZoneRole(role,sheet.type,body.zone);
     if(!isWithinAttendanceWindow(sheet.type))throw new HttpException(sheet.type===SheetType.GROUPE_SEMAINE?'La saisie du Président de semaine est ouverte de 10 h à 18 h.':'La saisie du cours biblique est ouverte de 19 h 30 à 21 h 30.',403);
     await this.prisma.$transaction(async tx=>{
-      const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
+      const current=await tx.attendanceSheet.findUnique({where:{id:sheet.id},select:{status:true}});
       if(!current)throw new HttpException('Feuille introuvable.',404);
-      const existing=await tx.attendanceEntry.findUnique({where:{sheetId_clientUuid:{sheetId:id,clientUuid:body.clientUuid}}});
+      const existing=await tx.attendanceEntry.findUnique({where:{sheetId_clientUuid:{sheetId:sheet.id,clientUuid:body.clientUuid}}});
       if(existing)return;
       if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de saisie de cette feuille est terminée.',403);
-      const unlocked=await tx.attendanceSheet.updateMany({where:{id,status:{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}},data:{status:SheetStatus.OUVERTE,submittedAt:null,submittedById:null}});
+      const unlocked=await tx.attendanceSheet.updateMany({where:{id:sheet.id,status:{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}},data:{status:SheetStatus.OUVERTE,submittedAt:null,submittedById:null}});
       if(unlocked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
-      const zoneEntries=await tx.attendanceEntry.findMany({where:{sheetId:id,zone:body.zone},select:{fullName:true,normalizedName:true}});
+      const zoneEntries=await tx.attendanceEntry.findMany({where:{sheetId:sheet.id,zone:body.zone},select:{fullName:true,normalizedName:true}});
       const duplicate=zoneEntries.some(entry=>normalizeName(entry.normalizedName??entry.fullName??'')===normalizeName(body.fullName));
       if(duplicate&&!body.confirmDuplicate)throw new HttpException({code:'DUPLICATE_NAME_WARNING',message:'Un nom identique existe déjà dans cette zone.',confirmable:true},409);
-      await tx.attendanceEntry.create({data:{sheetId:id,clientUuid:body.clientUuid,fullName:body.fullName.trim().replace(/\s+/g,' '),normalizedName:normalizeName(body.fullName),sex:body.sex,zone:body.zone,createdById:req.user.sub}});
-      await this.updateSheetTotals(tx,id);
+      await tx.attendanceEntry.create({data:{sheetId:sheet.id,clientUuid:body.clientUuid,fullName:body.fullName.trim().replace(/\s+/g,' '),normalizedName:normalizeName(body.fullName),sex:body.sex,zone:body.zone,createdById:req.user.sub}});
+      await this.updateSheetTotals(tx,sheet.id);
     });
-    return this.summaryFor(await this.withEntries(id),role);
+    return this.summaryFor(await this.withEntries(sheet.id),role);
   }
 
   @Delete('sheets/:id/entries/:clientUuid') async remove(@Param('id') id:string,@Param('clientUuid') clientUuid:string,@Req() req:any) {
