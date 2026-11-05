@@ -11,9 +11,11 @@ test('Railway web is the configurable public Nginx edge and forwards only its ed
   assert.notEqual(web.charCodeAt(0), 0xfeff, 'nginx template must not have a UTF-8 BOM');
   assert.notEqual(nginxMain.charCodeAt(0), 0xfeff, 'nginx main config must not have a UTF-8 BOM');
   assert.match(web, /listen \$\{PORT\};/);
+  assert.match(web, /set \$api_private_host \$\{API_PRIVATE_HOST\};/);
   assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^\(PORT\|/);
   assert.match(dockerfile, /HEALTHCHECK .*healthz/);
-  assert.equal((web.match(/proxy_pass http:\/\/\$\{API_PRIVATE_HOST\}/g) || []).length, 3);
+  assert.equal((web.match(/proxy_pass http:\/\/\$api_private_host\$request_uri;/g) || []).length, 3);
+  assert.doesNotMatch(web, /proxy_pass http:\/\/\$\{API_PRIVATE_HOST\}/);
   assert.equal((web.match(/proxy_set_header X-Forwarded-For \$http_x_real_ip;/g) || []).length, 3);
   assert.equal((web.match(/proxy_set_header CF-Connecting-IP "";/g) || []).length, 3);
   assert.doesNotMatch(web, /set_real_ip_from|CF-Connecting-IP \$remote_addr|proxy_pass http:\/\/api:3000/);

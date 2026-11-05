@@ -1,6 +1,7 @@
 server {
   listen ${PORT};
   server_name _;
+  set $api_private_host ${API_PRIVATE_HOST};
   root /usr/share/nginx/html;
   index index.html;
   client_max_body_size 64k;
@@ -48,7 +49,7 @@ server {
   }
   location /assets/ { add_header Cache-Control "no-store" always; add_header X-Content-Type-Options nosniff always; add_header Referrer-Policy strict-origin-when-cross-origin always; add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always; add_header Content-Security-Policy "default-src 'self'; script-src 'self'; frame-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always; try_files $uri =404; }
   location ~ ^/(health|ready)$ {
-    proxy_pass http://${API_PRIVATE_HOST};
+    proxy_pass http://$api_private_host$request_uri;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $http_x_real_ip;
     proxy_set_header X-Forwarded-For $http_x_real_ip;
@@ -74,7 +75,7 @@ server {
     if ($http_x_real_ip = "") { return 400; }
     limit_req zone=auth_rate burst=5 nodelay;
     limit_conn api_conn 10;
-    proxy_pass http://${API_PRIVATE_HOST};
+    proxy_pass http://$api_private_host$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $http_x_real_ip;
@@ -101,7 +102,7 @@ server {
     if ($http_x_real_ip = "") { return 400; }
     limit_req zone=api_rate burst=60 nodelay;
     limit_conn api_conn 20;
-    proxy_pass http://${API_PRIVATE_HOST}/api/;
+    proxy_pass http://$api_private_host$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $http_x_real_ip;
