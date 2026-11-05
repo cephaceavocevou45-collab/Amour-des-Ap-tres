@@ -22,7 +22,8 @@ async function prepare(page: Page, role?: string) {
       { id: 'presenter-jean', name: 'SEWADE Jean', grade: 'Évangéliste', roles: ['PRESENTATION_THEME'] }
     ] });
     if (path.endsWith('/auth/session')) return route.fulfill({ status: 200, json: { user: { id: 'test-user', role } } });
-    if (path.endsWith('/auth/register') && route.request().method() === 'POST') return route.fulfill({ status: 201, json: { message: 'Votre demande a été reçue. L’administration paroissiale doit valider votre compte avant votre première connexion.' } });
+    if (path.endsWith('/auth/register') && route.request().method() === 'POST') return route.fulfill({ status: 201, json: { message: 'Votre demande a été reçue.', profileSetupToken: 'profile-setup-e2e-token' } });
+    if (path.endsWith('/auth/register/profile') && route.request().method() === 'POST') return route.fulfill({ status: 200, json: { saved: true } });
     if (path.endsWith('/attendance/today')) {
       return route.fulfill({ status: 200, json: [{ id: 'course-1', type: 'COURS_BIBLIQUE', date: '2026-10-05', status: 'OUVERTE', totals: { men: 0, women: 0, total: 0 } }] });
     }
@@ -535,7 +536,11 @@ test('les responsables peuvent demander un compte soumis à validation administr
   await page.getByLabel('Mot de passe (12 caractères minimum)').fill('ResponsableE2E_2026!');
   await page.getByLabel('Confirmer le mot de passe').fill('ResponsableE2E_2026!');
   await page.getByRole('button', { name: /Envoyer la demande/ }).click();
-  await expect(page.getByRole('status')).toContainText(/doit valider votre compte avant votre première connexion/);
+  await expect(page).toHaveURL(/\/demande-responsable-envoyee$/);
+  await expect(page.getByRole('heading', { name: 'Votre demande a bien été envoyée.' })).toBeVisible();
+  await expect(page.getByText(/Le chargé paroissial va l’examiner et vous répondra dans les meilleurs délais/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ajoutez votre photo de profil' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Enregistrer ma photo' })).toBeDisabled();
 });
 
 test('un nom hostile reste du texte dans la liste des présences', async ({ page }) => {
