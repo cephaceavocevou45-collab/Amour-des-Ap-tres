@@ -163,8 +163,10 @@ model User {
   assignedConversations Conversation[] @relation("ConversationResponder")
   sentMessages Message[]
   notifications Notification[]
+  dailyAttendanceReports ParishDailyAttendanceReport[]
   meetingRequests MeetingRequest[]
   handledMeetings MeetingRequest[] @relation("MeetingHandler")
+  faithfulRegisterEntries FaithfulRegisterEntry[]
 }
 
 model Conversation {
@@ -204,6 +206,20 @@ model Notification {
   @@index([userId, readAt, createdAt])
 }
 
+model ParishDailyAttendanceReport {
+  id String @id @default(cuid())
+  date DateTime @db.Date
+  presidentId String
+  summary String @db.VarChar(2000)
+  difficulties String @db.VarChar(2000)
+  followUp String @db.VarChar(2000)
+  submittedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  president User @relation(fields: [presidentId], references: [id], onDelete: Cascade)
+  @@unique([date, presidentId])
+  @@index([date])
+}
+
 model MeetingRequest {
   id String @id @default(cuid())
   preferredAt DateTime
@@ -217,6 +233,15 @@ model MeetingRequest {
   handledBy User? @relation("MeetingHandler", fields: [handledById], references: [id], onDelete: SetNull)
   @@index([status, preferredAt])
   @@index([requesterId, createdAt])
+}
+
+model FaithfulRegisterEntry {
+  number Int @id @default(autoincrement())
+  fullName String @db.VarChar(240)
+  createdAt DateTime @default(now())
+  createdById String
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  @@index([createdAt])
 }
 
 model Announcement {

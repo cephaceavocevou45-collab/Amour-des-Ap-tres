@@ -1,6 +1,6 @@
 # Paroisse Amour des Apôtres
 
-Application de présentation de la paroisse Sainte-Cécile à Cotonou et de gestion des présences. L'espace communautaire et l'inscription publique des fidèles sont retirés. Les candidats secrétaires de présence ou présidents du jour peuvent demander un accès; un administrateur doit l'activer avant toute connexion.
+Application de présentation de la paroisse Sainte-Cécile à Cotonou et de gestion des présences. L’espace fidèle donne accès aux programmes, actualités et ressources de l’ECC. Les comptes responsables (secrétaires et présidents du jour) sont activés par l’administration avant toute connexion.
 
 ## Développement local
 
@@ -20,9 +20,13 @@ Les tests de base de données doivent employer exclusivement `TEST_DATABASE_URL`
 
 - Accueil public : présentation, dirigeant, équipe des cours bibliques, liens bibliques et contenu doctrinal déjà publié.
 - Programme biblique du lundi, selon les rôles et permissions attribués.
-- Saisie hors ligne, contrôle, totaux, historique et exports de présences : cours biblique et groupe de semaine.
+- Saisie hors ligne, contrôle, totaux, historique et exports de présences : cours biblique et groupe de semaine. Les feuilles restent modifiables jusqu’à leur fermeture; le président du jour transmet un rapport structuré entre 17 h et 18 h, visible dans le suivi administratif.
 - Connexion par e-mail et mot de passe, comptes créés par l'administration, changement obligatoire du mot de passe temporaire, récupération par code e-mail et gestion des sessions.
+- Profil modifiable et photo de profil pour les fidèles et responsables, ainsi qu’un registre paroissial partagé entre les secrétaires de présence avec numérotation continue.
+- Espace fidèle avec les ressources de l’ECC, les programmes publiés et les informations paroissiales.
 - Administration, journal d'audit, limitation de débit, anonymisation des noms de présence à la durée configurée et sauvegardes chiffrées.
+
+Les téléchargements d’image des programmes paroissiaux utilisent le même rendu que la première page du PDF correspondant.
 
 Les présences nominatives sont des données sensibles. L'administrateur consulte les totaux par défaut; l'accès aux noms exige un motif et est journalisé. Les présidents sont isolés à leur jour. La base de développement ne doit pas être migrée avant sauvegarde restaurée et approbation humaine.
 

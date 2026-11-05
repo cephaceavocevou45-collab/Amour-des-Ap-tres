@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { environment } from '../environments/environment';
 import { ParishFooterComponent } from './parish-footer.component';
+import { eccProhibitions } from './ecc-prohibitions';
 
 type DoctrineKey = 'precepts' | 'ordinances' | 'sacraments' | 'commandments';
 type DoctrineEntry = { number: string; title: string; reference: string; note?: string };
@@ -40,7 +41,7 @@ type DoctrineEntry = { number: string; title: string; reference: string; note?: 
   <section class="faith-section section" id="foi"><div class="section-kicker"><span>05</span> REPÈRES DE FOI</div><div class="faith-heading"><div><h2>Notre foi,<br><em>nos repères.</em></h2><p>Explorez les textes bibliques qui éclairent les enseignements et les pratiques de la paroisse.</p></div><a class="source-link" routerLink="/connexion">Accès au programme biblique <span>↗</span></a></div>
     <div class="doctrine-tabs" role="tablist" aria-label="Rubriques doctrinales"><button id="doctrine-precepts-tab" role="tab" [attr.aria-selected]="activeDoctrine()==='precepts'" [class.active]="activeDoctrine()==='precepts'" (click)="activeDoctrine.set('precepts')">12 interdits <small>01</small></button><button id="doctrine-ordinances-tab" role="tab" [attr.aria-selected]="activeDoctrine()==='ordinances'" [class.active]="activeDoctrine()==='ordinances'" (click)="activeDoctrine.set('ordinances')">11 ordonnances <small>02</small></button><button id="doctrine-sacrements-tab" role="tab" [attr.aria-selected]="activeDoctrine()==='sacraments'" [class.active]="activeDoctrine()==='sacraments'" (click)="activeDoctrine.set('sacraments')">04 sacrements <small>03</small></button><button id="doctrine-commandments-tab" role="tab" [attr.aria-selected]="activeDoctrine()==='commandments'" [class.active]="activeDoctrine()==='commandments'" (click)="activeDoctrine.set('commandments')">10 commandements <small>04</small></button></div>
     <div class="doctrine-panel" role="tabpanel" [attr.aria-labelledby]="'doctrine-'+activeDoctrine()+'-tab'">
-      @if(activeDoctrine()==='precepts'){<div class="doctrine-intro"><strong>12 interdits — repères bibliques</strong><span>Sélection pédagogique de passages bibliques. La formulation doctrinale propre à la paroisse reste à confirmer par son dirigeant.</span></div>}
+      @if(activeDoctrine()==='precepts'){<div class="doctrine-intro"><strong>Les 12 Interdits de l’ECC</strong><span>Repères doctrinaux et références bibliques de l’Église du Christianisme Céleste.</span></div>}
       @if(activeDoctrine()==='ordinances'){<div class="doctrine-intro"><strong>11 ordonnances</strong><span>Selon les éléments communiqués pour la paroisse ; les références renvoient aux passages associés.</span></div>}
       @if(activeDoctrine()==='sacraments'){<div class="doctrine-intro"><strong>04 sacrements — repères de célébration</strong><span>Proposition de quatre rites appuyés par ces passages ; à confirmer par le dirigeant paroissial avant de les présenter comme liste officielle.</span></div>}
       @if(activeDoctrine()==='commandments'){<div class="doctrine-intro"><strong>Les dix commandements</strong><span>Résumé de la loi donnée à Moïse, à lire dans son contexte biblique.</span></div>}
@@ -142,20 +143,7 @@ export class HomeComponent implements OnDestroy {
   ];
 
   readonly doctrineEntries: Record<DoctrineKey, DoctrineEntry[]> = {
-    precepts: [
-      { number: '01', title: 'Ne pas adorer d’autres dieux ni les idoles', reference: 'Exode 20:3–5' },
-      { number: '02', title: 'Ne pas prendre le nom de Dieu en vain', reference: 'Exode 20:7' },
-      { number: '03', title: 'Garder un temps consacré à Dieu', reference: 'Exode 20:8–11' },
-      { number: '04', title: 'Honorer son père et sa mère', reference: 'Exode 20:12' },
-      { number: '05', title: 'Ne pas commettre de meurtre', reference: 'Exode 20:13' },
-      { number: '06', title: 'Ne pas commettre d’adultère', reference: 'Exode 20:14' },
-      { number: '07', title: 'Ne pas voler', reference: 'Exode 20:15' },
-      { number: '08', title: 'Ne pas porter de faux témoignage', reference: 'Exode 20:16' },
-      { number: '09', title: 'Ne pas convoiter ce qui appartient à autrui', reference: 'Exode 20:17' },
-      { number: '10', title: 'Fuir l’immoralité sexuelle', reference: '1 Corinthiens 6:18' },
-      { number: '11', title: 'Éviter l’ivresse', reference: 'Éphésiens 5:18' },
-      { number: '12', title: 'Ne pas faire de favoritisme', reference: 'Jacques 2:1–4' }
-    ],
+    precepts: eccProhibitions,
     ordinances: [
       { number: '01', title: 'Le baptême par immersion', reference: 'Matthieu 3:16 ; Matthieu 28:19' },
       { number: '02', title: 'L’onction pour la sanctification', reference: 'Lévitique 8:12 ; Jacques 5:14' },

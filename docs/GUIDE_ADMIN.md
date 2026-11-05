@@ -12,6 +12,8 @@ Les comptes responsables sont créés par ADMIN/SUPER_ADMIN dans **Comptes respo
 
 Les demandes d’inscription secrétaire de programme ou trésorier restent inactives jusqu’à leur validation dans cette même liste. Après approbation, ces personnes se connectent par e-mail et mot de passe et accèdent uniquement à leur espace dédié.
 
+Seuls ADMIN/SUPER_ADMIN créent les comptes et attribuent ou modifient les rôles et permissions. Un sous-administrateur ne peut pas déléguer ses accès ni modifier les rôles d’autres comptes.
+
 ## Programmes paroissiaux
 
 Le secrétaire de programme prépare plusieurs activités datées dans un brouillon, avec horaires, rubrique, intervenants, consignes et fêtes à venir. Il peut ajouter ou retirer des éléments, puis enregistrer et relire le récapitulatif. Les photos sont actuellement ajoutées par lien HTTPS et s’ouvrent dans un nouvel onglet; les fichiers ne sont pas téléversés dans l’application. Après publication, les programmes à venir apparaissent à l’espace des fidèles. Le bouton « Télécharger / imprimer » ouvre le récapitulatif destiné à l’impression ou à l’enregistrement en PDF depuis le navigateur. Un programme publié est modifiable pendant sept jours après publication; passé ce délai, la modification est refusée par l’API.
@@ -30,6 +32,8 @@ Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma
 
 - Le secrétaire saisit la feuille du cours biblique du lundi, dans les heures configurées.
 - Le président saisit le groupe de semaine pour le jour qui lui est attribué, Temple et Salle de vision comprises, pendant la plage horaire configurée.
+- L’enregistrement ne verrouille pas définitivement la feuille : le responsable peut continuer, corriger ou retirer une présence jusqu’à la fermeture (18 h pour le groupe; 21 h 30 pour le cours du lundi).
+- À partir de 17 h, le président du jour transmet un rapport structuré (déroulement, difficultés, suites à donner). Le premier envoi notifie l’administration; les modifications sont possibles jusqu’à 18 h. Le suivi hebdomadaire affiche les présidents attribués, l’état de chaque feuille, les totaux et les rapports.
 - La saisie hors ligne est gardée localement puis synchronisée avec un identifiant idempotent. Vérifiez le statut de synchronisation avant de fermer l'appareil.
 - L'administrateur peut examiner les feuilles et les totaux. Les noms sont cachés par défaut; sélectionnez un motif valable avant la consultation nominative, qui est journalisée. Ne téléchargez ni ne partagez des listes nominatives sans nécessité.
 - Les totaux sont conservés après anonymisation des noms à `DATA_RETENTION_MONTHS` (12 par défaut). La conservation des journaux d'audit est configurée à au moins 36 mois.

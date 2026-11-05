@@ -39,4 +39,46 @@ describe('attendance helpers',()=>{
     jest.spyOn(controller as any,'canAccessSheet').mockResolvedValue(true);
     await expect(controller.add(sheet.id,{fullName:'Forbidden',sex:'F',zone:'TEMPLE',clientUuid:'ec92902b-d087-4bef-b7a2-93c5b92d1167'} as any,{user:{sub:'secretary',role:'SECRETAIRE_PRESENCE'}})).rejects.toMatchObject({status:403});
   });
+  it('lets the assigned president continue adding after saving, and clears the previous submission marker',async()=>{
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-05T11:00:00Z'));
+    const date=new Date('2026-10-05T00:00:00.000Z');
+    const sheet={id:'GROUPE_SEMAINE-2026-10-05',type:SheetType.GROUPE_SEMAINE,date,status:SheetStatus.ENREGISTREE};
+    const tx={attendanceSheet:{findUnique:jest.fn().mockResolvedValue({status:SheetStatus.ENREGISTREE}),updateMany:jest.fn().mockResolvedValue({count:1}),update:jest.fn().mockResolvedValue({})},attendanceEntry:{findUnique:jest.fn().mockResolvedValue(null),findMany:jest.fn().mockResolvedValue([]),create:jest.fn().mockResolvedValue({})}};
+    const prisma={attendanceSheet:{findUnique:jest.fn().mockResolvedValue(sheet),findUniqueOrThrow:jest.fn().mockResolvedValue({...sheet,entries:[]})},user:{findUnique:jest.fn().mockResolvedValue({assignedDayOfWeek:1})},$transaction:jest.fn(async callback=>callback(tx))} as unknown as PrismaService;
+    await new AttendanceController(prisma).add(sheet.id,{fullName:'Présent Test',sex:'M',zone:'TEMPLE',clientUuid:'a92cc3ba-7ba2-4e35-98cb-0dfd190caa45'} as any,{user:{sub:'president-id',role:'RESPONSABLE_SEMAINE'}});
+    expect(tx.attendanceSheet.updateMany).toHaveBeenCalledWith(expect.objectContaining({data:{status:SheetStatus.OUVERTE,submittedAt:null,submittedById:null}}));
+    jest.useRealTimers();
+  });
+  it('sends a structured daily report to administrators during the 17 h reporting window',async()=>{
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-05T16:30:00Z'));
+    const saved={id:'report-1',summary:'Culte et présence effectués',difficulties:'Aucune',followUp:'Poursuivre les visites',submittedAt:new Date(),president:{fullName:'Président Test',email:'president@test.local'}};
+    const tx={parishDailyAttendanceReport:{findUnique:jest.fn().mockResolvedValue(null),upsert:jest.fn().mockResolvedValue(saved)},user:{findMany:jest.fn().mockResolvedValue([{id:'admin-1'}])},notification:{createMany:jest.fn().mockResolvedValue({count:1})},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({assignedDayOfWeek:1})},attendanceEntry:{findMany:jest.fn().mockResolvedValue([{zone:'TEMPLE'},{zone:'SALLE_VISION'}])},$transaction:jest.fn(async callback=>callback(tx))} as unknown as PrismaService;
+    const result=await new AttendanceController(prisma).saveDailyReport({summary:saved.summary,difficulties:saved.difficulties,followUp:saved.followUp} as any,{user:{sub:'president-id',role:'RESPONSABLE_SEMAINE'},ip:'127.0.0.1'});
+    expect(tx.notification.createMany).toHaveBeenCalledWith({data:[expect.objectContaining({userId:'admin-1',href:'/presence'})]});
+    expect(result.attendance).toEqual({total:2,temple:1,salleVision:1});
+    jest.useRealTimers();
+  });
+  it('rejects the daily report before 17 h',async()=>{
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-05T15:30:00Z'));
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({assignedDayOfWeek:1})}} as unknown as PrismaService;
+    await expect(new AttendanceController(prisma).saveDailyReport({summary:'Culte effectué',difficulties:'Aucune',followUp:'Aucun suivi'} as any,{user:{sub:'president-id',role:'RESPONSABLE_SEMAINE'}})).rejects.toMatchObject({status:403});
+    jest.useRealTimers();
+  });
+  it('requires the president to send the 17 h report before resubmitting attendance',async()=>{
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-05T16:30:00Z'));
+    const sheet={id:'GROUPE_SEMAINE-2026-10-05',type:SheetType.GROUPE_SEMAINE,date:new Date('2026-10-05T00:00:00.000Z'),status:SheetStatus.OUVERTE};
+    const prisma={attendanceSheet:{findUnique:jest.fn().mockResolvedValue(sheet)},user:{findUnique:jest.fn().mockResolvedValue({assignedDayOfWeek:1})},parishDailyAttendanceReport:{findUnique:jest.fn().mockResolvedValue(null)}} as unknown as PrismaService;
+    await expect(new AttendanceController(prisma).submit(sheet.id,{} as any,{user:{sub:'president-id',role:'RESPONSABLE_SEMAINE'}})).rejects.toMatchObject({status:400});
+    jest.useRealTimers();
+  });
+  it('recalculates totals when a saved attendance entry is removed',async()=>{
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-05T11:00:00Z'));
+    const sheet={id:'GROUPE_SEMAINE-2026-10-05',type:SheetType.GROUPE_SEMAINE,date:new Date('2026-10-05T00:00:00.000Z'),status:SheetStatus.ENREGISTREE};
+    const tx={attendanceSheet:{updateMany:jest.fn().mockResolvedValue({count:1}),update:jest.fn().mockResolvedValue({})},attendanceEntry:{delete:jest.fn().mockResolvedValue({}),findMany:jest.fn().mockResolvedValue([])},auditLog:{create:jest.fn().mockResolvedValue({})}};
+    const prisma={attendanceSheet:{findUnique:jest.fn().mockResolvedValue(sheet),findUniqueOrThrow:jest.fn().mockResolvedValue({...sheet,entries:[]})},attendanceEntry:{findUnique:jest.fn().mockResolvedValue({id:'entry-1',zone:'TEMPLE'})},user:{findUnique:jest.fn().mockResolvedValue({assignedDayOfWeek:1})},$transaction:jest.fn(async callback=>callback(tx))} as unknown as PrismaService;
+    await new AttendanceController(prisma).remove(sheet.id,'entry-uuid',{user:{sub:'president-id',role:'RESPONSABLE_SEMAINE'},ip:'127.0.0.1'});
+    expect(tx.attendanceSheet.update).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({totalMen:0,totalWomen:0,totalAll:0})}));
+    jest.useRealTimers();
+  });
 });

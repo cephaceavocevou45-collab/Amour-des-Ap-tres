@@ -12,7 +12,9 @@ import { environment } from './environments/environment';
 const routes: Routes = [
   {path:'', component:HomeComponent,canActivate:[authenticatedHomeGuard]},
   {path:'fideles',loadComponent:()=>import('./app/faithful.component').then(m=>m.FaithfulComponent),canActivate:[authGuard],data:{faithful:true}},
+  {path:'ressources-fideles',loadComponent:()=>import('./app/faithful-resources.component').then(m=>m.FaithfulResourcesComponent),canActivate:[authGuard],data:{faithful:true}},
   {path:'annuaire-fideles',loadComponent:()=>import('./app/faithful-directory.component').then(m=>m.FaithfulDirectoryComponent),canActivate:[authGuard],data:{directory:true}},
+  {path:'registre-fideles',loadComponent:()=>import('./app/faithful-register.component').then(m=>m.FaithfulRegisterComponent),canActivate:[authGuard],data:{faithfulRegister:true}},
   {path:'rendez-vous',loadComponent:()=>import('./app/appointments.component').then(m=>m.AppointmentsComponent),canActivate:[authGuard],data:{faithful:true}},
   {path:'admin/rendez-vous',loadComponent:()=>import('./app/appointments.component').then(m=>m.AppointmentsComponent),canActivate:[authGuard],data:{admin:true}},
   {path:'parametres',loadComponent:()=>import('./app/account-settings.component').then(m=>m.AccountSettingsComponent),canActivate:[authGuard],data:{accountSettings:true}},

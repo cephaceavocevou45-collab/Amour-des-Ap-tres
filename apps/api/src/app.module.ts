@@ -14,6 +14,7 @@ import { LoginBackoffPolicy } from './login-backoff.policy';
 import { ParishProgramController, TreasuryController } from './parish-operations';
 import { MessagingController, MessagingService } from './messaging';
 import { MeetingRequestsController, NotificationsController, NotificationsService } from './notifications';
+import { FaithfulRegisterController } from './faithful-register';
 
-@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController, ParishProgramController, TreasuryController, MessagingController, NotificationsController, MeetingRequestsController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService, LoginBackoffPolicy, MessagingService, NotificationsService] })
+@Module({ imports: [ScheduleModule.forRoot()], controllers: [PublicController, AttendanceController, AuthController, HealthController, ParishProgramController, TreasuryController, MessagingController, NotificationsController, MeetingRequestsController, FaithfulRegisterController], providers: [AuthService, ReauthService, HealthService, EmailQuotaService, PrismaService, JwtAuthGuard, RateLimitGuard, RetentionService, LoginBackoffPolicy, MessagingService, NotificationsService] })
 export class AppModule {}

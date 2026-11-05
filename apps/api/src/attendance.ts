@@ -21,6 +21,11 @@ class EntryUpdateDto {
   @IsOptional() @IsBoolean() confirmDuplicate?:boolean;
 }
 class SubmitDto { @IsOptional() @IsString() reason?: string; }
+class DailyAttendanceReportDto {
+  @IsString() @Length(10,2000) summary!:string;
+  @IsString() @Length(1,2000) difficulties!:string;
+  @IsString() @Length(1,2000) followUp!:string;
+}
 class CourseUpdateDto {
   @IsOptional() @IsString() @Length(1,10000) previousSummary?:string;
   @IsOptional() @IsString() @Length(1,300) bibleReference?:string;
@@ -103,24 +108,20 @@ export class AttendanceController {
     if(localDateKey(sheet.date)!==localDateKey())throw new HttpException('La saisie est réservée à la feuille du jour.',403);
     if(!await this.canAccessSheet(role,req.user.sub,sheet))throw new HttpException('Cette feuille n’est pas comprise dans les responsabilités de votre compte.',403);
     this.requireZoneRole(role,sheet.type,body.zone);
-    const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
-    if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
     if(!isWithinAttendanceWindow(sheet.type))throw new HttpException(sheet.type===SheetType.GROUPE_SEMAINE?'La saisie du Président de semaine est ouverte de 10 h à 18 h.':'La saisie du cours biblique est ouverte de 19 h 30 à 21 h 30.',403);
     await this.prisma.$transaction(async tx=>{
       const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
-      if(!current||current.status!==SheetStatus.OUVERTE&&!(weekPresident&&current.status===SheetStatus.ENREGISTREE))throw new HttpException('Feuille enregistrée et verrouillée.',409);
-      const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});
-      if(locked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
+      if(!current)throw new HttpException('Feuille introuvable.',404);
       const existing=await tx.attendanceEntry.findUnique({where:{sheetId_clientUuid:{sheetId:id,clientUuid:body.clientUuid}}});
       if(existing)return;
+      if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de saisie de cette feuille est terminée.',403);
+      const unlocked=await tx.attendanceSheet.updateMany({where:{id,status:{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}},data:{status:SheetStatus.OUVERTE,submittedAt:null,submittedById:null}});
+      if(unlocked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
       const zoneEntries=await tx.attendanceEntry.findMany({where:{sheetId:id,zone:body.zone},select:{fullName:true,normalizedName:true}});
       const duplicate=zoneEntries.some(entry=>normalizeName(entry.normalizedName??entry.fullName??'')===normalizeName(body.fullName));
       if(duplicate&&!body.confirmDuplicate)throw new HttpException({code:'DUPLICATE_NAME_WARNING',message:'Un nom identique existe déjà dans cette zone.',confirmable:true},409);
       await tx.attendanceEntry.create({data:{sheetId:id,clientUuid:body.clientUuid,fullName:body.fullName.trim().replace(/\s+/g,' '),normalizedName:normalizeName(body.fullName),sex:body.sex,zone:body.zone,createdById:req.user.sub}});
-      const currentEntries=await tx.attendanceEntry.findMany({where:{sheetId:id},select:{sex:true,zone:true}});
-      const totalsByZone:Record<string,{men:number;women:number;total:number}>={};
-      for(const zone of Object.values(Zone)){const rows=currentEntries.filter(entry=>entry.zone===zone);totalsByZone[zone]={men:rows.filter(entry=>entry.sex===Sex.M).length,women:rows.filter(entry=>entry.sex===Sex.F).length,total:rows.length};}
-      await tx.attendanceSheet.update({where:{id},data:{totalMen:currentEntries.filter(entry=>entry.sex===Sex.M).length,totalWomen:currentEntries.filter(entry=>entry.sex===Sex.F).length,totalAll:currentEntries.length,totalsByZone}});
+      await this.updateSheetTotals(tx,id);
     });
     return this.summaryFor(await this.withEntries(id),role);
   }
@@ -133,9 +134,15 @@ export class AttendanceController {
     this.requireZoneRole(req.user.role,sheet.type,entry.zone);
     if(localDateKey(sheet.date)!==localDateKey()||!await this.canAccessSheet(req.user.role,req.user.sub,sheet))throw new HttpException('La modification est réservée à votre feuille du jour.',403);
     if(!this.isWithinWindow(sheet.type))throw new HttpException('La période de modification de cette feuille est terminée ou n’a pas encore commencé.',403);
-    const weekPresident=req.user.role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
-    if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
-    await this.prisma.$transaction(async tx=>{const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});if(locked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification de cette feuille est terminée ou n’a pas encore commencé.',403);await tx.attendanceEntry.delete({where:{sheetId_clientUuid:{sheetId:id,clientUuid}}});});
+    if(!['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(req.user.role))throw new HttpException('La suppression est réservée à l’agent responsable de cette feuille.',403);
+    await this.prisma.$transaction(async tx=>{
+      const unlocked=await tx.attendanceSheet.updateMany({where:{id,status:{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}},data:{status:SheetStatus.OUVERTE,submittedAt:null,submittedById:null}});
+      if(unlocked.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
+      if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification de cette feuille est terminée ou n’a pas encore commencé.',403);
+      await tx.attendanceEntry.delete({where:{sheetId_clientUuid:{sheetId:id,clientUuid}}});
+      await this.updateSheetTotals(tx,id);
+      await tx.auditLog.create({data:{userId:req.user.sub,action:'PRESENCE_SUPPRIMEE',entity:'AttendanceEntry',entityId:entry.id,ip:req.ip}});
+    });
     return this.summaryFor(await this.withEntries(id),req.user.role);
   }
 
@@ -145,20 +152,19 @@ export class AttendanceController {
     if(!sheet)throw new HttpException('Feuille introuvable.',404);
     const entry=await this.prisma.attendanceEntry.findUnique({where:{sheetId_clientUuid:{sheetId:id,clientUuid}}});
     if(!entry)throw new HttpException('Présence introuvable.',404);
-    const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
     if(localDateKey(sheet.date)!==localDateKey()||!await this.canAccessSheet(role,req.user.sub,sheet))throw new HttpException('La modification est réservée à votre feuille du jour.',403);
     this.requireZoneRole(role,sheet.type,body.zone);
-    if(sheet.status!==SheetStatus.OUVERTE&&!(weekPresident&&isWithinAttendanceWindow(sheet.type)))throw new HttpException('Feuille enregistrée et verrouillée.',409);
     if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification est terminée ou n’a pas encore commencé.',403);
     const name=body.fullName.trim().replace(/\s+/g,' ');if(!name)throw new HttpException('Le nom ne peut pas être vide.',400);
     const sameZone=await this.prisma.attendanceEntry.findMany({where:{sheetId:id,zone:body.zone,id:{not:entry.id}},select:{fullName:true,normalizedName:true}});
     const duplicate=sameZone.some(row=>normalizeName(row.normalizedName??row.fullName??'')===normalizeName(name));
     if(duplicate&&!body.confirmDuplicate)throw new HttpException({code:'DUPLICATE_NAME_WARNING',message:'Un nom identique existe déjà dans cette zone.',confirmable:true},409);
     await this.prisma.$transaction(async tx=>{
-      const available=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.OUVERTE}});
+      const available=await tx.attendanceSheet.updateMany({where:{id,status:{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}},data:{status:SheetStatus.OUVERTE,submittedAt:null,submittedById:null}});
       if(available.count!==1)throw new HttpException('Feuille enregistrée et verrouillée.',409);
       if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période de modification est terminée ou n’a pas encore commencé.',403);
       const updated=await tx.attendanceEntry.update({where:{id:entry.id},data:{fullName:name,normalizedName:normalizeName(name),sex:body.sex,zone:body.zone}});
+      await this.updateSheetTotals(tx,id);
       await tx.auditLog.create({data:{userId:req.user.sub,action:'PRESENCE_MODIFIEE',entity:'AttendanceEntry',entityId:entry.id,before:{sex:entry.sex,zone:entry.zone},after:{sex:updated.sex,zone:updated.zone},ip:req.ip}});
     });
     return this.summaryFor(await this.withEntries(id),role);
@@ -171,21 +177,63 @@ export class AttendanceController {
     if(!sheet)throw new HttpException('Feuille introuvable',404);
     if(localDateKey(sheet.date)!==localDateKey()||!await this.canAccessSheet(role,req.user.sub,sheet))throw new HttpException('Cette feuille n’est pas comprise dans les responsabilités de votre compte.',403);
     if(!this.isWithinWindow(sheet.type))throw new HttpException('La période d’enregistrement de cette feuille est terminée ou n’a pas encore commencé.',403);
-    const weekPresident=role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE;
+    if(role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE){
+      const localTime=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Porto-Novo',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+      const minute=Number(localTime.find(part=>part.type==='hour')!.value)*60+Number(localTime.find(part=>part.type==='minute')!.value);
+      if(minute>=1020){
+        const report=await this.prisma.parishDailyAttendanceReport.findUnique({where:{date_presidentId:{date:dateValue(localDateKey()),presidentId:req.user.sub}},select:{id:true}});
+        if(!report)throw new HttpException('Transmettez d’abord le rapport obligatoire de 17 h avant d’enregistrer la feuille.',400);
+      }
+    }
     const saved=await this.prisma.$transaction(async tx=>{
-      const current=await tx.attendanceSheet.findUnique({where:{id},select:{status:true}});
-      if(!current||current.status!==SheetStatus.OUVERTE&&!(weekPresident&&current.status===SheetStatus.ENREGISTREE))return false;
-      const locked=await tx.attendanceSheet.updateMany({where:{id,status:weekPresident?{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}:SheetStatus.OUVERTE},data:{status:SheetStatus.ENREGISTREE,submittedAt:new Date(),submittedById:req.user.sub}});
+      if(!isWithinAttendanceWindow(sheet.type))throw new HttpException('La période d’enregistrement de cette feuille est terminée.',403);
+      const locked=await tx.attendanceSheet.updateMany({where:{id,status:{in:[SheetStatus.OUVERTE,SheetStatus.ENREGISTREE]}},data:{status:SheetStatus.ENREGISTREE,submittedAt:new Date(),submittedById:req.user.sub}});
       if(locked.count!==1)return false;
-      const entries=await tx.attendanceEntry.findMany({where:{sheetId:id},select:{sex:true,zone:true}});
-      const byZone:Record<string,{men:number;women:number;total:number}>={};
-      for(const zone of Object.values(Zone)){const rows=entries.filter(entry=>entry.zone===zone);byZone[zone]={men:rows.filter(entry=>entry.sex===Sex.M).length,women:rows.filter(entry=>entry.sex===Sex.F).length,total:rows.length};}
-      await tx.attendanceSheet.update({where:{id},data:{totalMen:entries.filter(entry=>entry.sex===Sex.M).length,totalWomen:entries.filter(entry=>entry.sex===Sex.F).length,totalAll:entries.length,totalsByZone:byZone}});
+      await this.updateSheetTotals(tx,id);
       await tx.auditLog.create({data:{userId:req.user.sub,action:'FEUILLE_ENREGISTREE',entity:'AttendanceSheet',entityId:id,ip:req.ip}});
       return true;
     });
     if(!saved)throw new HttpException('Feuille déjà verrouillée.',409);
     return this.summaryFor(await this.withEntries(id),role);
+  }
+
+  @Get('daily-report/today') async todayReport(@Req() req:any) {
+    if(req.user.role!=='RESPONSABLE_SEMAINE')throw new HttpException('Le rapport est réservé au président du jour.',403);
+    const user=await this.prisma.user.findUnique({where:{id:req.user.sub},select:{assignedDayOfWeek:true}});
+    const date=localDateKey();
+    if(!user?.assignedDayOfWeek||isoWeekday(date)!==user.assignedDayOfWeek)throw new HttpException('Ce compte n’est pas le président du jour.',403);
+    return this.prisma.parishDailyAttendanceReport.findUnique({where:{date_presidentId:{date:dateValue(date),presidentId:req.user.sub}}});
+  }
+
+  @Post('daily-report') async saveDailyReport(@Body() body:DailyAttendanceReportDto,@Req() req:any) {
+    if(req.user.role!=='RESPONSABLE_SEMAINE')throw new HttpException('Le rapport quotidien est réservé au président du jour.',403);
+    const date=localDateKey();
+    const user=await this.prisma.user.findUnique({where:{id:req.user.sub},select:{assignedDayOfWeek:true}});
+    if(!user?.assignedDayOfWeek||isoWeekday(date)!==user.assignedDayOfWeek)throw new HttpException('Ce compte n’est pas le président du jour.',403);
+    const now=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Porto-Novo',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+    const minute=Number(now.find(part=>part.type==='hour')!.value)*60+Number(now.find(part=>part.type==='minute')!.value);
+    if(minute<1020||minute>=1080)throw new HttpException('Le rapport peut être envoyé de 17 h à 18 h.',403);
+    const summary=body.summary.trim(),difficulties=body.difficulties.trim(),followUp=body.followUp.trim();
+    if(summary.length<10||!difficulties||!followUp)throw new HttpException('Renseignez le déroulement (au moins 10 caractères), les difficultés et les suites à donner.',400);
+    const dateObject=dateValue(date),sheetId=`${SheetType.GROUPE_SEMAINE}-${date}`;
+    const entryRows=await this.prisma.attendanceEntry.findMany({where:{sheetId},select:{zone:true}});
+    const attendance={total:entryRows.length,temple:entryRows.filter(entry=>entry.zone===Zone.TEMPLE).length,salleVision:entryRows.filter(entry=>entry.zone===Zone.SALLE_VISION).length};
+    const report=await this.prisma.$transaction(async tx=>{
+      const existing=await tx.parishDailyAttendanceReport.findUnique({where:{date_presidentId:{date:dateObject,presidentId:req.user.sub}},select:{id:true}});
+      const saved=await tx.parishDailyAttendanceReport.upsert({
+        where:{date_presidentId:{date:dateObject,presidentId:req.user.sub}},
+        create:{date:dateObject,presidentId:req.user.sub,summary,difficulties,followUp},
+        update:{summary,difficulties,followUp,submittedAt:new Date()},
+        include:{president:{select:{fullName:true,email:true}}}
+      });
+      if(!existing){
+        const admins=await tx.user.findMany({where:{active:true,role:{in:['ADMIN','SUPER_ADMIN']}},select:{id:true}});
+        if(admins.length)await tx.notification.createMany({data:admins.map(admin=>({userId:admin.id,title:'Rapport de présence reçu',body:`${saved.president.fullName||saved.president.email} a transmis le rapport du ${date}.`,href:'/presence'}))});
+      }
+      await tx.auditLog.create({data:{userId:req.user.sub,action:existing?'RAPPORT_PRESENCE_MODIFIE':'RAPPORT_PRESENCE_TRANSMIS',entity:'ParishDailyAttendanceReport',entityId:saved.id,after:{attendance},ip:req.ip}});
+      return {...saved,attendance};
+    });
+    return report;
   }
 
   @Patch('sheets/:id/entries/:clientUuid/correction') async correct(@Param('id') id:string,@Param('clientUuid') clientUuid:string,@Body() body:CorrectionDto,@Req() req:any){
@@ -220,7 +268,23 @@ export class AttendanceController {
        const summary=this.summaryFor(sheet,role,true);const byZone:Record<string,ReturnType<typeof totals>>={};for(const zone of [Zone.TEMPLE,Zone.SALLE_VISION])byZone[zone]=totals(summary.entries.filter((entry:any)=>entry.zone===zone));
       return {...summary,byZone};
     }));
-    if(role==='ADMIN'||role==='SUPER_ADMIN'){for(const day of days)await this.auditTotalsView(req,day.id);const ids=[...new Set(days.map((day:any)=>day.submittedById).filter(Boolean))] as string[];const users=ids.length?await this.prisma.user.findMany({where:{id:{in:ids}},select:{id:true,fullName:true,email:true}}):[];const userById=new Map(users.map(user=>[user.id,{fullName:user.fullName,email:user.email}]));return {start:requested,end:days[days.length-1].date,days:days.map((day:any)=>{const {submittedById,...summary}=day;return {...summary,submittedBy:submittedById?userById.get(submittedById)??null:null};})};}
+    if(role==='ADMIN'||role==='SUPER_ADMIN'){
+      for(const day of days)await this.auditTotalsView(req,day.id);
+      const ids=[...new Set(days.map((day:any)=>day.submittedById).filter(Boolean))] as string[];
+      const users=ids.length?await this.prisma.user.findMany({where:{id:{in:ids}},select:{id:true,fullName:true,email:true}}):[];
+      const userById=new Map(users.map(user=>[user.id,{fullName:user.fullName,email:user.email}]));
+      const presidents=await this.prisma.user.findMany({where:{active:true,role:'RESPONSABLE_SEMAINE',assignedDayOfWeek:{not:null}},select:{fullName:true,email:true,assignedDayOfWeek:true}});
+      const endDate=new Date(`${requested}T00:00:00.000Z`);endDate.setUTCDate(endDate.getUTCDate()+7);
+      const reports=await this.prisma.parishDailyAttendanceReport.findMany({where:{date:{gte:dateValue(requested),lt:endDate}},include:{president:{select:{fullName:true,email:true}}}});
+      const reportByDate=new Map<string,typeof reports>();
+      for(const report of reports){const key=localDateKey(report.date);reportByDate.set(key,[...(reportByDate.get(key)??[]),report]);}
+      return {start:requested,end:days[days.length-1].date,days:days.map((day:any)=>{
+        const {submittedById,...summary}=day;
+        const weekday=isoWeekday(day.date);
+        const responsible=presidents.filter(president=>president.assignedDayOfWeek===weekday).map(({fullName,email})=>({fullName,email}));
+        return {...summary,submittedBy:submittedById?userById.get(submittedById)??null:null,responsible,dailyReports:reportByDate.get(day.date)??[]};
+      })};
+    }
     return {start:requested,end:days[days.length-1].date,days:days.map((day:any)=>{const {submittedById,...summary}=day;return summary;})};
   }
 
@@ -269,6 +333,15 @@ export class AttendanceController {
     if(!type)throw new HttpException('Feuille introuvable',404);
     sheet=await this.prisma.attendanceSheet.upsert({where:{type_date:{type,date:dateValue(date)}},create:{id,type,date:dateValue(date)},update:{}});
     return sheet;
+  }
+  private async updateSheetTotals(tx:any,id:string){
+    const entries=await tx.attendanceEntry.findMany({where:{sheetId:id},select:{sex:true,zone:true}});
+    const byZone:Record<string,{men:number;women:number;total:number}>={};
+    for(const zone of Object.values(Zone)){
+      const rows=entries.filter((entry:any)=>entry.zone===zone);
+      byZone[zone]={men:rows.filter((entry:any)=>entry.sex===Sex.M).length,women:rows.filter((entry:any)=>entry.sex===Sex.F).length,total:rows.length};
+    }
+    await tx.attendanceSheet.update({where:{id},data:{totalMen:entries.filter((entry:any)=>entry.sex===Sex.M).length,totalWomen:entries.filter((entry:any)=>entry.sex===Sex.F).length,totalAll:entries.length,totalsByZone:byZone}});
   }
   private withEntries(id:string){return this.prisma.attendanceSheet.findUniqueOrThrow({where:{id},include:{entries:{orderBy:{arrivedAt:'asc'}}}});}
   private auditTotalsView(req:any,id:string){return this.prisma.auditLog.create({data:{userId:req.user.sub,action:'CONSULTATION_TOTAUX',entity:'AttendanceSheet',entityId:id,ip:req.ip}});}
