@@ -6,13 +6,17 @@ Les comptes responsables sont créés par ADMIN/SUPER_ADMIN dans **Comptes respo
 
 1. Connectez-vous à l'espace administrateur sur un appareil de confiance.
 2. Depuis **Comptes responsables**, saisissez le nom, l'adresse e-mail, le rôle et un motif précis. Les rôles comprennent secrétaire de présence, secrétaire de programme, trésorier, président d’un jour et sous-administrateur. Choisissez un jour (lundi à dimanche) pour un président.
-3. Pour un sous-administrateur, cochez uniquement les accès nécessaires. `GESTION_COMPTES` permet de gérer les comptes selon les restrictions du serveur; `PROGRAMME_BIBLIQUE` autorise la préparation du cours.
+3. Pour un sous-administrateur, cochez uniquement les accès nécessaires. `GESTION_COMPTES` permet de consulter les comptes selon les restrictions du serveur; `PROGRAMME_BIBLIQUE` autorise la préparation du cours; `ANNUAIRE_FIDELES` ouvre l’annuaire et `PUBLICATION_ACTUALITES` autorise les actualités. Ces permissions ne sont accordées qu’au rôle sous-administrateur et sont retirées si son rôle change.
 4. Transmettez le mot de passe temporaire affiché une seule fois par un canal privé sûr. Le titulaire doit le remplacer à sa première connexion. Ne le copiez pas dans un e-mail ou une conversation non protégée.
 5. Toute désactivation, réactivation, modification de rôle/jour ou permission demande un motif; elle est auditée et révoque les sessions de l'utilisateur.
 
 Les demandes d’inscription secrétaire de programme ou trésorier restent inactives jusqu’à leur validation dans cette même liste. Après approbation, ces personnes se connectent par e-mail et mot de passe et accèdent uniquement à leur espace dédié.
 
 Seuls ADMIN/SUPER_ADMIN créent les comptes et attribuent ou modifient les rôles et permissions. Un sous-administrateur ne peut pas déléguer ses accès ni modifier les rôles d’autres comptes.
+
+## Réponses aux fidèles
+
+Seul un secrétaire paroissial actif, désigné par ADMIN/SUPER_ADMIN, peut écrire directement à un fidèle ou répondre à une conversation qui lui est attribuée. L’administration peut consulter les conversations, mais les réponses sont réservées au secrétaire désigné. La désignation est retirée si le compte est désactivé ou change de rôle.
 
 ## Programmes paroissiaux
 
@@ -32,6 +36,7 @@ Le dépôt ne contient aucun compte administrateur par défaut. `apps/api/prisma
 
 - Le secrétaire saisit la feuille du cours biblique du lundi, dans les heures configurées.
 - Le président saisit le groupe de semaine pour le jour qui lui est attribué, Temple et Salle de vision comprises, pendant la plage horaire configurée.
+- Le secrétaire paroissial peut consulter en lecture seule l’historique des cours bibliques et la liste des fidèles présents. Il n’accède pas aux feuilles du groupe de semaine et ne peut pas modifier les présences.
 - L’enregistrement ne verrouille pas définitivement la feuille : le responsable peut continuer, corriger ou retirer une présence jusqu’à la fermeture (18 h pour le groupe; 21 h 30 pour le cours du lundi).
 - À partir de 17 h, le président du jour transmet un rapport structuré (déroulement, difficultés, suites à donner). Le premier envoi notifie l’administration; les modifications sont possibles jusqu’à 18 h. Le suivi hebdomadaire affiche les présidents attribués, l’état de chaque feuille, les totaux et les rapports.
 - La saisie hors ligne est gardée localement puis synchronisée avec un identifiant idempotent. Vérifiez le statut de synchronisation avant de fermer l'appareil.

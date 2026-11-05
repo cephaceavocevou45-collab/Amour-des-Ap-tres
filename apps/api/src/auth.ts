@@ -145,7 +145,10 @@ export class AuthService {
     if(reason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(dto.assignedDayOfWeek);
     else if(dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
-    const permissions=[...new Set(dto.permissions??[])].filter(permission=>role===UserRole.EDITEUR||['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission));
+    const allowedPermissions=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES']);
+    const requestedPermissions=[...new Set(dto.permissions??[])];
+    if(requestedPermissions.some(permission=>!allowedPermissions.has(permission)))throw new BadRequestException('Autorisation inconnue.');
+    const permissions=role===UserRole.EDITEUR?requestedPermissions:[];
     const temporaryPassword=randomBytes(24).toString('base64url'),passwordHash=await argon2.hash(temporaryPassword,{type:argon2.argon2id});
     try{
       const user=await this.prisma.$transaction(async tx=>{
@@ -158,7 +161,7 @@ export class AuthService {
   }
   async updateManagedAccount(id:string,dto:UpdateManagedAccountDto,actorId:string){
     if(id===actorId)throw new ForbiddenException('Vous ne pouvez pas modifier votre propre accès depuis cette page.');
-    const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true,assignedDayOfWeek:true,sessionVersion:true,photoUrl:true,profileSetupRequired:true}});
+    const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true,canRespondMessages:true,assignedDayOfWeek:true,sessionVersion:true,photoUrl:true,profileSetupRequired:true}});
     const managedRoles:string[]=[UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER,UserRole.EDITEUR];
     if(!member||!managedRoles.includes(member.role))throw new NotFoundException('Compte responsable introuvable.');
     const requestEvent=await this.prisma.auditLog.findFirst({where:{entity:'UserAccess',entityId:id,action:{in:['DEMANDE_ACCES_PRESENCES','DEMANDE_ACCES_PRESENCES_VALIDEE','DEMANDE_ACCES_PRESENCES_REFUSEE']}},select:{action:true},orderBy:{createdAt:'desc'}});
@@ -170,13 +173,14 @@ export class AuthService {
     if(approvalPending&&dto.active===true&&member.profileSetupRequired&&!member.photoUrl)throw new BadRequestException('Le demandeur doit ajouter sa photo de profil avant la validation de son compte.');
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(assignedDayOfWeek);
     if(role!==UserRole.RESPONSABLE_SEMAINE&&dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
-    const requestedPermissions=dto.permissions??member.permissions;
-    const permissions=requestedPermissions.filter(permission=>role===UserRole.EDITEUR||['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission));
+    const requestedPermissions=dto.permissions??(role===member.role?member.permissions:[]);
+    const permissions=role===UserRole.EDITEUR?[...new Set(requestedPermissions)]:[];
     const nextActive=dto.active??member.active;
+    const canRespondMessages=role===UserRole.SECRETAIRE_PROGRAMME&&nextActive&&member.canRespondMessages;
     return this.prisma.$transaction(async tx=>{
-      const updated=await tx.user.update({where:{id},data:{role,assignedDayOfWeek,permissions,active:nextActive,sessionVersion:{increment:1}}});
+      const updated=await tx.user.update({where:{id},data:{role,assignedDayOfWeek,permissions,active:nextActive,canRespondMessages,sessionVersion:{increment:1}}});
       await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});
-      await tx.auditLog.create({data:{userId:actorId,action:'COMPTE_RESPONSABLE_MODIFIE',entity:'UserAccess',entityId:id,before:{role:member.role,active:member.active,permissions:member.permissions,assignedDayOfWeek:member.assignedDayOfWeek},after:{role,active:nextActive,permissions,assignedDayOfWeek},reason:reason||'Demande d’accès approuvée par l’administration.'}});
+      await tx.auditLog.create({data:{userId:actorId,action:'COMPTE_RESPONSABLE_MODIFIE',entity:'UserAccess',entityId:id,before:{role:member.role,active:member.active,permissions:member.permissions,canRespondMessages:member.canRespondMessages,assignedDayOfWeek:member.assignedDayOfWeek},after:{role,active:nextActive,permissions,canRespondMessages,assignedDayOfWeek},reason:reason||'Demande d’accès approuvée par l’administration.'}});
       if(approvalPending&&dto.active===true)await tx.auditLog.create({data:{userId:actorId,action:'DEMANDE_ACCES_PRESENCES_VALIDEE',entity:'UserAccess',entityId:id,reason:reason||'Demande approuvée.'}});
       if(approvalPending&&dto.active===false)await tx.auditLog.create({data:{userId:actorId,action:'DEMANDE_ACCES_PRESENCES_REFUSEE',entity:'UserAccess',entityId:id,reason}});
       return {id:updated.id,role:updated.role,active:updated.active,permissions:updated.permissions,assignedDayOfWeek:updated.assignedDayOfWeek};
@@ -242,7 +246,7 @@ export class AuthService {
   async changeEmail(userId:string,dto:ChangeEmailDto){const email=dto.email.trim().toLowerCase(),user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,email:true,passwordHash:true}});if(!user||!await argon2.verify(user.passwordHash,dto.currentPassword).catch(()=>false))throw new ForbiddenException('Le mot de passe actuel est incorrect.');if(email===user.email)return {updated:true,changed:false,email};try{await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{email}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId,action:'ADRESSE_E_MAIL_MODIFIEE',entity:'UserSecurity',entityId:userId,before:{email:user.email},after:{email}}});});return {updated:true,changed:true,email};}catch(error:any){if(error?.code==='P2002')throw new BadRequestException('Cette adresse e-mail est déjà utilisée.');throw error;}}
   async setMessageResponder(id:string,enabled:boolean,actorId:string){
     const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,canRespondMessages:true}});
-    if(!member||!member.active||['FIDELE','ADMIN','SUPER_ADMIN'].includes(member.role))throw new BadRequestException('Choisissez un compte responsable actif.');
+    if(!member||member.role!==UserRole.SECRETAIRE_PROGRAMME||(enabled&&!member.active))throw new BadRequestException('Seul un secrétaire paroissial actif peut être désigné pour répondre aux fidèles.');
     await this.prisma.$transaction(async tx=>{
       await tx.user.update({where:{id},data:{canRespondMessages:enabled}});
       await tx.auditLog.create({data:{userId:actorId,action:enabled?'REPONDANT_MESSAGES_DESIGNE':'REPONDANT_MESSAGES_RETIRE',entity:'UserAccess',entityId:id,before:{canRespondMessages:member.canRespondMessages},after:{canRespondMessages:enabled}}});
@@ -260,7 +264,23 @@ export class AuthService {
     await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{passwordHash,mustChangePassword:false,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:now}});await tx.auditLog.create({data:{userId,action:'MOT_DE_PASSE_INITIAL_MODIFIE',entity:'UserSecurity',entityId:userId}});});
     return {message:'Mot de passe modifié. Reconnectez-vous avec votre nouveau mot de passe.'};
   }
-  async setSubAdminPermissions(id:string,permissions:string[],actorId:string,reason:string,proof:ReauthProof){if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');await this.reauth.requireRecentProof(actorId,proof);const allowed=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES']);const normalized=[...new Set(permissions)];if(normalized.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Autorisation inconnue.');const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true}});if(!member||!member.active||!new Set<UserRole>([UserRole.EDITEUR,UserRole.SECRETAIRE_PRESENCE,UserRole.RESPONSABLE_SEMAINE,UserRole.SECRETAIRE_PROGRAMME,UserRole.TRESORIER]).has(member.role))throw new ForbiddenException('Le compte sélectionné ne peut pas recevoir ces autorisations.');const auditReason=reason.trim();if(auditReason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');const effective=member.role===UserRole.EDITEUR?normalized:[...new Set([...member.permissions.filter(permission=>!['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission)),...normalized.filter(permission=>['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'].includes(permission))])];await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id},data:{permissions:effective,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId:actorId,action:'AUTORISATIONS_COMPTE_MODIFIEES',entity:'UserAccess',entityId:id,before:{permissions:member.permissions},after:{permissions:effective},reason:auditReason}});});return {id,role:member.role,permissions:effective};}
+  async setSubAdminPermissions(id:string,permissions:string[],actorId:string,reason:string,proof:ReauthProof){
+    if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');
+    await this.reauth.requireRecentProof(actorId,proof);
+    const allowed=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES']);
+    const normalized=[...new Set(permissions)];
+    if(normalized.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Autorisation inconnue.');
+    const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true}});
+    if(!member||!member.active||member.role!==UserRole.EDITEUR)throw new ForbiddenException('Ces autorisations sont réservées au compte sous-administrateur actif.');
+    const auditReason=reason.trim();
+    if(auditReason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
+    await this.prisma.$transaction(async tx=>{
+      await tx.user.update({where:{id},data:{permissions:normalized,sessionVersion:{increment:1}}});
+      await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});
+      await tx.auditLog.create({data:{userId:actorId,action:'AUTORISATIONS_COMPTE_MODIFIEES',entity:'UserAccess',entityId:id,before:{permissions:member.permissions},after:{permissions:normalized},reason:auditReason}});
+    });
+    return {id,role:member.role,permissions:normalized};
+  }
   async requestPasswordReset(emailInput:string){
     const started=Date.now(),message='Si cette adresse correspond à un compte, un code de récupération sera envoyé. Il expire après 15 minutes. Le plafond quotidien d’envoi peut retarder le message ; si aucun e-mail n’arrive, contactez la paroisse.';
     const reply=async()=>{await new Promise(resolve=>setTimeout(resolve,Math.max(0,1_000-(Date.now()-started))));return {message};};
@@ -323,7 +343,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard) @Get('session') session(@Req() req:any){return {user:{id:req.user.sub,role:req.user.role,permissions:req.user.permissions??[],mustChangePassword:!!req.user.mustChangePassword}};}
   @UseGuards(JwtAuthGuard) @Get('account/profile') profile(@Req() req:any){return this.auth.accountProfile(req.user.sub);}
   @UseGuards(JwtAuthGuard) @Patch('account/profile') updateProfile(@Req() req:any,@Body() dto:UpdateProfileDto){return this.auth.updateAccountProfile(req.user.sub,dto);}
-  @UseGuards(JwtAuthGuard) @Get('faithful/directory') faithfulDirectory(@Req() req:any){const allowed=['ADMIN','SUPER_ADMIN','SECRETAIRE_PROGRAMME'].includes(req.user.role)||(req.user.permissions??[]).includes('ANNUAIRE_FIDELES');if(!allowed)throw new ForbiddenException('L’annuaire est réservé au secrétariat et aux personnes autorisées par l’administration.');return this.auth.faithfulDirectory();}
+  @UseGuards(JwtAuthGuard) @Get('faithful/directory') faithfulDirectory(@Req() req:any){const allowed=['ADMIN','SUPER_ADMIN','SECRETAIRE_PROGRAMME'].includes(req.user.role)||(req.user.role==='EDITEUR'&&(req.user.permissions??[]).includes('ANNUAIRE_FIDELES'));if(!allowed)throw new ForbiddenException('L’annuaire est réservé au secrétariat et aux sous-administrateurs autorisés par l’administration.');return this.auth.faithfulDirectory();}
   @UseGuards(JwtAuthGuard) @Get('account/sessions') sessions(@Req() req:any){return this.auth.sessions(req.user.sub,this.cookieValue(req.headers.cookie,'paroisse_refresh'));}
   @UseGuards(JwtAuthGuard) @Post('account/sessions/revoke-all') revokeAllSessions(@Req() req:any,@Res({passthrough:true}) response:any){const result=this.auth.revokeAllSessions(req.user.sub);response.clearCookie('paroisse_access',{path:'/'});response.clearCookie('paroisse_refresh',{path:'/'});response.clearCookie('paroisse_csrf',{path:'/'});return result;}
   @UseGuards(JwtAuthGuard) @Delete('account/sessions/:id') revokeSession(@Req() req:any,@Param('id') id:string){return this.auth.revokeSession(req.user.sub,id);}

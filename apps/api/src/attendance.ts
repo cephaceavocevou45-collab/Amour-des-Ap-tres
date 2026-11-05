@@ -83,6 +83,19 @@ export class AttendanceController {
     const visible=[];for(const sheet of rows)if(await this.canAccessSheet(role,req.user.sub,sheet)){if(role==='ADMIN'||role==='SUPER_ADMIN')await this.auditTotalsView(req,sheet.id);visible.push(this.summaryFor(sheet,role));}return visible;
   }
 
+  @Get('course-history') async courseHistory(@Req() req:any) {
+    if(req.user.role!=='SECRETAIRE_PROGRAMME')throw new HttpException('L’historique des cours bibliques est réservé au secrétaire paroissial.',403);
+    const today=localDateKey(),start=new Date(`${today}T00:00:00.000Z`);
+    start.setUTCDate(start.getUTCDate()-366);
+    const sheets=await this.prisma.attendanceSheet.findMany({
+      where:{type:SheetType.COURS_BIBLIQUE,date:{gte:start,lte:dateValue(today)}},
+      orderBy:{date:'desc'},
+      take:53,
+      include:{entries:{orderBy:{arrivedAt:'asc'}}}
+    });
+    return sheets.map(sheet=>this.summaryFor(sheet,req.user.role));
+  }
+
   @Get('sheets/:id/summary') async summary(@Param('id') id:string,@Req() req:any) {
     const role=req.user.role;this.requireAttendanceRole(role);
     const sheet=await this.prisma.attendanceSheet.findUnique({where:{id},include:{entries:{orderBy:{arrivedAt:'asc'}}}});
@@ -253,7 +266,7 @@ export class AttendanceController {
 
   @Get('week') async week(@Query('start') start:string|undefined,@Req() req:any) {
     const role=req.user.role;this.requireAttendanceRole(role);
-    if(role==='SECRETAIRE_PRESENCE')throw new HttpException('Le secrétaire de présence n’a pas accès aux feuilles du groupe de semaine.',403);
+    if(role==='SECRETAIRE_PRESENCE'||role==='SECRETAIRE_PROGRAMME')throw new HttpException('Ce rôle n’a pas accès aux feuilles du groupe de semaine.',403);
     let requested=start??this.mondayOf(localDateKey());
     if(start&&(!/^\d{4}-\d{2}-\d{2}$/.test(start)||Number.isNaN(Date.parse(`${start}T00:00:00Z`))||new Date(`${start}T00:00:00Z`).toISOString().slice(0,10)!==start))throw new HttpException('Date de début de semaine invalide.',400);
     if(role==='RESPONSABLE_SEMAINE'){const user=await this.prisma.user.findUnique({where:{id:req.user.sub},select:{assignedDayOfWeek:true}});if(!user?.assignedDayOfWeek)throw new HttpException('Aucun jour n’est attribué à ce compte.',403);const currentWeek=this.mondayOf(localDateKey());if(start&&this.mondayOf(start)!==currentWeek)throw new HttpException('Vous pouvez consulter uniquement votre jour de responsabilité dans la semaine en cours.',403);requested=currentWeek;}
@@ -345,8 +358,8 @@ export class AttendanceController {
   }
   private withEntries(id:string){return this.prisma.attendanceSheet.findUniqueOrThrow({where:{id},include:{entries:{orderBy:{arrivedAt:'asc'}}}});}
   private auditTotalsView(req:any,id:string){return this.prisma.auditLog.create({data:{userId:req.user.sub,action:'CONSULTATION_TOTAUX',entity:'AttendanceSheet',entityId:id,ip:req.ip}});}
-  private requireAttendanceRole(role:string){if(!['ADMIN','SUPER_ADMIN','SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE'].includes(role))throw new HttpException('Accès réservé aux responsables de présence.',403);}
-  private async canAccessSheet(role:string,userId:string,sheet:{type:SheetType;date:Date}){if(role==='ADMIN'||role==='SUPER_ADMIN')return true;const key=localDateKey(sheet.date);if(role==='SECRETAIRE_PRESENCE')return sheet.type===SheetType.COURS_BIBLIQUE&&key===localDateKey()&&new Date(`${key}T00:00:00Z`).getUTCDay()===1;if(role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE){const user=await this.prisma.user.findUnique({where:{id:userId},select:{assignedDayOfWeek:true}});return !!user?.assignedDayOfWeek&&key===localDateKey()&&isoWeekday(key)===user.assignedDayOfWeek;}return false;}
+  private requireAttendanceRole(role:string){if(!['ADMIN','SUPER_ADMIN','SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME'].includes(role))throw new HttpException('Accès réservé aux responsables de présence.',403);}
+  private async canAccessSheet(role:string,userId:string,sheet:{type:SheetType;date:Date}){if(role==='ADMIN'||role==='SUPER_ADMIN')return true;const key=localDateKey(sheet.date);if(role==='SECRETAIRE_PRESENCE')return sheet.type===SheetType.COURS_BIBLIQUE&&key===localDateKey()&&new Date(`${key}T00:00:00Z`).getUTCDay()===1;if(role==='SECRETAIRE_PROGRAMME'&&sheet.type===SheetType.COURS_BIBLIQUE){const cutoff=new Date(`${localDateKey()}T00:00:00Z`);cutoff.setUTCDate(cutoff.getUTCDate()-366);return key>=cutoff.toISOString().slice(0,10)&&key<=localDateKey();}if(role==='RESPONSABLE_SEMAINE'&&sheet.type===SheetType.GROUPE_SEMAINE){const user=await this.prisma.user.findUnique({where:{id:userId},select:{assignedDayOfWeek:true}});return !!user?.assignedDayOfWeek&&key===localDateKey()&&isoWeekday(key)===user.assignedDayOfWeek;}return false;}
   private isWithinWindow(type:SheetType){return isWithinAttendanceWindow(type);}
   private requireZoneRole(role:string,type:SheetType,zone:Zone){
     if(role==='ADMIN'||role==='SUPER_ADMIN')throw new HttpException('L’administration consulte les présences mais ne saisit pas les noms.',403);
@@ -356,7 +369,7 @@ export class AttendanceController {
   }
   private summaryFor(sheet:any,role:string,includeSubmitter=false,withNames=false){
     const admin=role==='ADMIN'||role==='SUPER_ADMIN';
-    const entries=sheet.entries.filter((entry:any)=>(admin)||(role==='SECRETAIRE_PRESENCE'&&entry.zone===Zone.FIDELES)||(role==='RESPONSABLE_SEMAINE'&&(entry.zone===Zone.TEMPLE||entry.zone===Zone.SALLE_VISION)));
+    const entries=sheet.entries.filter((entry:any)=>(admin)||(['SECRETAIRE_PRESENCE','SECRETAIRE_PROGRAMME'].includes(role)&&entry.zone===Zone.FIDELES)||(role==='RESPONSABLE_SEMAINE'&&(entry.zone===Zone.TEMPLE||entry.zone===Zone.SALLE_VISION)));
     const summaryEntries=admin&&!withNames?[]:entries;
     const storedTotal=(sheet.totalAll??0)>0||sheet.status===SheetStatus.ENREGISTREE?{men:sheet.totalMen,women:sheet.totalWomen,total:sheet.totalAll}:totals(entries);
     const result:any={id:sheet.id,type:sheet.type,date:localDateKey(sheet.date),status:sheet.status,entries:summaryEntries.map((entry:any)=>({fullName:entry.fullName,sex:entry.sex,zone:entry.zone,arrivedAt:entry.arrivedAt,clientUuid:entry.clientUuid})),totals:storedTotal};

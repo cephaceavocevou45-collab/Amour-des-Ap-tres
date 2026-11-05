@@ -33,6 +33,20 @@ describe('attendance helpers',()=>{
     const names=await controller.accessNames('sheet-1',{reason:'VERIFICATION_DEMANDE'} as any,request);
     expect(names.entries).toHaveLength(1);expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({action:'CONSULTATION_NOMINATIVE',reason:'VERIFICATION_DEMANDE'})}));
   });
+  it('lets the parish secretary read historical course attendance by name',async()=>{
+    const date=new Date('2026-10-05T00:00:00.000Z');
+    const sheet={id:'COURS_BIBLIQUE-2026-10-05',type:SheetType.COURS_BIBLIQUE,date,status:SheetStatus.ENREGISTREE,totalMen:1,totalWomen:1,totalAll:2,totalsByZone:{FIDELES:{men:1,women:1,total:2}},entries:[{fullName:'Fidèle Test',sex:'F',zone:'FIDELES',arrivedAt:date,clientUuid:'entry-1'}]};
+    const prisma={attendanceSheet:{findMany:jest.fn().mockResolvedValue([sheet])}} as unknown as PrismaService;
+    const result=await new AttendanceController(prisma).courseHistory({user:{sub:'secretary-1',role:'SECRETAIRE_PROGRAMME'}});
+    expect(result[0].entries).toEqual([{fullName:'Fidèle Test',sex:'F',zone:'FIDELES',arrivedAt:date,clientUuid:'entry-1'}]);
+    expect(prisma.attendanceSheet.findMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({type:SheetType.COURS_BIBLIQUE,date:expect.objectContaining({gte:expect.any(Date),lte:expect.any(Date)})}),take:53}));
+  });
+  it('denies group attendance and attendance writes to the parish secretary',async()=>{
+    const controller=new AttendanceController({attendanceSheet:{findUnique:jest.fn()}} as unknown as PrismaService);
+    const request={user:{sub:'secretary-1',role:'SECRETAIRE_PROGRAMME'}};
+    await expect(controller.week(undefined,request)).rejects.toMatchObject({status:403});
+    await expect(controller.submit('course-sheet',{} as any,request)).rejects.toMatchObject({status:403});
+  });
   it('rejects a secretary attempting to enter names outside the secretary zone',async()=>{
     const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),sheet={id:`COURS_BIBLIQUE-${today}`,type:SheetType.COURS_BIBLIQUE,date:new Date(`${today}T00:00:00.000Z`),status:SheetStatus.OUVERTE};
     const prisma={attendanceSheet:{findUnique:jest.fn().mockResolvedValue(sheet)}} as unknown as PrismaService,controller=new AttendanceController(prisma);

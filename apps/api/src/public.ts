@@ -85,6 +85,6 @@ export class PublicController {
     });
   }
 
-  private requireAdmin(role:string,permissions:string[]=[]){if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!permissions.includes('PUBLICATION_ACTUALITES'))throw new ForbiddenException('La publication est réservée à l’administration et aux personnes désignées.');}
+  private requireAdmin(role:string,permissions:string[]=[]){if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!(role==='EDITEUR'&&permissions.includes('PUBLICATION_ACTUALITES')))throw new ForbiddenException('La publication est réservée à l’administration et aux sous-administrateurs désignés.');}
   private requireFaithful(role:string){if(role!=='FIDELE')throw new ForbiddenException('Cette rubrique est réservée aux comptes fidèles.');}
 }
