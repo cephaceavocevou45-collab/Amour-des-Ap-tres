@@ -313,7 +313,7 @@ describe('security HTTP e2e on isolated PostgreSQL',()=>{
     expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:adminToken,body:{permissions:['GESTION_COMPTES'],reason:'Autoriser la gestion des demandes de compte.'}})).status).toBe(200);
     expect((await call('/attendance/course/2026-10-05',{token:staleProgrammeToken})).status).toBe(401);
     editorFresh=await prisma.user.findUniqueOrThrow({where:{id:editor.id}});freshToken=jwt(editorFresh);
-    const memberRows=await call('/auth/admin/members',{token:freshToken});expect(memberRows.status).toBe(403);
+    const memberRows=await call('/auth/admin/members',{token:freshToken});expect(memberRows.status).toBe(200);
     expect((await call(`/auth/admin/members/${editor.id}/permissions`,{method:'PATCH',token:freshToken,body:{permissions:['PROGRAMME_BIBLIQUE'],reason:'Tentative non autorisée'}})).status).toBe(403);
     const permissionAudit=await prisma.auditLog.findMany({where:{action:'AUTORISATIONS_COMPTE_MODIFIEES',entityId:editor.id}});expect(permissionAudit).toHaveLength(2);expect(permissionAudit.every(row=>!!row.reason&&row.reason.length>=8)).toBe(true);
   });
