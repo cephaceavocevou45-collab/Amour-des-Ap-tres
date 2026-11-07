@@ -10,6 +10,7 @@ class MeetingRequestDto {
   @IsString() @Length(8, 2000) message!: string;
 }
 class MeetingStatusDto { @IsIn(['CONFIRME', 'REFUSE']) status!: string; }
+class MeetingReplyDto { @IsString() @Length(1, 4000) message!: string; }
 
 @Injectable()
 export class NotificationsService {
@@ -39,15 +40,84 @@ export class MeetingRequestsController {
     const preferredAt = new Date(body.preferredAt);
     if (Number.isNaN(preferredAt.getTime()) || preferredAt.getTime() < Date.now() - 60_000) throw new BadRequestException('Choisissez une date de rendez-vous à venir.');
     return this.prisma.$transaction(async tx => {
-      const item = await tx.meetingRequest.create({ data: { preferredAt, subject: body.subject.trim(), message: body.message.trim(), requesterId: req.user.sub } });
       const admins = await tx.user.findMany({ where: { active: true, role: { in: ['ADMIN', 'SUPER_ADMIN'] } }, select: { id: true } });
+      const assignedToId = admins[0]?.id ?? null;
+      const conversation = await tx.conversation.create({
+        data: {
+          subject: body.subject.trim(),
+          requesterId: req.user.sub,
+          assignedToId,
+          messages: { create: { body: body.message.trim(), senderId: req.user.sub } },
+        },
+      });
+      const item = await tx.meetingRequest.create({
+        data: {
+          preferredAt,
+          subject: body.subject.trim(),
+          message: body.message.trim(),
+          requesterId: req.user.sub,
+          conversationId: conversation.id,
+        },
+      });
       if (admins.length) await tx.notification.createMany({ data: admins.map(user => ({ userId: user.id, title: 'Demande de rendez-vous', body: 'Un fidèle souhaite rencontrer le chargé paroissial.', href: '/admin/rendez-vous' })) });
-      return { id: item.id, status: item.status };
+      await tx.notification.create({
+        data: {
+          userId: req.user.sub,
+          title: 'Demande de rendez-vous reçue',
+          body: 'Votre demande a bien été reçue par le chargé paroissial. Il est occupé pour le moment et vous répondra dans quelques instants.',
+          href: '/rendez-vous',
+        },
+      });
+      return { ...item, conversation: { id: conversation.id, messages: [{ body: body.message.trim(), senderId: req.user.sub }] } };
     });
   }
   @Get() async list(@Req() req: any) {
-    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) throw new ForbiddenException('Les rendez-vous sont réservés à l’administration paroissiale.');
-    return this.prisma.meetingRequest.findMany({ orderBy: [{ status: 'asc' }, { preferredAt: 'asc' }], take: 200, include: { requester: { select: { id: true, fullName: true, email: true, phone: true } } } });
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(req.user.role);
+    if (!isAdmin && req.user.role !== 'FIDELE') throw new ForbiddenException('Les rendez-vous sont réservés à l’administration et aux fidèles concernés.');
+    return this.prisma.meetingRequest.findMany({
+      where: isAdmin ? {} : { requesterId: req.user.sub },
+      orderBy: [{ status: 'asc' }, { preferredAt: 'asc' }],
+      take: 200,
+      include: {
+        requester: { select: { id: true, fullName: true, email: true, phone: true } },
+        conversation: {
+          include: {
+            messages: {
+              orderBy: { createdAt: 'asc' },
+              take: 100,
+              include: { sender: { select: { id: true, fullName: true, role: true, photoUrl: true } } },
+            },
+          },
+        },
+      },
+    });
+  }
+  @Post(':id/reply') async reply(@Req() req: any, @Param('id') id: string, @Body() body: MeetingReplyDto) {
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(req.user.role);
+    if (!isAdmin && req.user.role !== 'FIDELE') throw new ForbiddenException('La conversation est réservée au fidèle concerné et à l’administration.');
+    const request = await this.prisma.meetingRequest.findUnique({
+      where: { id },
+      select: { id: true, requesterId: true, conversationId: true },
+    });
+    if (!request || (!isAdmin && request.requesterId !== req.user.sub)) throw new BadRequestException('Demande de rendez-vous introuvable.');
+    if (!request.conversationId) throw new BadRequestException('Cette demande ne possède pas encore de fil de conversation.');
+    const content = body.message.trim();
+    if (!content) throw new BadRequestException('Le message ne peut pas être vide.');
+    await this.prisma.$transaction(async tx => {
+      await tx.message.create({ data: { conversationId: request.conversationId!, senderId: req.user.sub, body: content } });
+      await tx.conversation.update({ where: { id: request.conversationId! }, data: { updatedAt: new Date() } });
+      if (isAdmin) {
+        await tx.notification.create({
+          data: { userId: request.requesterId, title: 'Réponse à votre rendez-vous', body: 'Le chargé paroissial a répondu à votre demande.', href: '/rendez-vous' },
+        });
+      } else {
+        const admins = await tx.user.findMany({ where: { active: true, role: { in: ['ADMIN', 'SUPER_ADMIN'] } }, select: { id: true } });
+        if (admins.length) await tx.notification.createMany({
+          data: admins.map(user => ({ userId: user.id, title: 'Réponse à un rendez-vous', body: 'Un fidèle a répondu dans une demande de rendez-vous.', href: '/admin/rendez-vous' })),
+        });
+      }
+    });
+    return { sent: true };
   }
   @Patch(':id/status') async updateStatus(@Req() req: any, @Param('id') id: string, @Body() body: MeetingStatusDto) {
     if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) throw new ForbiddenException('Seule l’administration paroissiale peut traiter les rendez-vous.');

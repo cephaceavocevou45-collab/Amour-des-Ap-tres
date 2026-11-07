@@ -45,7 +45,7 @@ class RegisterFaithfulDto {
   @IsString() @MinLength(12) @MaxLength(128) password!:string;
   @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string;
 }
-class SubAdminPermissionsDto implements ReauthProof { @IsArray() @ArrayMaxSize(4) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],{each:true}) permissions!:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class SubAdminPermissionsDto implements ReauthProof { @IsArray() @ArrayMaxSize(6) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES','PROGRAMMES_PAROISSIAUX','TRESORERIE'],{each:true}) permissions!:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 class ChangePasswordDto { @IsString() @MaxLength(128) currentPassword!:string; @IsString() @MinLength(12) @MaxLength(128) newPassword!:string; @IsString() @MinLength(12) @MaxLength(128) confirmPassword!:string; }
 class ChangeEmailDto { @IsEmail() @MaxLength(254) email!:string; @IsString() @MaxLength(128) currentPassword!:string; }
 class UpdateProfileDto {
@@ -60,8 +60,8 @@ class UpdateProfileDto {
   @IsOptional() @IsString() @MaxLength(80000) @Matches(/^(?:https:\/\/[^\s]{1,1000}|data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2})$/) photoUrl?:string|null;
 }
 class MessageResponderDto { @IsBoolean() enabled!:boolean; }
-class CreateManagedAccountDto implements ReauthProof { @IsString() @Length(3,120) fullName!:string; @IsEmail() @MaxLength(254) email!:string; @IsOptional() @IsString() @MaxLength(32) phone?:string; @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role!:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(4) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],{each:true}) permissions?:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
-class UpdateManagedAccountDto implements ReauthProof { @IsOptional() @IsBoolean() active?:boolean; @IsOptional() @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role?:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(4) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],{each:true}) permissions?:string[]; @IsOptional() @IsString() @Length(8,1000) reason?:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class CreateManagedAccountDto implements ReauthProof { @IsString() @Length(3,120) fullName!:string; @IsEmail() @MaxLength(254) email!:string; @IsOptional() @IsString() @MaxLength(32) phone?:string; @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role!:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(6) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES','PROGRAMMES_PAROISSIAUX','TRESORERIE'],{each:true}) permissions?:string[]; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
+class UpdateManagedAccountDto implements ReauthProof { @IsOptional() @IsBoolean() active?:boolean; @IsOptional() @IsIn(['SECRETAIRE_PRESENCE','RESPONSABLE_SEMAINE','SECRETAIRE_PROGRAMME','TRESORIER','EDITEUR']) role?:string; @IsOptional() @IsInt() @Min(1) @Max(7) assignedDayOfWeek?:number; @IsOptional() @IsArray() @ArrayMaxSize(6) @IsIn(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES','PROGRAMMES_PAROISSIAUX','TRESORERIE'],{each:true}) permissions?:string[]; @IsOptional() @IsString() @Length(8,1000) reason?:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 class CompleteResponsibleProfileDto { @IsString() @Length(40,64) token!:string; @IsString() @MaxLength(80000) @Matches(/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/) photoUrl!:string; }
 class ManagePresenterDto implements ReauthProof { @IsString() @Length(1,80) firstName!:string; @IsString() @Length(1,120) lastName!:string; @IsOptional() @IsString() @MaxLength(80) grade?:string|null; @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
 class RemovePresenterDto implements ReauthProof { @IsString() @Length(8,1000) reason!:string; @IsOptional() @IsString() @MaxLength(128) reauthPassword?:string; }
@@ -145,10 +145,11 @@ export class AuthService {
     if(reason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(dto.assignedDayOfWeek);
     else if(dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
-    const allowedPermissions=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES']);
+    const allowedPermissions=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES','PROGRAMMES_PAROISSIAUX','TRESORERIE']);
     const requestedPermissions=[...new Set(dto.permissions??[])];
     if(requestedPermissions.some(permission=>!allowedPermissions.has(permission)))throw new BadRequestException('Autorisation inconnue.');
-    const permissions=role===UserRole.EDITEUR?requestedPermissions:[];
+    if(role!==UserRole.EDITEUR&&requestedPermissions.includes('GESTION_COMPTES'))throw new BadRequestException('La gestion des comptes reste réservée au sous-administrateur.');
+    const permissions=requestedPermissions;
     const temporaryPassword=randomBytes(24).toString('base64url'),passwordHash=await argon2.hash(temporaryPassword,{type:argon2.argon2id});
     try{
       const user=await this.prisma.$transaction(async tx=>{
@@ -174,9 +175,12 @@ export class AuthService {
     if(role===UserRole.RESPONSABLE_SEMAINE)this.requireWeekday(assignedDayOfWeek);
     if(role!==UserRole.RESPONSABLE_SEMAINE&&dto.assignedDayOfWeek!==undefined)throw new BadRequestException('Un jour ne peut être attribué qu’au président du jour.');
     const requestedPermissions=dto.permissions??(role===member.role?member.permissions:[]);
-    const permissions=role===UserRole.EDITEUR?[...new Set(requestedPermissions)]:[];
+    const allowedPermissions=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES','PROGRAMMES_PAROISSIAUX','TRESORERIE']);
+    const permissions=[...new Set(requestedPermissions)];
+    if(permissions.some(permission=>!allowedPermissions.has(permission)))throw new BadRequestException('Autorisation inconnue.');
+    if(role!==UserRole.EDITEUR&&permissions.includes('GESTION_COMPTES'))throw new BadRequestException('La gestion des comptes reste réservée au sous-administrateur.');
     const nextActive=dto.active??member.active;
-    const canRespondMessages=role===UserRole.SECRETAIRE_PROGRAMME&&nextActive&&member.canRespondMessages;
+    const canRespondMessages=!!nextActive&&!!member.canRespondMessages;
     return this.prisma.$transaction(async tx=>{
       const updated=await tx.user.update({where:{id},data:{role,assignedDayOfWeek,permissions,active:nextActive,canRespondMessages,sessionVersion:{increment:1}}});
       await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});
@@ -246,7 +250,7 @@ export class AuthService {
   async changeEmail(userId:string,dto:ChangeEmailDto){const email=dto.email.trim().toLowerCase(),user=await this.prisma.user.findUnique({where:{id:userId},select:{id:true,email:true,passwordHash:true}});if(!user||!await argon2.verify(user.passwordHash,dto.currentPassword).catch(()=>false))throw new ForbiddenException('Le mot de passe actuel est incorrect.');if(email===user.email)return {updated:true,changed:false,email};try{await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{email}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:new Date()}});await tx.auditLog.create({data:{userId,action:'ADRESSE_E_MAIL_MODIFIEE',entity:'UserSecurity',entityId:userId,before:{email:user.email},after:{email}}});});return {updated:true,changed:true,email};}catch(error:any){if(error?.code==='P2002')throw new BadRequestException('Cette adresse e-mail est déjà utilisée.');throw error;}}
   async setMessageResponder(id:string,enabled:boolean,actorId:string){
     const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,canRespondMessages:true}});
-    if(!member||member.role!==UserRole.SECRETAIRE_PROGRAMME||(enabled&&!member.active))throw new BadRequestException('Seul un secrétaire paroissial actif peut être désigné pour répondre aux fidèles.');
+    if(!member||(enabled&&!member.active)||['ADMIN','SUPER_ADMIN'].includes(member.role))throw new BadRequestException('Seuls les comptes actifs non-administrateurs peuvent être désignés pour répondre aux fidèles.');
     await this.prisma.$transaction(async tx=>{
       await tx.user.update({where:{id},data:{canRespondMessages:enabled}});
       await tx.auditLog.create({data:{userId:actorId,action:enabled?'REPONDANT_MESSAGES_DESIGNE':'REPONDANT_MESSAGES_RETIRE',entity:'UserAccess',entityId:id,before:{canRespondMessages:member.canRespondMessages},after:{canRespondMessages:enabled}}});
@@ -264,16 +268,21 @@ export class AuthService {
     await this.prisma.$transaction(async tx=>{await tx.user.update({where:{id:userId},data:{passwordHash,mustChangePassword:false,sessionVersion:{increment:1}}});await tx.refreshToken.updateMany({where:{userId,revokedAt:null},data:{revokedAt:now}});await tx.auditLog.create({data:{userId,action:'MOT_DE_PASSE_INITIAL_MODIFIE',entity:'UserSecurity',entityId:userId}});});
     return {message:'Mot de passe modifié. Reconnectez-vous avec votre nouveau mot de passe.'};
   }
-  async setSubAdminPermissions(id:string,permissions:string[],actorId:string,reason:string,proof:ReauthProof){
+  async setSubAdminPermissions(id:string,permissions:string[],actorId:string,reason:string,proof:ReauthProof,actorRole='ADMIN',actorPermissions:string[]=[]){
     if(!this.reauth)throw new UnauthorizedException('Réauthentification indisponible.');
     await this.reauth.requireRecentProof(actorId,proof);
-    const allowed=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES']);
-    const normalized=[...new Set(permissions)];
-    if(normalized.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Autorisation inconnue.');
+    const allowed=new Set(['GESTION_COMPTES','PROGRAMME_BIBLIQUE','ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES','PROGRAMMES_PAROISSIAUX','TRESORERIE']);
+    const requested=[...new Set(permissions)];
+    if(requested.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Autorisation inconnue.');
     const member=await this.prisma.user.findUnique({where:{id},select:{id:true,role:true,active:true,permissions:true}});
-    if(!member||!member.active||member.role!==UserRole.EDITEUR)throw new ForbiddenException('Ces autorisations sont réservées au compte sous-administrateur actif.');
+    if(!member||!member.active||['ADMIN','SUPER_ADMIN'].includes(member.role))throw new ForbiddenException('Ces autorisations sont réservées aux comptes actifs non-administrateurs.');
+    if(member.role!==UserRole.EDITEUR&&requested.includes('GESTION_COMPTES'))throw new ForbiddenException('La gestion des comptes reste réservée au sous-administrateur.');
     const auditReason=reason.trim();
     if(auditReason.length<8)throw new BadRequestException('Le motif doit contenir au moins huit caractères.');
+    const isAdmin=['ADMIN','SUPER_ADMIN'].includes(actorRole);
+    const delegatedScope=new Set(actorPermissions.filter(permission=>permission!=='GESTION_COMPTES'));
+    const preserved=isAdmin?[]:member.permissions.filter(permission=>permission==='GESTION_COMPTES'||!delegatedScope.has(permission));
+    const normalized=[...new Set([...preserved,...requested])];
     await this.prisma.$transaction(async tx=>{
       await tx.user.update({where:{id},data:{permissions:normalized,sessionVersion:{increment:1}}});
       await tx.refreshToken.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date()}});
@@ -343,7 +352,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard) @Get('session') session(@Req() req:any){return {user:{id:req.user.sub,role:req.user.role,permissions:req.user.permissions??[],mustChangePassword:!!req.user.mustChangePassword}};}
   @UseGuards(JwtAuthGuard) @Get('account/profile') profile(@Req() req:any){return this.auth.accountProfile(req.user.sub);}
   @UseGuards(JwtAuthGuard) @Patch('account/profile') updateProfile(@Req() req:any,@Body() dto:UpdateProfileDto){return this.auth.updateAccountProfile(req.user.sub,dto);}
-  @UseGuards(JwtAuthGuard) @Get('faithful/directory') faithfulDirectory(@Req() req:any){const allowed=['ADMIN','SUPER_ADMIN','SECRETAIRE_PROGRAMME'].includes(req.user.role)||(req.user.role==='EDITEUR'&&(req.user.permissions??[]).includes('ANNUAIRE_FIDELES'));if(!allowed)throw new ForbiddenException('L’annuaire est réservé au secrétariat et aux sous-administrateurs autorisés par l’administration.');return this.auth.faithfulDirectory();}
+  @UseGuards(JwtAuthGuard) @Get('faithful/directory') faithfulDirectory(@Req() req:any){const allowed=['ADMIN','SUPER_ADMIN','SECRETAIRE_PROGRAMME'].includes(req.user.role)||(req.user.permissions??[]).includes('ANNUAIRE_FIDELES');if(!allowed)throw new ForbiddenException('L’annuaire est réservé au secrétariat et aux personnes désignées par l’administration.');return this.auth.faithfulDirectory();}
   @UseGuards(JwtAuthGuard) @Get('account/sessions') sessions(@Req() req:any){return this.auth.sessions(req.user.sub,this.cookieValue(req.headers.cookie,'paroisse_refresh'));}
   @UseGuards(JwtAuthGuard) @Post('account/sessions/revoke-all') revokeAllSessions(@Req() req:any,@Res({passthrough:true}) response:any){const result=this.auth.revokeAllSessions(req.user.sub);response.clearCookie('paroisse_access',{path:'/'});response.clearCookie('paroisse_refresh',{path:'/'});response.clearCookie('paroisse_csrf',{path:'/'});return result;}
   @UseGuards(JwtAuthGuard) @Delete('account/sessions/:id') revokeSession(@Req() req:any,@Param('id') id:string){return this.auth.revokeSession(req.user.sub,id);}
@@ -353,13 +362,15 @@ export class AuthController {
   @Post('refresh') async refresh(@Req() req:any,@Res({passthrough:true}) response:any){const token=this.cookieValue(req.headers.cookie,'paroisse_refresh');if(!token)throw new UnauthorizedException('Connexion expirée.');const session=await this.auth.refresh(token);await this.auth.recordSessionDevice(session.refreshToken,req.ip??'unknown',req.headers['user-agent']??'');this.setSessionCookies(response,session);return this.publicSession(session);}
   @Post('logout') async logout(@Req() req:any,@Res({passthrough:true}) response:any){await this.auth.logout(this.cookieValue(req.headers.cookie,'paroisse_refresh'));response.clearCookie('paroisse_access',{path:'/'});response.clearCookie('paroisse_refresh',{path:'/'});response.clearCookie('paroisse_csrf',{path:'/'});return {message:'Déconnexion effectuée.'};}
   private cookieValue(header:string|undefined,name:string){return header?.split(';').map((part:string)=>part.trim()).find((part:string)=>part.startsWith(`${name}=`))?.slice(name.length+1);}
-  @UseGuards(JwtAuthGuard) @Get('admin/members') members(@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('La liste des comptes est réservée aux personnes administratrices.');return this.auth.listManagedAccounts();}
+  @UseGuards(JwtAuthGuard) @Get('admin/members') members(@Req() req:any){this.requireAccountManager(req.user);return this.auth.listManagedAccounts();}
   @UseGuards(JwtAuthGuard) @Get('admin/presenters') presenters(@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('La gestion des intervenants est réservée à l’administration.');return this.auth.listManagedPresenters();}
   @UseGuards(JwtAuthGuard) @Post('admin/presenters') createPresenter(@Body() body:ManagePresenterDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur peut ajouter un intervenant.');return this.auth.createManagedPresenter(body,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Patch('admin/presenters/:id') updatePresenter(@Param('id') id:string,@Body() body:ManagePresenterDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur peut modifier un intervenant.');return this.auth.updateManagedPresenter(id,body,req.user.sub);}
   @UseGuards(JwtAuthGuard) @Patch('admin/presenters/:id/retirer') removePresenter(@Param('id') id:string,@Body() body:RemovePresenterDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur peut retirer un intervenant.');return this.auth.removeManagedPresenter(id,body,req.user.sub);}
-  @UseGuards(JwtAuthGuard) @Post('admin/members') createManagedAccount(@Body() body:CreateManagedAccountDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur principal peut créer les comptes responsables.');return this.auth.createManagedAccount(body,req.user.sub);}
-  @UseGuards(JwtAuthGuard) @Patch('admin/members/:id') updateManagedAccount(@Param('id') id:string,@Body() body:UpdateManagedAccountDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur principal peut modifier les comptes responsables.');return this.auth.updateManagedAccount(id,body,req.user.sub);}
-  @UseGuards(JwtAuthGuard) @Patch('admin/members/:id/permissions') subAdminPermissions(@Param('id') id:string,@Body() body:SubAdminPermissionsDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seul l’administrateur principal peut attribuer ces autorisations.');return this.auth.setSubAdminPermissions(id,body.permissions,req.user.sub,body.reason,body);}
-  @UseGuards(JwtAuthGuard) @Patch('admin/members/:id/message-responder') setMessageResponder(@Param('id') id:string,@Body() body:MessageResponderDto,@Req() req:any){if(!['ADMIN','SUPER_ADMIN'].includes(req.user.role))throw new ForbiddenException('Seule l’administration peut désigner les répondants.');return this.auth.setMessageResponder(id,body.enabled,req.user.sub);}
+  @UseGuards(JwtAuthGuard) @Post('admin/members') createManagedAccount(@Body() body:CreateManagedAccountDto,@Req() req:any){this.requireAccountManager(req.user);this.requireDelegatedPermissions(req.user,body.permissions??[]);return this.auth.createManagedAccount(body,req.user.sub);}
+  @UseGuards(JwtAuthGuard) @Patch('admin/members/:id') updateManagedAccount(@Param('id') id:string,@Body() body:UpdateManagedAccountDto,@Req() req:any){this.requireAccountManager(req.user);if(body.permissions)this.requireDelegatedPermissions(req.user,body.permissions);return this.auth.updateManagedAccount(id,body,req.user.sub);}
+  @UseGuards(JwtAuthGuard) @Patch('admin/members/:id/permissions') subAdminPermissions(@Param('id') id:string,@Body() body:SubAdminPermissionsDto,@Req() req:any){this.requireAccountManager(req.user);this.requireDelegatedPermissions(req.user,body.permissions);return this.auth.setSubAdminPermissions(id,body.permissions,req.user.sub,body.reason,body,req.user.role,req.user.permissions??[]);}
+  @UseGuards(JwtAuthGuard) @Patch('admin/members/:id/message-responder') setMessageResponder(@Param('id') id:string,@Body() body:MessageResponderDto,@Req() req:any){this.requireAccountManager(req.user);return this.auth.setMessageResponder(id,body.enabled,req.user.sub);}
+  private requireAccountManager(user:any){if(!['ADMIN','SUPER_ADMIN'].includes(user.role)&&!(user.role==='EDITEUR'&&(user.permissions??[]).includes('GESTION_COMPTES')))throw new ForbiddenException('La gestion des comptes est réservée à l’administration et aux sous-administrateurs désignés.');}
+  private requireDelegatedPermissions(user:any,permissions:string[]){if(['ADMIN','SUPER_ADMIN'].includes(user.role))return;const allowed=new Set((user.permissions??[]).filter((permission:string)=>permission!=='GESTION_COMPTES'));if(permissions.some(permission=>!allowed.has(permission)))throw new ForbiddenException('Un sous-administrateur ne peut transmettre que les autorisations qui lui ont été confiées.');}
 }

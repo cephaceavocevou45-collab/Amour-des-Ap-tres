@@ -20,7 +20,7 @@ describe('parish messaging', () => {
   });
 
   it('does not expose the faithful directory to unassigned responders', async () => {
-    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ role: 'SECRETAIRE_PRESENCE', active: true, canRespondMessages: true }) } } as unknown as PrismaService;
+    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ role: 'SECRETAIRE_PRESENCE', active: true, canRespondMessages: false }) } } as unknown as PrismaService;
 
     await expect(new MessagingService(prisma).faithfulRecipients('member-1', 'SECRETAIRE_PRESENCE')).rejects.toMatchObject({ status: 403 });
   });
@@ -63,20 +63,28 @@ describe('parish messaging', () => {
 
   });
 
-  it('does not let a designated non-secretary bypass the responder role restriction', async () => {
-    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ role: 'SECRETAIRE_PRESENCE', active: true, canRespondMessages: true }) } } as unknown as PrismaService;
-    await expect(new MessagingService(prisma).faithfulRecipients('responder-1', 'SECRETAIRE_PRESENCE')).rejects.toMatchObject({ status: 403 });
+  it('allows any explicitly designated active account to access faithful recipients', async () => {
+    const faithful = [{ id: 'faithful-1', fullName: 'Marie Test', photoUrl: null, grade: null }];
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ role: 'FIDELE', active: true, canRespondMessages: true }),
+        findMany: jest.fn().mockResolvedValue(faithful)
+      }
+    } as unknown as PrismaService;
+    await expect(new MessagingService(prisma).faithfulRecipients('responder-1', 'FIDELE')).resolves.toEqual(faithful);
   });
 
-  it('lets administrators monitor conversations but not reply to a faithful', async () => {
+  it('lets administrators monitor and reply to conversations', async () => {
     const tx = { message: { create: jest.fn() }, conversation: { update: jest.fn() }, user: { findMany: jest.fn() }, notification: { createMany: jest.fn() } };
+    tx.user.findMany.mockResolvedValue([]);
     const prisma = {
       conversation: { findUnique: jest.fn().mockResolvedValue({ id: 'conversation-1', requesterId: 'faithful-1', assignedToId: 'secretary-1' }) },
       user: { findUnique: jest.fn().mockResolvedValue({ role: 'ADMIN', active: true, canRespondMessages: false }) },
       $transaction: jest.fn((work: (transaction: typeof tx) => unknown) => work(tx))
     } as unknown as PrismaService;
     await expect(new MessagingService(prisma).reply('admin-1', 'ADMIN', 'conversation-1', { message: 'Réponse administrative.' }))
-      .rejects.toMatchObject({ status: 403 });
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+      .resolves.toEqual({ sent: true });
+    expect(tx.message.create).toHaveBeenCalledWith({ data: { conversationId: 'conversation-1', senderId: 'admin-1', body: 'Réponse administrative.' } });
+    expect(prisma.$transaction).toHaveBeenCalled();
   });
 });

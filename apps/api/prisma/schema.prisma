@@ -183,6 +183,7 @@ model Conversation {
   requester User @relation("ConversationRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   assignedTo User? @relation("ConversationResponder", fields: [assignedToId], references: [id], onDelete: SetNull)
   messages Message[]
+  meetingRequest MeetingRequest?
   @@index([requesterId, updatedAt])
   @@index([assignedToId, updatedAt])
 }
@@ -233,8 +234,10 @@ model MeetingRequest {
   createdAt DateTime @default(now())
   requesterId String
   handledById String?
+  conversationId String? @unique
   requester User @relation(fields: [requesterId], references: [id], onDelete: Cascade)
   handledBy User? @relation("MeetingHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   @@index([status, preferredAt])
   @@index([requesterId, createdAt])
 }

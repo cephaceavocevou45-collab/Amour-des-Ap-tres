@@ -51,36 +51,49 @@ describe('security-sensitive authentication flows',()=>{
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain(result.temporaryPassword);
   });
 
-  it('only designates an active parish secretary to answer faithful messages',async()=>{
-    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'member-1',role:'SECRETAIRE_PRESENCE',active:true,canRespondMessages:false})},$transaction:jest.fn()} as unknown as PrismaService;
-    await expect(new AuthService(prisma).setMessageResponder('member-1',true,'admin-1')).rejects.toMatchObject({status:400});
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+  it('allows an active non-administrator to be designated as a message responder',async()=>{
+    const tx={user:{update:jest.fn()},auditLog:{create:jest.fn()},notification:{create:jest.fn()}};
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'member-1',role:'FIDELE',active:true,canRespondMessages:false})},$transaction:jest.fn((work:(transaction:typeof tx)=>unknown)=>work(tx))} as unknown as PrismaService;
+    await expect(new AuthService(prisma).setMessageResponder('member-1',true,'admin-1')).resolves.toEqual({id:'member-1',canRespondMessages:true});
+    expect(tx.user.update).toHaveBeenCalledWith({where:{id:'member-1'},data:{canRespondMessages:true}});
+    expect(tx.notification.create).toHaveBeenCalledWith({data:expect.objectContaining({userId:'member-1',href:'/messages'})});
   });
 
-  it('only grants delegated permissions to an active sub-administrator',async()=>{
-    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'member-1',role:'SECRETAIRE_PRESENCE',active:true,permissions:[]})},$transaction:jest.fn()} as unknown as PrismaService;
+  it('grants delegated permissions to any active non-administrator account',async()=>{
+    const tx={user:{update:jest.fn()},refreshToken:{updateMany:jest.fn()},auditLog:{create:jest.fn()}};
+    const prisma={user:{findUnique:jest.fn().mockResolvedValue({id:'member-1',role:'SECRETAIRE_PRESENCE',active:true,permissions:[]})},$transaction:jest.fn((work:(transaction:typeof tx)=>unknown)=>work(tx))} as unknown as PrismaService;
     const reauth={requireRecentProof:jest.fn().mockResolvedValue(undefined)} as any;
     await expect(new AuthService(prisma,undefined,reauth).setSubAdminPermissions('member-1',['ANNUAIRE_FIDELES'],'admin-1','Autorisation demandée par le chargé paroissial.',{}))
-      .rejects.toMatchObject({status:403});
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+      .resolves.toEqual({id:'member-1',role:'SECRETAIRE_PRESENCE',permissions:['ANNUAIRE_FIDELES']});
+    expect(tx.user.update).toHaveBeenCalledWith({where:{id:'member-1'},data:{permissions:['ANNUAIRE_FIDELES'],sessionVersion:{increment:1}}});
   });
 
-  it('does not honor legacy directory permissions on non-sub-admin roles',()=>{
+  it('honors directory permissions assigned to any active role',()=>{
     const controller=new AuthController({faithfulDirectory:jest.fn()} as any);
-    expect(()=>controller.faithfulDirectory({user:{role:'TRESORIER',permissions:['ANNUAIRE_FIDELES']}} as any)).toThrow();
+    expect(()=>controller.faithfulDirectory({user:{role:'TRESORIER',permissions:['ANNUAIRE_FIDELES']}} as any)).not.toThrow();
+    expect(()=>controller.faithfulDirectory({user:{role:'TRESORIER',permissions:[]}} as any)).toThrow();
     expect(()=>controller.faithfulDirectory({user:{role:'SECRETAIRE_PROGRAMME',permissions:[]}} as any)).not.toThrow();
   });
 
-  it('clears delegated permissions and responder status when an account changes role',async()=>{
+  it('limits sub-administrator grants to permissions delegated to that account',()=>{
+    const auth={updateManagedAccount:jest.fn()};
+    const controller=new AuthController(auth as any);
+    expect(()=>controller.updateManagedAccount('member-1',{permissions:['TRESORERIE']} as any,{user:{sub:'editor-1',role:'EDITEUR',permissions:['GESTION_COMPTES']}} as any)).toThrow();
+    expect(auth.updateManagedAccount).not.toHaveBeenCalled();
+    expect(()=>controller.updateManagedAccount('member-1',{permissions:['PROGRAMME_BIBLIQUE']} as any,{user:{sub:'editor-1',role:'EDITEUR',permissions:['GESTION_COMPTES','PROGRAMME_BIBLIQUE']}} as any)).not.toThrow();
+    expect(auth.updateManagedAccount).toHaveBeenCalled();
+  });
+
+  it('clears scoped permissions but preserves an explicit responder designation when an account changes role',async()=>{
     const tx={user:{update:jest.fn().mockResolvedValue({id:'member-1',role:'TRESORIER',active:true,permissions:[],assignedDayOfWeek:null})},refreshToken:{updateMany:jest.fn().mockResolvedValue({count:0})},auditLog:{create:jest.fn().mockResolvedValue({})}};
     const prisma={
-      user:{findUnique:jest.fn().mockResolvedValue({id:'member-1',role:'EDITEUR',active:true,permissions:['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],assignedDayOfWeek:null,sessionVersion:0,photoUrl:null,profileSetupRequired:false})},
+      user:{findUnique:jest.fn().mockResolvedValue({id:'member-1',role:'EDITEUR',active:true,permissions:['ANNUAIRE_FIDELES','PUBLICATION_ACTUALITES'],canRespondMessages:true,assignedDayOfWeek:null,sessionVersion:0,photoUrl:null,profileSetupRequired:false})},
       auditLog:{findFirst:jest.fn().mockResolvedValue(null)},
       $transaction:jest.fn((work:(transaction:typeof tx)=>unknown)=>work(tx))
     } as unknown as PrismaService;
     const reauth={requireRecentProof:jest.fn().mockResolvedValue(undefined)} as any;
     await new AuthService(prisma,undefined,reauth).updateManagedAccount('member-1',{role:'TRESORIER',active:true,reason:'Changement de responsabilité demandé par la paroisse.'} as any,'admin-1');
-    expect(tx.user.update).toHaveBeenCalledWith({where:{id:'member-1'},data:expect.objectContaining({role:'TRESORIER',permissions:[],canRespondMessages:false})});
+    expect(tx.user.update).toHaveBeenCalledWith({where:{id:'member-1'},data:expect.objectContaining({role:'TRESORIER',permissions:[],canRespondMessages:true})});
   });
 
   it('stores the photo from a one-time responsible profile token and audits completion',async()=>{

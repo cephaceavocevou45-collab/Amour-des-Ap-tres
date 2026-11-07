@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 import { RateLimitGuard } from './rate-limit.guard';
 import { PersonRoleName } from './generated/prisma';
@@ -27,6 +27,7 @@ export class PublicController {
     return { name:'Vénérable Suprême Évangéliste SEWADE KOUESSIVI Lucien', title:'Chargé paroissial', photoUrl:'leader-720.webp', welcome:'Bienvenue à la paroisse Amour des Apôtres, Sainte-Cécile. Que la paix du Seigneur soit avec vous.' };
   }
 
+  @Header('Cache-Control', 'no-store')
   @Get('team') async getTeam() {
     const people=await this.prisma.person.findMany({where:{active:true,roles:{some:{role:{in:[PersonRoleName.LEADER,PersonRoleName.MONITEUR_TABLE,PersonRoleName.RESUME_PRECEDENT,PersonRoleName.EXPLICATION_TEXTE,PersonRoleName.PRESENTATION_THEME]}}}},include:{roles:true},orderBy:{displayOrder:'asc'}});
     return people.map(person=>{
@@ -85,6 +86,6 @@ export class PublicController {
     });
   }
 
-  private requireAdmin(role:string,permissions:string[]=[]){if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!(role==='EDITEUR'&&permissions.includes('PUBLICATION_ACTUALITES')))throw new ForbiddenException('La publication est réservée à l’administration et aux sous-administrateurs désignés.');}
+  private requireAdmin(role:string,permissions:string[]=[]){if(!['ADMIN','SUPER_ADMIN'].includes(role)&&!permissions.includes('PUBLICATION_ACTUALITES'))throw new ForbiddenException('La publication est réservée à l’administration et aux personnes désignées.');}
   private requireFaithful(role:string){if(role!=='FIDELE')throw new ForbiddenException('Cette rubrique est réservée aux comptes fidèles.');}
 }

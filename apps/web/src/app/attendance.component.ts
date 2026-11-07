@@ -14,7 +14,7 @@ type SheetOption={id:string;type:'COURS_BIBLIQUE'|'GROUPE_SEMAINE';date?:string;
 @Component({selector:'app-attendance',standalone:true,imports:[FormsModule,RouterLink,ParishFooterComponent],template:`
 <main class="attendance-page">
   <header class="attendance-top">
-    @if(isAdmin){<a routerLink="/admin" class="back-home">← <span>Administration</span></a>}@else{<a [routerLink]="isParishSecretary?'/programmes-responsable':'/fideles'" class="back-home">← <span>Mon espace</span></a>}
+    @if(isAdmin){<a routerLink="/admin" class="back-home">← <span>Administration</span></a>}@else{<a [routerLink]="homeLink()" class="back-home">← <span>Mon espace</span></a>}
     <a [routerLink]="isAdmin?'/admin':'/presence'" class="attendance-brand"><img src="ecc-emblem.webp" alt=""><span>AMOUR DES APÔTRES<small>ESPACE DE PRÉSENCE</small></span></a>
     <div class="attendance-actions"><span class="connection" [class.offline]="!online()"><i></i>{{online()?'En ligne':'Hors ligne'}}</span>@if(isSignedIn){<a class="logout-button" routerLink="/profil">Mon profil</a>}@if(isAdmin||sessionRole()==='SECRETAIRE_PRESENCE'){<a class="logout-button" routerLink="/registre-fideles">Registre des fidèles</a>}@if(isSignedIn){<button class="logout-button" type="button" (click)="logoutAllDevices()">Déconnecter tous les appareils</button><button class="logout-button" type="button" (click)="logout()">Se déconnecter</button>}</div>
   </header>
@@ -34,7 +34,7 @@ type SheetOption={id:string;type:'COURS_BIBLIQUE'|'GROUPE_SEMAINE';date?:string;
             <button class="sheet-choice" type="button" (click)="select(s)">
               <span class="choice-icon">{{s.type==='COURS_BIBLIQUE'?'✧':'⌂'}}</span>
               <span class="choice-copy"><strong>{{s.type==='COURS_BIBLIQUE'?'Cours biblique':'Groupe de semaine'}}</strong><small>{{s.type==='COURS_BIBLIQUE'?'Lundi · 19h30 — 21h30 · Fidèles':'Temple & Salle de vision · 10h — 18h'}}</small></span>
-              @if(isAdmin||isParishSecretary){<span class="sheet-total"><strong>{{s.totals?.total??0}}</strong><small>présent{{(s.totals?.total??0)===1?'':'s'}}</small></span>}
+              @if(isAdmin||isParishSecretary||isCourseWorker){<span class="sheet-total"><strong>{{s.totals?.total??0}}</strong><small>présent{{(s.totals?.total??0)===1?'':'s'}}</small></span>}
               <span class="choice-arrow">Ouvrir <b>→</b></span>
             </button>
           }
@@ -50,7 +50,7 @@ type SheetOption={id:string;type:'COURS_BIBLIQUE'|'GROUPE_SEMAINE';date?:string;
           <button class="back-sheet" type="button" (click)="selected.set(null)">← Toutes les feuilles</button>
           <span class="sheet-date">{{isAdmin?'CONSULTATION ADMINISTRATEUR':'ÉTAPE 02'}} · {{sheet.type==='COURS_BIBLIQUE'?'COURS DU LUNDI':'RASSEMBLEMENT DU JOUR'}}</span>
           <h2>{{sheet.type==='COURS_BIBLIQUE'?'Cours biblique':'Groupe de semaine'}}</h2>
-          <p>{{sheet.type==='COURS_BIBLIQUE'?'Étude biblique · 19h30 — 21h30':'Présences du jour · 10h — 18h'}} <span>·</span> {{sheet.date?dayLabel(sheet.date):today}} <span>·</span> {{sheetStateLabel(sheet)}}</p>@if(sheet.type==='COURS_BIBLIQUE'&&sessionRole()==='SECRETAIRE_PRESENCE'){<a class="course-program-link" routerLink="/programme-biblique">Programme du cours : résumé, texte biblique et thème →</a>}
+          <p>{{sheet.type==='COURS_BIBLIQUE'?'Étude biblique · 19h30 — 21h30':'Présences du jour · 10h — 18h'}} <span>·</span> {{sheet.date?dayLabel(sheet.date):today}} <span>·</span> {{sheetStateLabel(sheet)}}</p>@if(sheet.type==='COURS_BIBLIQUE'&&isCourseWorker){<a class="course-program-link" routerLink="/programme-biblique">Programme du cours : résumé, texte biblique et thème →</a>}
         </div>
         @if(isAdmin){@for(dailyReport of sheet.dailyReports??[];track dailyReport.president.email){<section class="daily-report admin-report"><div class="workflow-heading"><span class="step-number">17 h</span><div><h2>Rapport du président</h2><p>{{dailyReport.president.fullName||dailyReport.president.email}} · rapport transmis</p></div></div><h3>Déroulement</h3><p>{{dailyReport.summary}}</p><h3>Difficultés</h3><p>{{dailyReport.difficulties}}</p><h3>Suites à donner</h3><p>{{dailyReport.followUp}}</p></section>}}
 
@@ -91,6 +91,8 @@ export class AttendanceComponent {
   readonly isAdmin=['ADMIN','SUPER_ADMIN'].includes(sessionStorage.getItem('paroisse_role')??'');
   readonly isWeekPresident=sessionStorage.getItem('paroisse_role')==='RESPONSABLE_SEMAINE';
   readonly isParishSecretary=sessionStorage.getItem('paroisse_role')==='SECRETAIRE_PROGRAMME';
+  readonly permissions=this.readPermissions();
+  readonly isCourseWorker=sessionStorage.getItem('paroisse_role')==='SECRETAIRE_PRESENCE'||this.permissions.includes('PROGRAMME_BIBLIQUE');
   readonly isSignedIn=!!sessionStorage.getItem('paroisse_role');
   private dateKey=(()=>{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Porto-Novo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());return `${parts.find(p=>p.type==='year')!.value}-${parts.find(p=>p.type==='month')!.value}-${parts.find(p=>p.type==='day')!.value}`;})();
   weekStart=signal(this.mondayOf(this.dateKey));weekDays=signal<SheetOption[]>([]);
@@ -116,9 +118,11 @@ export class AttendanceComponent {
   canSubmitReport(){return this.reportForm.summary.trim().length>=10&&!!this.reportForm.difficulties.trim()&&!!this.reportForm.followUp.trim();}
   async loadDailyReport(){this.reportLoading.set(true);this.reportMessage.set('');try{const result=await firstValueFrom(this.http.get<DailyReport|null>(environment.apiUrl+'/attendance/daily-report/today',{headers:this.authHeaders()}));this.report.set(result);this.reportForm={summary:result?.summary??'',difficulties:result?.difficulties??'',followUp:result?.followUp??''};}catch(error:any){this.reportError.set(true);this.reportMessage.set(error?.error?.message??'Impossible de charger le rapport du jour.');}finally{this.reportLoading.set(false);}}
   async saveDailyReport(){if(!this.reportWindowOpen()||!this.canSubmitReport())return;this.reportSaving.set(true);this.reportMessage.set('');this.reportError.set(false);try{const result=await firstValueFrom(this.http.post<DailyReport>(environment.apiUrl+'/attendance/daily-report',this.reportForm,{headers:this.authHeaders()}));this.report.set(result);this.reportForm={summary:result.summary,difficulties:result.difficulties,followUp:result.followUp};this.reportMessage.set('Rapport transmis au chargé paroissial et à l’administration.');}catch(error:any){this.reportError.set(true);this.reportMessage.set(error?.error?.message??'Le rapport n’a pas pu être transmis. Vérifiez la connexion.');}finally{this.reportSaving.set(false);}}
-  isEditable(sheet:SheetOption){if(this.isAdmin||sheet.date!==this.dateKey)return false;const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Porto-Novo',hour:'2-digit',minute:'2-digit',weekday:'short',hourCycle:'h23'}).formatToParts(new Date());const minutes=Number(parts.find(p=>p.type==='hour')!.value)*60+Number(parts.find(p=>p.type==='minute')!.value);return sheet.type==='COURS_BIBLIQUE'?this.sessionRole()==='SECRETAIRE_PRESENCE'&&parts.find(p=>p.type==='weekday')!.value==='Mon'&&minutes>=1170&&minutes<1290:this.sessionRole()==='RESPONSABLE_SEMAINE'&&minutes>=600&&minutes<1080;}
+  isEditable(sheet:SheetOption){if(this.isAdmin||sheet.date!==this.dateKey)return false;const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Porto-Novo',hour:'2-digit',minute:'2-digit',weekday:'short',hourCycle:'h23'}).formatToParts(new Date());const minutes=Number(parts.find(p=>p.type==='hour')!.value)*60+Number(parts.find(p=>p.type==='minute')!.value);return sheet.type==='COURS_BIBLIQUE'?this.isCourseWorker&&parts.find(p=>p.type==='weekday')!.value==='Mon'&&minutes>=1170&&minutes<1290:this.sessionRole()==='RESPONSABLE_SEMAINE'&&minutes>=600&&minutes<1080;}
   sheetStateLabel(sheet:SheetOption){if(sheet.type==='GROUPE_SEMAINE'&&this.isWeekPresident)return this.isEditable(sheet)?sheet.status==='ENREGISTREE'?'Liste enregistrée · encore modifiable jusqu’à 18 h':'Ouverte · modifications possibles jusqu’à 18 h':'Fenêtre fermée à 18 h';return sheet.status==='ENREGISTREE'?'Feuille validée':'Feuille ouverte';}
   sessionRole(){return sessionStorage.getItem('paroisse_role')??'';}
+  homeLink(){const role=this.sessionRole();return this.isAdmin?'/admin':role==='FIDELE'?'/fideles':role==='SECRETAIRE_PROGRAMME'?'/programmes-responsable':role==='TRESORIER'?'/tresorerie':'/presence'}
+  private readPermissions(){try{const value:unknown=JSON.parse(sessionStorage.getItem('paroisse_permissions')??'[]');return Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[]}catch{return []}}
   logout(){void firstValueFrom(this.http.post(environment.apiUrl+'/auth/logout',{})).catch(()=>undefined).finally(()=>{sessionStorage.clear();void this.db('readwrite',store=>store.clear());void this.router.navigate([this.isAdmin?'/admin/connexion':'/connexion']);});}
   async logoutAllDevices(){if(!confirm('Déconnecter toutes les sessions de ce compte, y compris cet appareil ?'))return;try{await firstValueFrom(this.http.post(environment.apiUrl+'/auth/account/sessions/revoke-all',{}));}catch{}finally{sessionStorage.clear();await this.db('readwrite',store=>store.clear());void this.router.navigate([this.isAdmin?'/admin/connexion':'/connexion']);}}
   allowedZones(){if(this.selected()?.type==='COURS_BIBLIQUE')return [{id:'FIDELES' as const,label:'Fidèles'}];const role=sessionStorage.getItem('paroisse_role');if(role==='SECRETAIRE_PRESENCE')return [{id:'TEMPLE' as const,label:'Temple'}];return [{id:'TEMPLE' as const,label:'Temple'},{id:'SALLE_VISION' as const,label:'Salle de vision · Woli'}];}

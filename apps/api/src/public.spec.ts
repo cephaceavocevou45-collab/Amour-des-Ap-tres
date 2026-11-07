@@ -13,4 +13,21 @@ describe('PublicController', () => {
     });
     expect(controller.leader().welcome).toContain('paroisse Amour des Apôtres');
   });
+
+  it('publishes active point 06 presenters created by the administrator', async () => {
+    prisma.person.findMany.mockResolvedValueOnce([{
+      id: 'presenter-1',
+      firstName: 'Jean',
+      lastName: 'SEWADE',
+      grade: 'Évangéliste',
+      roles: [{ role: 'PRESENTATION_THEME' }],
+    }]);
+
+    await expect(controller.getTeam()).resolves.toEqual([{
+      id: 'presenter-1',
+      name: 'SEWADE Jean',
+      grade: 'Évangéliste',
+      roles: ['PRESENTATION_THEME'],
+    }]);
+  });
 });

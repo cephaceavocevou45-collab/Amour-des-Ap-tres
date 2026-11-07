@@ -35,8 +35,8 @@ class TreasuryDto {
 
 const isoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
 const startOfDate = (value: string) => new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-const staffOrAdmin = (role: string) => ['SECRETAIRE_PROGRAMME', 'ADMIN', 'SUPER_ADMIN'].includes(role);
-const treasuryOrAdmin = (role: string) => ['TRESORIER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+const staffOrAdmin = (user: { role: string; permissions?: string[] }) => ['SECRETAIRE_PROGRAMME', 'ADMIN', 'SUPER_ADMIN'].includes(user.role) || !!user.permissions?.includes('PROGRAMMES_PAROISSIAUX');
+const treasuryOrAdmin = (user: { role: string; permissions?: string[] }) => ['TRESORIER', 'ADMIN', 'SUPER_ADMIN'].includes(user.role) || !!user.permissions?.includes('TRESORERIE');
 const sevenDaysAfter = (date: Date) => new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
 const summarize = (program: any) => {
   if (program.templateType !== 'WEEKLY') {
@@ -92,13 +92,17 @@ export class ParishProgramController {
   }
 
   @Get() async list(@Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
-    const where = req.user.role === 'SECRETAIRE_PROGRAMME' ? { authorId: req.user.sub } : {};
+    if (!staffOrAdmin(req.user)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse, aux personnes désignées et à l’administration.');
+    const where = ['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)
+      ? {}
+      : req.user.role === 'SECRETAIRE_PROGRAMME' && !req.user.permissions?.includes('PROGRAMMES_PAROISSIAUX')
+        ? { authorId: req.user.sub }
+        : { authorId: req.user.sub };
     return this.prisma.weekProgram.findMany({ where, orderBy: [{ weekStart: 'desc' }, { updatedAt: 'desc' }], take: 100, include: { author: { select: { id: true, fullName: true, email: true } }, entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
   }
 
   @Post() async create(@Body() body: ProgramDto, @Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
+    if (!staffOrAdmin(req.user)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse, aux personnes désignées et à l’administration.');
     this.validateProgram(body);
     const templateData = this.parseTemplateData(body);
     const program = await this.prisma.weekProgram.create({ data: { title: body.title.trim(), weekStart: startOfDate(body.weekStart), weekEnd: startOfDate(body.weekEnd), theme: body.theme?.trim() || null, templateType: body.templateType, templateData: templateData as any, authorId: req.user.sub, entries: { create: body.entries.map((entry, displayOrder) => this.entryData(entry, displayOrder)) } }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
@@ -107,10 +111,10 @@ export class ParishProgramController {
   }
 
   @Patch(':id') async update(@Param('id') id: string, @Body() body: ProgramDto, @Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
+    if (!staffOrAdmin(req.user)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse, aux personnes désignées et à l’administration.');
     this.validateProgram(body);
     const current = await this.prisma.weekProgram.findUnique({ where: { id }, include: { entries: true } });
-    if (!current || (req.user.role === 'SECRETAIRE_PROGRAMME' && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
+    if (!current || (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role) && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
     if (current.status === 'ARCHIVE') throw new HttpException('Ce programme est archivé et ne peut plus être modifié.', 409);
     if (current.status === 'PUBLIE' && (!current.publishedAt || new Date() > sevenDaysAfter(current.publishedAt))) throw new HttpException('La période de modification de sept jours est terminée.', 403);
     const updated = await this.prisma.$transaction(async tx => {
@@ -125,9 +129,9 @@ export class ParishProgramController {
   }
 
   @Post(':id/publish') async publish(@Param('id') id: string, @Req() req: any) {
-    if (!staffOrAdmin(req.user.role)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse et à l’administration.');
+    if (!staffOrAdmin(req.user)) throw new ForbiddenException('Accès réservé au secrétariat de la paroisse, aux personnes désignées et à l’administration.');
     const current = await this.prisma.weekProgram.findUnique({ where: { id }, include: { entries: { orderBy: [{ date: 'asc' }, { displayOrder: 'asc' }] } } });
-    if (!current || (req.user.role === 'SECRETAIRE_PROGRAMME' && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
+    if (!current || (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role) && current.authorId !== req.user.sub)) throw new NotFoundException('Programme introuvable.');
     if (current.status !== 'BROUILLON') throw new HttpException('Seul un brouillon peut être publié.', 409);
     if (!current.entries.length) throw new BadRequestException('Ajoutez au moins une activité avant la publication.');
     const published = await this.prisma.$transaction(async tx => {
@@ -165,14 +169,14 @@ export class TreasuryController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get() async list(@Req() req: any) {
-    if (!treasuryOrAdmin(req.user.role)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier et à l’administration.');
+    if (!treasuryOrAdmin(req.user)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier, aux personnes désignées et à l’administration.');
     const entries = await this.prisma.treasuryEntry.findMany({ orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }], take: 500, include: { author: { select: { id: true, fullName: true, email: true } } } });
     const total = entries.reduce((sum, entry) => sum + (entry.kind === 'RECETTE' ? entry.amountXof : -entry.amountXof), 0);
     return { entries, totalXof: total };
   }
 
   @Post() async create(@Body() body: TreasuryDto, @Req() req: any) {
-    if (!treasuryOrAdmin(req.user.role)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier et à l’administration.');
+    if (!treasuryOrAdmin(req.user)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier, aux personnes désignées et à l’administration.');
     if (!isoDate(body.occurredAt)) throw new BadRequestException('La date n’est pas valide.');
     const entry = await this.prisma.treasuryEntry.create({ data: { kind: body.kind as any, amountXof: body.amountXof, occurredAt: startOfDate(body.occurredAt), category: body.category.trim(), description: body.description.trim(), reference: body.reference?.trim() || null, receiptUrl: body.receiptUrl?.trim() || null, authorId: req.user.sub }, include: { author: { select: { id: true, fullName: true, email: true } } } });
     await this.prisma.auditLog.create({ data: { userId: req.user.sub, action: 'TRESORERIE_ECRITURE_CREEE', entity: 'TreasuryEntry', entityId: entry.id, after: { kind: entry.kind, amountXof: entry.amountXof, occurredAt: entry.occurredAt.toISOString().slice(0,10), category: entry.category, description: entry.description, reference: entry.reference, receiptUrl: entry.receiptUrl }, ip: req.ip ?? 'unknown' } });
@@ -180,7 +184,7 @@ export class TreasuryController {
   }
 
   @Patch(':id') async update(@Param('id') id: string, @Body() body: TreasuryDto, @Req() req: any) {
-    if (!treasuryOrAdmin(req.user.role)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier et à l’administration.');
+    if (!treasuryOrAdmin(req.user)) throw new ForbiddenException('Les écritures financières sont réservées au trésorier, aux personnes désignées et à l’administration.');
     if (!isoDate(body.occurredAt)) throw new BadRequestException('La date n’est pas valide.');
     const current = await this.prisma.treasuryEntry.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Écriture introuvable.');

@@ -14,27 +14,27 @@ export class MessagingService {
     const conversation=await this.prisma.conversation.findUnique({where:{id:conversationId},select:{id:true,requesterId:true,assignedToId:true}});
     if(!conversation)throw new NotFoundException('Conversation introuvable.');
     const user=await this.prisma.user.findUnique({where:{id:userId},select:{role:true,active:true,canRespondMessages:true}});
-    const designatedResponder=user?.role==='SECRETAIRE_PROGRAMME'&&user.active&&user.canRespondMessages;
+    const designatedResponder=user?.active&&user.canRespondMessages;
     if(conversation.requesterId!==userId&&!(conversation.assignedToId===userId&&designatedResponder)&&!['ADMIN','SUPER_ADMIN'].includes(role))throw new ForbiddenException('Cette conversation ne vous est pas destinée.');
     return conversation;
   }
   async list(userId:string,role:string){
     const responder=await this.prisma.user.findUnique({where:{id:userId},select:{role:true,active:true,canRespondMessages:true}});
-    const canRespond=responder?.role==='SECRETAIRE_PROGRAMME'&&responder.active&&responder.canRespondMessages;
+    const canRespond=responder?.active&&responder.canRespondMessages;
     const where=['ADMIN','SUPER_ADMIN'].includes(role)?{}:canRespond?{assignedToId:userId}:{requesterId:userId};
     return this.prisma.conversation.findMany({where,orderBy:{updatedAt:'desc'},take:100,include:{requester:{select:{id:true,fullName:true,role:true,photoUrl:true}},assignedTo:{select:{id:true,fullName:true,photoUrl:true}},messages:{orderBy:{createdAt:'asc'},take:100,include:{sender:{select:{id:true,fullName:true,role:true,photoUrl:true}}}}}});
   }
   async faithfulRecipients(userId:string,role:string){
     const user=await this.prisma.user.findUnique({where:{id:userId},select:{role:true,active:true,canRespondMessages:true}});
-    if(role!=='SECRETAIRE_PROGRAMME'||!user?.active||!user.canRespondMessages)throw new ForbiddenException('Seuls les secrétaires paroissiaux actifs désignés peuvent contacter les fidèles.');
+    if(!['ADMIN','SUPER_ADMIN'].includes(role)&&(!user?.active||!user.canRespondMessages))throw new ForbiddenException('Seuls l’administration et les répondants actifs désignés peuvent contacter les fidèles.');
     return this.prisma.user.findMany({where:{role:'FIDELE',active:true},select:{id:true,fullName:true,photoUrl:true,grade:true},orderBy:[{fullName:'asc'}]});
   }
   async open(userId:string,dto:OpenConversationDto){
     const subject=dto.subject.trim(),message=dto.message.trim();
     if(subject.length<3||message.length<2)throw new BadRequestException('Indiquez un objet et un message avant l’envoi.');
-    const responders=await this.prisma.user.findMany({where:{active:true,role:'SECRETAIRE_PROGRAMME',canRespondMessages:true},select:{id:true},orderBy:{createdAt:'asc'}});
+    const responders=await this.prisma.user.findMany({where:{active:true,canRespondMessages:true},select:{id:true},orderBy:{createdAt:'asc'}});
     const administrators=await this.prisma.user.findMany({where:{active:true,role:{in:['ADMIN','SUPER_ADMIN']}},select:{id:true},orderBy:{createdAt:'asc'}});
-    const assignedToId=responders[0]?.id;
+    const assignedToId=responders[0]?.id??administrators[0]?.id;
     if(!assignedToId)throw new BadRequestException('Aucune personne n’est disponible pour recevoir les messages.');
     const conv=await this.prisma.$transaction(async tx=>{
       const created=await tx.conversation.create({data:{subject,requesterId:userId,assignedToId,messages:{create:{body:message,senderId:userId}}}});
@@ -46,7 +46,7 @@ export class MessagingService {
   }
   async openForFaithful(userId:string,role:string,faithfulId:string,dto:OpenConversationDto){
     const user=await this.prisma.user.findUnique({where:{id:userId},select:{role:true,active:true,canRespondMessages:true}});
-    if(role!=='SECRETAIRE_PROGRAMME'||!user?.active||!user.canRespondMessages)throw new ForbiddenException('Seuls les secrétaires paroissiaux actifs désignés peuvent contacter les fidèles.');
+    if(!['ADMIN','SUPER_ADMIN'].includes(role)&&(!user?.active||!user.canRespondMessages))throw new ForbiddenException('Seuls l’administration et les répondants actifs désignés peuvent contacter les fidèles.');
     const faithful=await this.prisma.user.findUnique({where:{id:faithfulId},select:{id:true,role:true,active:true}});
     if(!faithful||faithful.role!=='FIDELE'||!faithful.active)throw new NotFoundException('Ce compte fidèle est introuvable ou inactif.');
     const subject=dto.subject.trim(),message=dto.message.trim();
@@ -61,7 +61,6 @@ export class MessagingService {
   async reply(userId:string,role:string,id:string,dto:ReplyDto){
     const conversation=await this.access(userId,role,id),content=dto.message.trim();
     if(!content)throw new BadRequestException('Le message ne peut pas être vide.');
-    if(conversation.requesterId!==userId&&['ADMIN','SUPER_ADMIN'].includes(role))throw new ForbiddenException('Seul le secrétaire paroissial désigné peut répondre au fidèle.');
     if(conversation.requesterId!==userId&&!conversation.assignedToId){throw new ForbiddenException('Aucun répondant n’est affecté.');}
     await this.prisma.$transaction(async tx=>{
       await tx.message.create({data:{conversationId:id,senderId:userId,body:content}});
