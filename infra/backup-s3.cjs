@@ -18,7 +18,7 @@ function config() {
   const retention = Number(process.env.BACKUP_RETENTION_DAYS ?? 35);
   if (!Number.isInteger(retention) || retention < 1 || retention > 3650) throw new Error('La rétention doit être comprise entre 1 et 3650 jours.');
   const database = new URL(process.env.BACKUP_DATABASE_URL);
-  const s3 = new S3Client({ endpoint: endpoint.toString(), region: process.env.S3_REGION, forcePathStyle: true, credentials: { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY } });
+  const s3 = new S3Client({ endpoint: endpoint.toString(), region: process.env.S3_REGION, forcePathStyle: false, credentials: { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY } });
   return { database, s3, retention };
 }
 

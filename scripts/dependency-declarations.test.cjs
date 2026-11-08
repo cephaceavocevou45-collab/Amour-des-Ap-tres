@@ -123,6 +123,7 @@ test('S3 SDK is isolated to backup runtime and tooling; it is absent from the AP
   assert.equal(rootPackage.devDependencies['@aws-sdk/client-s3'], '3.1147.0');
   assert.equal(backupPackage.dependencies['@aws-sdk/client-s3'], '3.1147.0');
   assert.equal(backupLock.packages[''].dependencies['@aws-sdk/client-s3'], '3.1147.0');
+  assert.equal(backupLock.packages['node_modules/@aws-sdk/client-s3'].dev, undefined);
   assert.equal(apiPackage.dependencies['@aws-sdk/client-s3'], undefined);
   assert.match(dockerfile, /infra\/backup-runtime\/package\.json infra\/backup-runtime\/package-lock\.json/);
   assert.match(dockerfile, /npm ci --omit=dev --omit=optional/);
