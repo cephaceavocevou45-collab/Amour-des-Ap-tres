@@ -19,6 +19,14 @@ test('S3 backup requires remote HTTPS storage and never returns credentials in d
   });
 });
 
+test('S3 client uses virtual-host addressing for Railway buckets', async () => {
+  await withEnvironment({BACKUP_DATABASE_URL:'postgres://user:pass@db.example.invalid:5432/paroisse',BACKUP_KEY_HEX:'a'.repeat(64),S3_ENDPOINT:'https://t3.storageapi.dev',S3_REGION:'auto',S3_BUCKET:'paroisse-backups-em4kxi66',S3_ACCESS_KEY:'access-private',S3_SECRET_KEY:'secret-private'}, async () => {
+    const { s3 } = config();
+    try { assert.equal(s3.config.forcePathStyle, false); }
+    finally { s3.destroy(); }
+  });
+});
+
 test('backup password is passed to libpq environment, never included in PostgreSQL argument strings', () => {
   const database = new URL('postgresql://safe-user:p%40ssword@db.example.invalid:5432/paroisse?sslmode=require');
   const env = withEnvironment({},()=>pgEnvironment(database));
