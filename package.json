@@ -7,7 +7,7 @@
   ],
   "devDependencies": {
     "@aws-sdk/client-s3": "3.1147.0",
-    "@angular/service-worker": "20.3.34",
+    "@angular/service-worker": "20.3.35",
     "@playwright/test": "^1.63.0",
     "dotenv": "16.6.1",
     "playwright": "1.63.0"
